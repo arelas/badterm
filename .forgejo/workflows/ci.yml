@@ -51,8 +51,21 @@ jobs:
 
       # lrzsz's sz/rz are what most Unix BBSes run; the interop tests in
       # crates/phosphor-core/tests/lrzsz.rs transfer files against them.
+      # Three runner instances share one VM, so another job (or unattended-upgrades)
+      # can hold apt's lock: on 2026-10-29 the v0.1.1 tag run failed with "Could not
+      # get lock /var/lib/apt/lists/lock" while the main run was installing lrzsz.
+      # Wait for the lock and retry, and stop as soon as sz exists either way.
       - name: Install lrzsz
-        run: command -v sz >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq lrzsz; }
+        run: |
+          command -v sz >/dev/null && exit 0
+          for i in $(seq 1 30); do
+            sudo apt-get -o DPkg::Lock::Timeout=60 update -qq \
+              && sudo apt-get -o DPkg::Lock::Timeout=60 install -y -qq lrzsz && exit 0
+            command -v sz >/dev/null && exit 0
+            echo "apt busy (attempt $i/30), retrying in 10s"
+            sleep 10
+          done
+          exit 1
 
       - uses: https://git.badcluster.dev/actions/checkout@v7
 
