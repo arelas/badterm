@@ -20,15 +20,16 @@ use winit::event_loop::EventLoop;
 const USAGE: &str = "\
 Usage: phosphor [OPTIONS] [ADDRESS]
 
-Connect to ADDRESS (host, host:port, telnet://host:port or raw://host:port),
-or open the dialing directory if no address is given.
+Connect to ADDRESS (host, host:port, telnet://host:port, raw://host:port or
+ssh://user@host:port), or open the dialing directory if no address is given.
 
 Options:
   --import FILE   Add the entries in FILE to the dialing directory and exit
                   (SyncTERM .lst, .csv, .json or .toml)
   --export FILE   Write the dialing directory to FILE and exit; the format
                   follows the extension (.lst, .csv, .json or .toml)
-  --paths         Print where the directory and captures are stored and exit
+  --paths         Print where the directory, captures and downloads are
+                  stored and exit
   -h, --help      Show this help
   -V, --version   Show the version";
 
@@ -76,6 +77,8 @@ fn main() -> ExitCode {
         Command::Paths => {
             println!("Dialing directory: {}", paths.directory.display());
             println!("Captures:          {}", paths.captures.display());
+            println!("Downloads:         {}", paths.downloads.display());
+            println!("SSH known hosts:   {}", paths.known_hosts.display());
             Ok(())
         }
         Command::Import(file) => app::import_into_directory(&paths, &file).map(|(added, total)| {

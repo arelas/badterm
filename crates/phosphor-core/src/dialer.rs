@@ -44,7 +44,7 @@ impl Protocol {
 
     /// Whether this build can actually connect with the protocol.
     pub fn supported(self) -> bool {
-        matches!(self, Protocol::Telnet | Protocol::Raw)
+        matches!(self, Protocol::Telnet | Protocol::Raw | Protocol::Ssh)
     }
 
     fn from_name(s: &str) -> Option<Protocol> {
@@ -103,7 +103,8 @@ impl Default for Entry {
 }
 
 impl Entry {
-    /// Parse `telnet://host:port`, `host:port` or `host` into an entry.
+    /// Parse `telnet://host:port`, `ssh://user@host`, `host:port` or `host`
+    /// into an entry.
     pub fn from_address(addr: &str) -> Option<Entry> {
         let addr = addr.trim();
         let (protocol, rest) = match addr.split_once("://") {
@@ -111,9 +112,13 @@ impl Entry {
             None => (Protocol::Telnet, addr),
         };
         let rest = rest.trim_end_matches('/');
+        let (username, rest) = match rest.rsplit_once('@') {
+            Some((user, host)) => (user.to_string(), host),
+            None => (String::new(), rest),
+        };
         let (host, port) = split_host_port(rest)?;
         let port = port.unwrap_or(protocol.default_port());
-        Some(Entry { name: host.clone(), host, port, protocol, added: Some(now()), ..Entry::default() })
+        Some(Entry { name: host.clone(), host, port, protocol, username, added: Some(now()), ..Entry::default() })
     }
 
     pub fn address(&self) -> String {
@@ -465,6 +470,8 @@ mod tests {
         assert_eq!(e.host, "::1");
         let e = Entry::from_address("ssh://bbs.example.com").unwrap();
         assert_eq!((e.protocol, e.port), (Protocol::Ssh, 22));
+        let e = Entry::from_address("ssh://guest@bbs.example.com:2222").unwrap();
+        assert_eq!((e.username.as_str(), e.host.as_str(), e.port), ("guest", "bbs.example.com", 2222));
         assert!(Entry::from_address("host:notaport").is_none());
     }
 

@@ -1,5 +1,6 @@
 //! The windowed application: event loop handling, mode switching between the
-//! dialer and a live session, hotkeys, scrollback viewing and presentation.
+//! dialer and a live session, hotkeys, scrollback viewing, file transfers and
+//! presentation.
 
 use std::num::NonZeroU32;
 use std::path::PathBuf;
@@ -9,7 +10,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context as _, Result};
 use phosphor_core::dialer::{self, Directory, Entry};
 use phosphor_core::screen::{Cell, Screen};
-use phosphor_core::session::{self, NetEvent, Session, State};
+use phosphor_core::session::{NetEvent, Session, SessionConfig, SessionEvent, State};
+use phosphor_core::transfer::{Direction, Outcome};
 use phosphor_core::{Encoding, TermEvent, cp437};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -21,6 +23,7 @@ use winit::window::{Fullscreen, UserAttentionType, Window, WindowId};
 use crate::input::{self, Key, Mods};
 use crate::render::{Font, Frame, Renderer};
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
+use crate::ui::transfer::{self as transfer_ui, UploadPrompt};
 use crate::ui::{self, format_date};
 
 const COLS: usize = 80;
@@ -41,6 +44,10 @@ pub enum UserEvent {
 pub struct Paths {
     pub directory: PathBuf,
     pub captures: PathBuf,
+    /// Pinned SSH host keys.
+    pub known_hosts: PathBuf,
+    /// Where ZMODEM downloads are saved.
+    pub downloads: PathBuf,
     /// Default location offered for import/export.
     pub files: PathBuf,
 }
@@ -55,7 +62,13 @@ impl Paths {
         let files = directories::UserDirs::new()
             .map(|u| u.download_dir().unwrap_or(u.home_dir()).to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
-        Paths { directory: config.join("dialer.toml"), captures: data.join("captures"), files }
+        Paths {
+            directory: config.join("dialer.toml"),
+            captures: data.join("captures"),
+            known_hosts: config.join("known_hosts"),
+            downloads: files.join("Phosphor"),
+            files,
+        }
     }
 }
 
@@ -91,6 +104,11 @@ pub struct App {
     dialer: DialerUi,
     dialer_screen: Screen,
     status: Screen,
+    /// The terminal with a dialog drawn over it.
+    overlay: Screen,
+    upload_prompt: Option<UploadPrompt>,
+    /// Direction of the transfer in progress, for reporting its outcome.
+    transfer_direction: Option<Direction>,
     session: Option<Session>,
     session_id: u64,
     /// Directory index of the entry the session was dialed from.
@@ -121,6 +139,9 @@ impl App {
             dialer,
             dialer_screen: Screen::new(dialer_ui::COLS, dialer_ui::ROWS, 0),
             status: Screen::new(COLS, 1, 0),
+            overlay: Screen::new(COLS, ROWS, 0),
+            upload_prompt: None,
+            transfer_direction: None,
             session: None,
             session_id: 0,
             session_index: None,
@@ -169,14 +190,19 @@ impl App {
     }
 
     fn connect(&mut self, entry: Entry, index: Option<usize>) {
-        let session = match Session::new(entry, COLS, ROWS, SCROLLBACK_LINES) {
+        let config = SessionConfig {
+            scrollback: SCROLLBACK_LINES,
+            known_hosts: self.paths.known_hosts.clone(),
+            download_dir: self.paths.downloads.clone(),
+        };
+        let session = match Session::new(entry, COLS, ROWS, config) {
             Ok(s) => s,
             Err(e) => return self.dialer.show_message(format!("{e:#}")),
         };
         self.session_id += 1;
         let id = self.session_id;
         let proxy = self.proxy.clone();
-        session::spawn_connection(session.entry.host.clone(), session.entry.port, move |ev| {
+        session.connect(move |ev| {
             // Fails only when the event loop has exited.
             let _ = proxy.send_event(UserEvent::Net(id, ev));
         });
@@ -190,36 +216,94 @@ impl App {
         self.session = None;
         self.session_index = None;
         self.scroll = 0;
+        self.upload_prompt = None;
+        self.transfer_direction = None;
         self.set_title("Phosphor");
     }
 
     fn on_net(&mut self, id: u64, ev: NetEvent) {
         let Some(session) = self.session.as_mut().filter(|_| id == self.session_id) else {
             // A connection that finished after its session was abandoned.
-            if let NetEvent::Connected(stream) = ev {
-                let _ = stream.shutdown(std::net::Shutdown::Both);
+            if let NetEvent::Connected(writer) = ev {
+                writer.shutdown();
             }
             return;
         };
         let connected = matches!(ev, NetEvent::Connected(_));
         session.handle(ev);
-        let events = session.take_events();
         if connected && let Some(e) = self.session_index.and_then(|i| self.directory.entries.get_mut(i)) {
             e.calls += 1;
             e.last_connected = Some(dialer::now());
             self.save_directory();
         }
-        for ev in events {
+        self.session_events();
+        self.request_redraw();
+    }
+
+    fn session_events(&mut self) {
+        let Some(session) = self.session.as_mut() else { return };
+        for ev in session.take_events() {
             match ev {
-                TermEvent::Bell => {
+                SessionEvent::Term(TermEvent::Bell) => {
                     if let Some(g) = self.gfx.as_ref().filter(|g| !g.window.has_focus()) {
                         g.window.request_user_attention(Some(UserAttentionType::Informational));
                     }
                 }
-                TermEvent::Title(t) => self.set_title(&format!("Phosphor \u{2014} {t}")),
+                SessionEvent::Term(TermEvent::Title(t)) => self.set_title(&format!("Phosphor \u{2014} {t}")),
+                SessionEvent::Notice(msg) => self.notify(msg),
+                SessionEvent::UploadRequested => {
+                    self.scroll = 0;
+                    self.upload_prompt = Some(UploadPrompt::new(true));
+                    self.attention();
+                }
+                SessionEvent::TransferStarted => {
+                    self.scroll = 0;
+                    self.upload_prompt = None;
+                    self.transfer_direction =
+                        self.session.as_ref().and_then(|s| s.transfer()).map(|t| t.progress().direction);
+                }
+                SessionEvent::TransferFinished(outcome) => {
+                    let msg = self.describe_outcome(&outcome);
+                    self.transfer_direction = None;
+                    self.notify(msg);
+                    self.attention();
+                }
             }
         }
-        self.request_redraw();
+    }
+
+    /// Ask for the user's attention if the window is in the background.
+    fn attention(&self) {
+        if let Some(g) = self.gfx.as_ref().filter(|g| !g.window.has_focus()) {
+            g.window.request_user_attention(Some(UserAttentionType::Informational));
+        }
+    }
+
+    fn describe_outcome(&self, outcome: &Outcome) -> String {
+        match (outcome, self.transfer_direction) {
+            (Outcome::Completed(files), Some(Direction::Download)) => match files.as_slice() {
+                [] => "Download finished; no files were sent".into(),
+                [one] => format!("Downloaded {}", one.display()),
+                many => format!("Downloaded {} files to {}", many.len(), self.paths.downloads.display()),
+            },
+            (Outcome::Completed(files), _) => match files.as_slice() {
+                [one] => format!("Uploaded {}", one.file_name().unwrap_or_default().to_string_lossy()),
+                many => format!("Uploaded {} files", many.len()),
+            },
+            (Outcome::Cancelled, _) => "Transfer cancelled".into(),
+            (Outcome::Failed(why), _) => format!("Transfer failed: {why}"),
+        }
+    }
+
+    fn start_upload(&mut self, paths: Vec<PathBuf>) {
+        let Some(session) = self.session.as_mut() else { return };
+        if session.state != State::Connected {
+            return self.notify("Not connected");
+        }
+        if let Err(e) = session.start_upload(paths) {
+            self.notify(format!("Upload failed: {e:#}"));
+        }
+        self.session_events();
     }
 
     fn on_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
@@ -231,7 +315,16 @@ impl App {
             return self.request_redraw();
         }
         let Some(key) = input::translate(event) else { return };
-        if self.session.is_some() {
+        if self.upload_prompt.is_some() {
+            self.prompt_key(key, mods);
+        } else if self.session.as_ref().is_some_and(|s| s.transfer().is_some()) {
+            if key == Key::Escape
+                && let Some(s) = self.session.as_mut()
+            {
+                s.cancel_transfer();
+                self.session_events();
+            }
+        } else if self.session.is_some() {
             self.terminal_key(key, mods);
         } else {
             match self.dialer.handle_key(key, mods, &mut self.directory) {
@@ -285,9 +378,41 @@ impl App {
             }
             KeyCode::KeyC => self.toggle_capture(),
             KeyCode::KeyV => self.paste(),
+            // During an upload, the prompt adds files to the batch.
+            KeyCode::KeyU
+                if session.state == State::Connected
+                    && session.transfer().is_none_or(|t| t.progress().direction == Direction::Upload) =>
+            {
+                let requested = session.upload_requested();
+                self.upload_prompt = Some(UploadPrompt::new(requested));
+            }
             _ => return false,
         }
         true
+    }
+
+    fn prompt_key(&mut self, key: Key, mods: Mods) {
+        let Some(prompt) = self.upload_prompt.as_mut() else { return };
+        match key {
+            Key::Escape => {
+                self.upload_prompt = None;
+                // A BBS waiting for the upload is told to give up.
+                if let Some(s) = self.session.as_mut() {
+                    s.decline_upload();
+                }
+            }
+            Key::Enter => {
+                let paths = prompt.paths();
+                if paths.is_empty() {
+                    return;
+                }
+                self.upload_prompt = None;
+                self.start_upload(paths);
+            }
+            _ => {
+                prompt.field.handle_key(key, mods);
+            }
+        }
     }
 
     fn toggle_capture(&mut self) {
@@ -377,6 +502,10 @@ impl App {
             return ui::text(s, 0, 0, COLS, &line, ui::BLACK, ui::CYAN);
         }
         let e = &session.entry;
+        if session.transfer().is_some() {
+            let line = format!(" {} \u{2502} ZMODEM transfer in progress \u{2502} Esc cancels", truncate(&e.name, 30));
+            return ui::text(s, 0, 0, COLS, &line, fg, bg);
+        }
         let line = match session.state {
             State::Connecting => format!(" Connecting to {}...  {HOTKEY}-H cancel", e.address()),
             State::Closed => match &session.error {
@@ -392,7 +521,7 @@ impl App {
                 if session.capture_path().is_some() {
                     flags.push_str(" CAP");
                 }
-                let right = notice.unwrap_or_else(|| format!("{HOTKEY}: H Hangup B Back I iCE C Cap V Paste X Exit"));
+                let right = notice.unwrap_or_else(|| format!("{HOTKEY}: H Hangup B Back U Upload I iCE C Cap X Exit"));
                 format!(
                     " {} \u{2502} {} {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
                     truncate(&e.name, 20),
@@ -418,7 +547,34 @@ impl App {
         let size = gfx.window.inner_size();
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
 
+        // Dialogs over the terminal are drawn on a copy of its screen.
+        let mut overlay_cursor = None;
+        let overlay = match &self.session {
+            Some(session) if self.upload_prompt.is_some() || session.transfer().is_some() => {
+                let sc = &session.term.screen;
+                for y in 0..ROWS.min(sc.rows()) {
+                    for (x, cell) in sc.row(y).iter().enumerate() {
+                        if let Some(c) = self.overlay.cell_mut(x, y) {
+                            *c = *cell;
+                        }
+                    }
+                }
+                if let Some(prompt) = &self.upload_prompt {
+                    overlay_cursor = Some(prompt.draw(&mut self.overlay));
+                } else if let Some(t) = session.transfer() {
+                    transfer_ui::draw_progress(&mut self.overlay, t.progress());
+                }
+                true
+            }
+            _ => false,
+        };
+
         let frame = match &self.session {
+            Some(session) if overlay => {
+                let mut rows: Vec<&[Cell]> = (0..ROWS).map(|y| self.overlay.row(y)).collect();
+                rows.push(self.status.row(0));
+                Frame { rows, cursor: overlay_cursor, ice: session.term.screen.ice_colors }
+            }
             Some(session) => {
                 let sc = &session.term.screen;
                 let sb = sc.scrollback_len();
@@ -436,7 +592,7 @@ impl App {
                 Frame { rows, cursor: dialer_cursor, ice: true }
             }
         };
-        self.renderer.draw(&frame, (self.tick / 2) % 2 == 0, self.tick % 2 == 0);
+        self.renderer.draw(&frame, (self.tick / 2).is_multiple_of(2), self.tick.is_multiple_of(2));
 
         if let Err(e) = gfx.surface.resize(w, h) {
             return log::error!("resizing surface: {e}");
@@ -509,6 +665,12 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 self.request_redraw();
             }
+            // Dropping files onto a connected session uploads them.
+            WindowEvent::DroppedFile(path) => {
+                self.upload_prompt = None;
+                self.start_upload(vec![path]);
+                self.request_redraw();
+            }
             _ => {}
         }
     }
@@ -518,6 +680,10 @@ impl ApplicationHandler<UserEvent> for App {
         if now >= self.next_tick {
             self.tick += 1;
             self.next_tick = now + TICK;
+            if let Some(s) = self.session.as_mut() {
+                s.tick();
+                self.session_events();
+            }
             self.request_redraw();
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_tick));

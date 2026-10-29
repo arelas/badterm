@@ -83,6 +83,9 @@ impl Form {
         if parsed.port != parsed.protocol.default_port() {
             port = parsed.port;
         }
+        if self.protocol == Protocol::Ssh && self.text[6].value.trim().is_empty() {
+            return Err("SSH needs a user name (BBSes often accept \"new\" or \"guest\")".into());
+        }
         let name = self.text[0].value.trim();
         Ok(Entry {
             name: if name.is_empty() { parsed.host.clone() } else { name.to_string() },
@@ -473,13 +476,4 @@ fn truncate(s: &str, n: usize) -> String {
         t.push('\u{00BB}');
         t
     }
-}
-
-fn expand_home(p: &str) -> PathBuf {
-    if let Some(rest) = p.strip_prefix("~/")
-        && let Some(home) = directories::BaseDirs::new()
-    {
-        return home.home_dir().join(rest);
-    }
-    PathBuf::from(p)
 }

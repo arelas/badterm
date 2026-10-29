@@ -1,11 +1,9 @@
-//! A live connection to a BBS: networking, protocol decoding, terminal state
-//! and session capture.
+//! A live connection to a BBS: protocol decoding, terminal state, ZMODEM
+//! transfers and session capture. Networking lives in [`crate::transport`].
 
 use std::fs::File;
-use std::io::{BufWriter, Read, Write};
-use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
@@ -13,65 +11,8 @@ use anyhow::{Context, Result, bail};
 use crate::ansi::{TermEvent, Terminal};
 use crate::dialer::{Entry, Protocol};
 use crate::telnet::Telnet;
-
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
-
-/// Events produced by the network thread.
-#[derive(Debug)]
-pub enum NetEvent {
-    /// Connected; carries the stream used for writing.
-    Connected(TcpStream),
-    Data(Vec<u8>),
-    /// The connection ended, with an error message if it failed.
-    Closed(Option<String>),
-}
-
-/// Resolve, connect and read in a background thread, reporting through `sink`.
-///
-/// `sink` is called from the background thread; the GUI uses it to forward
-/// events into its event loop.
-pub fn spawn_connection<F>(host: String, port: u16, sink: F)
-where
-    F: Fn(NetEvent) + Send + 'static,
-{
-    thread::spawn(move || {
-        let mut stream = match connect(&host, port) {
-            Ok(s) => s,
-            Err(e) => return sink(NetEvent::Closed(Some(format!("{e:#}")))),
-        };
-        match stream.try_clone() {
-            Ok(w) => sink(NetEvent::Connected(w)),
-            Err(e) => return sink(NetEvent::Closed(Some(e.to_string()))),
-        }
-        let mut buf = vec![0u8; 16 * 1024];
-        loop {
-            match stream.read(&mut buf) {
-                Ok(0) => return sink(NetEvent::Closed(None)),
-                Ok(n) => sink(NetEvent::Data(buf[..n].to_vec())),
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return sink(NetEvent::Closed(Some(e.to_string()))),
-            }
-        }
-    });
-}
-
-fn connect(host: &str, port: u16) -> Result<TcpStream> {
-    let addrs: Vec<_> = (host, port).to_socket_addrs().with_context(|| format!("resolving {host}"))?.collect();
-    let mut last_err = None;
-    for addr in addrs {
-        match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
-            Ok(s) => {
-                let _ = s.set_nodelay(true);
-                return Ok(s);
-            }
-            Err(e) => last_err = Some(e),
-        }
-    }
-    match last_err {
-        Some(e) => Err(e).with_context(|| format!("connecting to {host}:{port}")),
-        None => bail!("{host} has no addresses"),
-    }
-}
+use crate::transfer::{self, Download, Outcome, TrailerFilter, Transfer, Upload};
+pub use crate::transport::{ConnectOptions, NetEvent, Writer, spawn_connection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -80,26 +21,57 @@ pub enum State {
     Closed,
 }
 
+/// Where a session keeps the files it produces.
+#[derive(Clone, Debug)]
+pub struct SessionConfig {
+    pub scrollback: usize,
+    pub known_hosts: PathBuf,
+    pub download_dir: PathBuf,
+}
+
+/// Things the front end should react to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SessionEvent {
+    Term(TermEvent),
+    Notice(String),
+    /// The BBS is waiting to receive files (it sent ZRINIT); ask the user
+    /// what to upload, then call [`Session::start_upload`] or
+    /// [`Session::decline_upload`].
+    UploadRequested,
+    TransferStarted,
+    TransferFinished(Outcome),
+}
+
 pub struct Session {
     pub entry: Entry,
     pub term: Terminal,
     pub state: State,
     /// Why the session closed, if it failed.
     pub error: Option<String>,
+    config: SessionConfig,
     telnet: Option<Telnet>,
-    writer: Option<TcpStream>,
+    writer: Option<Writer>,
     capture: Option<(PathBuf, BufWriter<File>)>,
+    transfer: Option<Transfer>,
+    /// Bytes received since the BBS asked for an upload, held until the user
+    /// picks files (they include the ZRINIT the sender needs to see).
+    upload_wait: Option<Vec<u8>>,
+    /// The end of the last data chunk, so a ZMODEM header split across two
+    /// reads is still recognized.
+    scan_tail: Vec<u8>,
+    /// Hides ZMODEM's closing bytes from the terminal after a transfer.
+    trailer: Option<TrailerFilter>,
     started: Instant,
     connected_at: Option<Instant>,
-    events: Vec<TermEvent>,
+    events: Vec<SessionEvent>,
 }
 
 impl Session {
-    pub fn new(entry: Entry, cols: usize, rows: usize, scrollback: usize) -> Result<Session> {
+    pub fn new(entry: Entry, cols: usize, rows: usize, config: SessionConfig) -> Result<Session> {
         if !entry.protocol.supported() {
             bail!("{} connections are not supported yet", entry.protocol);
         }
-        let mut term = Terminal::new(cols, rows, scrollback);
+        let mut term = Terminal::new(cols, rows, config.scrollback);
         term.encoding = entry.encoding;
         let telnet =
             (entry.protocol == Protocol::Telnet).then(|| Telnet::new(&entry.term_type, cols as u16, rows as u16));
@@ -108,13 +80,32 @@ impl Session {
             term,
             state: State::Connecting,
             error: None,
+            config,
             telnet,
             writer: None,
             capture: None,
+            transfer: None,
+            upload_wait: None,
+            scan_tail: Vec::new(),
+            trailer: None,
             started: Instant::now(),
             connected_at: None,
             events: Vec::new(),
         })
+    }
+
+    /// Start connecting in the background; events arrive through `sink` and
+    /// must be passed to [`Session::handle`].
+    pub fn connect<F>(&self, sink: F)
+    where
+        F: Fn(NetEvent) + Send + 'static,
+    {
+        let opts = ConnectOptions {
+            cols: self.term.screen.cols() as u16,
+            rows: self.term.screen.rows() as u16,
+            known_hosts: self.config.known_hosts.clone(),
+        };
+        spawn_connection(&self.entry, &opts, sink);
     }
 
     pub fn handle(&mut self, ev: NetEvent) {
@@ -125,10 +116,12 @@ impl Session {
                 self.connected_at = Some(Instant::now());
             }
             NetEvent::Data(bytes) => self.receive(&bytes),
+            NetEvent::Notice(msg) => self.events.push(SessionEvent::Notice(msg)),
             NetEvent::Closed(err) => {
                 self.state = State::Closed;
                 self.error = err;
                 self.writer = None;
+                self.end_transfer(Some(Outcome::Failed("the connection closed".into())));
             }
         }
     }
@@ -145,23 +138,148 @@ impl Session {
             }
             None => bytes.to_vec(),
         };
-        if let Some((_, f)) = &mut self.capture {
-            let _ = f.write_all(&data);
+        self.process(data);
+    }
+
+    /// Route decoded data to an active transfer, or detect a new one, or
+    /// show it on the terminal.
+    fn process(&mut self, mut data: Vec<u8>) {
+        if let Some(f) = &mut self.trailer
+            && !f.strip(&mut data)
+        {
+            self.trailer = None;
         }
-        self.term.feed(&data);
+        if let Some(t) = &mut self.transfer {
+            let mut out = Vec::new();
+            t.feed(&data, &mut out);
+            self.send(&out);
+            self.end_transfer(None);
+            return;
+        }
+        if let Some(buf) = &mut self.upload_wait {
+            buf.extend_from_slice(&data);
+            return;
+        }
+
+        let mut scan = std::mem::take(&mut self.scan_tail);
+        let already_shown = scan.len();
+        scan.extend_from_slice(&data);
+        if let Some(i) = transfer::find(&scan, transfer::ZRQINIT) {
+            self.show(&scan[already_shown.min(i)..i]);
+            match Download::new(self.config.download_dir.clone()) {
+                Ok(d) => {
+                    self.transfer = Some(Transfer::Download(d));
+                    self.events.push(SessionEvent::TransferStarted);
+                    self.process(scan[i..].to_vec());
+                }
+                Err(e) => self.events.push(SessionEvent::Notice(format!("Cannot start download: {e:#}"))),
+            }
+            return;
+        }
+        if let Some(i) = transfer::find(&scan, transfer::ZRINIT) {
+            self.show(&scan[already_shown.min(i)..i]);
+            self.upload_wait = Some(scan[i..].to_vec());
+            self.events.push(SessionEvent::UploadRequested);
+            return;
+        }
+        let keep = scan.len().min(transfer::ZRQINIT.len() - 1);
+        self.scan_tail = scan[scan.len() - keep..].to_vec();
+        self.show(&data);
+    }
+
+    fn show(&mut self, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
+        if let Some((_, f)) = &mut self.capture {
+            let _ = f.write_all(data);
+        }
+        self.term.feed(data);
         let replies = self.term.take_replies();
         if !replies.is_empty() {
             self.send(&replies);
         }
-        self.events.extend(self.term.take_events());
+        self.events.extend(self.term.take_events().into_iter().map(SessionEvent::Term));
     }
 
-    pub fn take_events(&mut self) -> Vec<TermEvent> {
+    /// If the transfer finished (or `force` gives a reason to stop it),
+    /// report the outcome and return its trailing bytes to the terminal.
+    fn end_transfer(&mut self, force: Option<Outcome>) {
+        let done = self.transfer.as_ref().is_some_and(Transfer::is_finished);
+        if !done && force.is_none() {
+            return;
+        }
+        let Some(t) = self.transfer.take() else { return };
+        let (outcome, leftover) = t.finish();
+        let outcome = if done { outcome } else { force.unwrap_or(outcome) };
+        self.events.push(SessionEvent::TransferFinished(outcome));
+        self.scan_tail.clear();
+        self.trailer = Some(TrailerFilter::new());
+        self.process(leftover);
+    }
+
+    pub fn take_events(&mut self) -> Vec<SessionEvent> {
         std::mem::take(&mut self.events)
     }
 
-    /// Send application data (keystrokes, paste) to the remote.
+    pub fn transfer(&self) -> Option<&Transfer> {
+        self.transfer.as_ref()
+    }
+
+    /// Whether the BBS is waiting for the user to choose files to upload.
+    pub fn upload_requested(&self) -> bool {
+        self.upload_wait.is_some()
+    }
+
+    /// Send files with ZMODEM. If a batch is already being sent, the files
+    /// are added to it.
+    pub fn start_upload(&mut self, paths: Vec<PathBuf>) -> Result<()> {
+        if let Some(t) = &mut self.transfer {
+            for p in paths {
+                t.enqueue(p)?;
+            }
+            return Ok(());
+        }
+        let up = Upload::new(paths)?;
+        self.transfer = Some(Transfer::Upload(up));
+        self.events.push(SessionEvent::TransferStarted);
+        // Replay what the BBS sent while waiting (its ZRINIT), if anything.
+        let waiting = self.upload_wait.take().unwrap_or_default();
+        self.process(waiting);
+        Ok(())
+    }
+
+    /// The user chose not to upload: make the BBS's receiver give up.
+    pub fn decline_upload(&mut self) {
+        if self.upload_wait.take().is_some() {
+            self.send(transfer::CANCEL);
+        }
+    }
+
+    pub fn cancel_transfer(&mut self) {
+        if let Some(t) = &mut self.transfer {
+            let mut out = Vec::new();
+            t.cancel(&mut out);
+            self.send(&out);
+            self.end_transfer(None);
+        }
+    }
+
+    /// Call periodically (a few times a second) to drive transfer timeouts.
+    pub fn tick(&mut self) {
+        if let Some(t) = &mut self.transfer {
+            let mut out = Vec::new();
+            t.tick(Instant::now(), &mut out);
+            self.send(&out);
+            self.end_transfer(None);
+        }
+    }
+
+    /// Send application data (keystrokes, paste, transfer data) to the remote.
     pub fn send(&mut self, data: &[u8]) {
+        if data.is_empty() {
+            return;
+        }
         let encoded = match &self.telnet {
             Some(t) => t.encode(data),
             None => data.to_vec(),
@@ -180,7 +298,7 @@ impl Session {
 
     pub fn hang_up(&mut self) {
         if let Some(w) = self.writer.take() {
-            let _ = w.shutdown(Shutdown::Both);
+            w.shutdown();
         }
         self.state = State::Closed;
         self.stop_capture();
@@ -189,6 +307,10 @@ impl Session {
     /// Time since connecting (or since dialing, while still connecting).
     pub fn elapsed(&self) -> Duration {
         self.connected_at.unwrap_or(self.started).elapsed()
+    }
+
+    pub fn download_dir(&self) -> &Path {
+        &self.config.download_dir
     }
 
     pub fn capture_path(&self) -> Option<&Path> {

@@ -173,6 +173,34 @@ mod tests {
             Entry::from_address("ssh://secure.example.net:2222").unwrap(),
             Entry::from_address("telnet://another.example.com:2323").unwrap(),
         ]);
+        let mut over = phosphor_core::Screen::new(80, 25, 0);
+        for y in 0..25 {
+            for (x, c) in t.screen.row(y).iter().enumerate() {
+                *over.cell_mut(x, y).unwrap() = *c;
+            }
+        }
+        let progress = phosphor_core::transfer::Progress {
+            direction: phosphor_core::transfer::Direction::Download,
+            file_name: "ACID-0897.ZIP".into(),
+            file_bytes: 1_400_000,
+            file_size: Some(3_100_000),
+            files_done: 1,
+            files_queued: 0,
+            file_started: std::time::Instant::now() - std::time::Duration::from_secs(4),
+        };
+        crate::ui::transfer::draw_progress(&mut over, &progress);
+        let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
+        r.draw(&Frame { rows, cursor: None, ice: true }, true, true);
+        write_ppm(&r, &dir.join("transfer.ppm"));
+
+        let mut prompt = crate::ui::transfer::UploadPrompt::new(true);
+        prompt.field.value = "~/Uploads/MYART.ANS".into();
+        prompt.field.cursor = prompt.field.value.len();
+        let cursor = prompt.draw(&mut over);
+        let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
+        r.draw(&Frame { rows, cursor: Some(cursor), ice: true }, true, true);
+        write_ppm(&r, &dir.join("upload.ppm"));
+
         let mut ui = DialerUi::new(dir.clone());
         let mut s = phosphor_core::Screen::new(80, 25, 0);
         ui.draw(&mut s, &d);

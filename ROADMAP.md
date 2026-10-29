@@ -19,10 +19,14 @@ and mTelnet. Items are roughly in priority order within each section.
 - [x] Dialing directory: add/edit/delete, quick connect, call stats
 - [x] Directory import/export: SyncTERM `.lst`, CSV, JSON, TOML
 - [x] Clipboard paste, fullscreen, drag-and-drop import
+- [x] SSH: none/password/keyboard-interactive auth, PTY, TOFU host key pinning
+- [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
+      drop, or auto-prompt on ZRINIT), batches, progress window, cancel
 
 ## Connections
 
-- [ ] SSH (with `russh`), including SyncTERM's "SSH no auth" mode
+- [ ] SSH public-key authentication (agent and key files)
+- [ ] Prompt for a missing password at connect time instead of failing
 - [ ] RLogin
 - [ ] Telnet over TLS (TelnetS)
 - [ ] Auto-login: send stored user name/password on prompt
@@ -49,11 +53,12 @@ and mTelnet. Items are roughly in priority order within each section.
 
 ## File transfer
 
-- [ ] ZMODEM (auto-start on `**\x18B00` detection), with crash recovery
+- [ ] ZMODEM crash recovery (resume partial downloads)
+- [ ] File picker dialog for uploads
 - [ ] XMODEM / XMODEM-1K / XMODEM-CRC
 - [ ] YMODEM / YMODEM-G
 - [ ] Kermit
-- [ ] Per-entry upload/download directories, transfer progress window
+- [ ] Per-entry upload/download directories
 
 ## Dialer and UI
 

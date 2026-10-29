@@ -2,8 +2,11 @@
 //! [`Screen`] so it renders exactly like BBS content.
 
 pub mod dialer;
+pub mod transfer;
 
 use phosphor_core::cp437;
+use std::path::PathBuf;
+
 use phosphor_core::screen::{Cell, Color, Screen};
 
 use crate::input::{Key, Mods};
@@ -135,6 +138,16 @@ impl TextField {
         text(s, x, y, width, &shown, fg, bg);
         (x + self.cursor - start, y)
     }
+}
+
+/// Expand a leading `~/` to the home directory.
+pub fn expand_home(p: &str) -> PathBuf {
+    if let Some(rest) = p.strip_prefix("~/")
+        && let Some(home) = directories::BaseDirs::new()
+    {
+        return home.home_dir().join(rest);
+    }
+    PathBuf::from(p)
 }
 
 /// Format a Unix timestamp as YYYY-MM-DD (UTC).

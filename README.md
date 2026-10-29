@@ -1,15 +1,16 @@
 # Phosphor
 
-A cross-platform ANSI-BBS telnet client written in Rust, in the tradition of
+A cross-platform ANSI-BBS telnet and SSH client written in Rust, in the tradition of
 SyncTERM, NetRunner and mTelnet. Runs natively on Windows, macOS and Linux.
 
 Phosphor draws its own text-mode screen using real CP437 bitmap fonts, so ANSI
 art renders pixel-for-pixel as it did on a VGA card. It doesn't depend on the
 fonts and colors of a host terminal.
 
-> **Status:** early development (0.1). Telnet and raw TCP connections, ANSI-BBS
-> emulation, iCE colors, scrollback, capture and the dialing directory with
-> import/export work. See [ROADMAP.md](ROADMAP.md) for what's planned.
+> **Status:** early development (0.1). Telnet, SSH and raw TCP connections,
+> ZMODEM file transfers, ANSI-BBS emulation, iCE colors, scrollback, capture and
+> the dialing directory with import/export work. See [ROADMAP.md](ROADMAP.md)
+> for what's planned.
 
 ## Features
 
@@ -22,6 +23,14 @@ fonts and colors of a host terminal.
   color (SGR `38;2` and the CTerm/PabloDraw `CSI 1;r;g;b t` form)
 - **Telnet** with BINARY, ECHO, SGA, TERMINAL-TYPE and NAWS negotiation;
   **raw TCP** for systems that don't speak telnet
+- **SSH** (pure Rust, no OpenSSL): "none" auth for BBSes that run their own
+  login, password, and keyboard-interactive auth. Host keys are trusted on
+  first use and pinned in Phosphor's own `known_hosts`; a changed key is
+  refused with an explanation.
+- **ZMODEM** downloads start automatically when the BBS sends a file. Uploads
+  start with `Alt-U`, by dropping files on the window, or automatically when
+  the BBS starts receiving. Batches, progress, speed and ETA are shown, and
+  `Esc` cancels. Downloads never overwrite existing files.
 - **CP437 and UTF-8** sessions, switchable per entry or live with `Alt-E`
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
@@ -49,7 +58,8 @@ supported and loaded at runtime.
 ```
 phosphor                         open the dialing directory
 phosphor bbs.example.org         connect directly (also host:port,
-                                 telnet://host:port, raw://host:port)
+                                 telnet://host:port, raw://host:port,
+                                 ssh://user@host:port)
 phosphor --import syncterm.lst   add entries from a SyncTERM/CSV/JSON/TOML file
 phosphor --export bbses.csv      write the directory (format from extension)
 phosphor --paths                 show where data is stored
@@ -79,9 +89,17 @@ On macOS use `Cmd` in place of `Alt`.
 | `Alt-I` | Toggle iCE colors / blinking |
 | `Alt-E` | Toggle CP437 / UTF-8 |
 | `Alt-C` | Start/stop capturing to a file |
+| `Alt-U` | Upload files with ZMODEM (or drop files on the window) |
 | `Alt-V`, `Shift-Ins` | Paste from the clipboard |
 | `Alt-Enter` | Toggle fullscreen |
 | `Alt-X` | Exit |
+
+Downloads are saved to `Downloads/Phosphor`; `phosphor --paths` shows every
+location Phosphor uses.
+
+For SSH entries, set the user name (and password, if the BBS needs one) in
+the entry. Many BBSes accept a user like `new` or `guest` and then run their
+own login.
 
 Keys are sent the way ANSI-BBS software expects: arrows as `ESC [ A..D`,
 `Home`/`End` as `ESC [ H` / `ESC [ K`, `PgUp`/`PgDn` as `ESC [ V` / `ESC [ U`,
