@@ -6,7 +6,12 @@
 // Software Foundation, either version 3 of the License, or (at your option)
 // any later version. See the LICENSE file for details.
 
+// A GUI program on Windows, so no console window opens alongside it; see
+// the console module for how command-line use still gets output.
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod app;
+mod console;
 mod input;
 mod render;
 mod ui;
@@ -64,11 +69,12 @@ fn parse_args() -> Result<Command, String> {
 }
 
 fn main() -> ExitCode {
+    let has_console = console::attach();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cmd = match parse_args() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("phosphor: {e}\n\n{USAGE}");
+            console::report_error(&format!("{e}\n\n{USAGE}"), has_console);
             return ExitCode::from(2);
         }
     };
@@ -92,7 +98,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("phosphor: {e:#}");
+            console::report_error(&format!("{e:#}"), has_console);
             ExitCode::FAILURE
         }
     }
