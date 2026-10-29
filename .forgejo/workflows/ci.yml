@@ -49,6 +49,11 @@ jobs:
           "$HOME/.cargo/bin/rustup" default stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      # lrzsz's sz/rz are what most Unix BBSes run; the interop tests in
+      # crates/phosphor-core/tests/lrzsz.rs transfer files against them.
+      - name: Install lrzsz
+        run: command -v sz >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq lrzsz; }
+
       - uses: https://git.badcluster.dev/actions/checkout@v7
 
       - name: Format
@@ -57,7 +62,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
+      # PHOSPHOR_REQUIRE_LRZSZ turns a missing sz/rz into a failure instead
+      # of a skipped test, so interop can't silently stop being checked.
       - name: Test
+        env:
+          PHOSPHOR_REQUIRE_LRZSZ: '1'
         run: cargo test --locked
 
       - name: Release build
@@ -174,6 +183,11 @@ jobs:
           "$HOME/.cargo/bin/rustup" toolchain install stable --profile minimal -c clippy -c rustfmt
           "$HOME/.cargo/bin/rustup" default stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # Optional here: the lrzsz interop tests run if Homebrew provides it
+      # and skip otherwise; Linux is where they are required.
+      - name: Install lrzsz (best effort)
+        run: command -v sz >/dev/null || brew install lrzsz || echo "lrzsz unavailable; interop tests will skip"
 
       - uses: https://git.badcluster.dev/actions/checkout@v7
 

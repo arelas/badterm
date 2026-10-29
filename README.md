@@ -65,6 +65,10 @@ phosphor --export bbses.csv      write the directory (format from extension)
 phosphor --paths                 show where data is stored
 ```
 
+On Windows, Phosphor is a GUI program, so `cmd` doesn't wait for it and its
+command-line output can appear after the next prompt. Use
+`start /wait phosphor --help` in `cmd`, or run it from PowerShell.
+
 ### Dialing directory keys
 
 | Key | Action |
@@ -122,6 +126,10 @@ crates/phosphor        the windowed client (winit + softbuffer), renderer,
 ```sh
 cargo test
 ```
+
+The ZMODEM interoperability tests run against lrzsz's `sz` and `rz` when
+they are installed (`apt install lrzsz`, `brew install lrzsz`) and are skipped
+otherwise; CI sets `PHOSPHOR_REQUIRE_LRZSZ=1` so they can't be skipped there.
 
 To render sample frames to images for visual inspection:
 
