@@ -1,0 +1,174 @@
+name: CI
+
+# Canonical CI for Phosphor, on the Bad Cluster Forgejo instance
+# (git.badcluster.dev). Forgejo-only; there is no GitHub equivalent.
+#
+# actions/* are pinned to https://git.badcluster.dev/actions/... (this
+# instance's own pull-mirrors) rather than the bare `owner/repo` shorthand,
+# which would resolve against data.forgejo.org.
+#
+# No `pull_request` trigger, matching the policy settled on for ZephyrFTP
+# and ipscanner: a stranger's PR code must not run on persistent
+# self-hosted hardware.
+#
+# The runners are bare, persistent machines (no preinstalled images), so
+# each job bootstraps Rust through rustup idempotently: only a fresh machine
+# pays for the download, and `rustup toolchain install` is a no-op once the
+# toolchain is current. ~/.cargo is shared across runs, so crates.io
+# downloads and compiled dependencies are reused.
+#
+# Persistent workspaces also mean target/ survives between runs. Cargo's
+# freshness check is mtime-based, so before the release build each job
+# cleans this workspace's own crates (not the dependencies) so a stale
+# object can never end up in an uploaded artifact.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: '1'
+
+jobs:
+  linux:
+    runs-on: [self-hosted, Linux]
+    steps:
+      - name: Bootstrap Rust toolchain
+        run: |
+          set -e
+          if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
+          fi
+          "$HOME/.cargo/bin/rustup" toolchain install stable --profile minimal -c clippy -c rustfmt
+          "$HOME/.cargo/bin/rustup" default stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: https://git.badcluster.dev/actions/checkout@v7
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Release build
+        run: |
+          cargo clean --release -p phosphor -p phosphor-core
+          cargo build --release --locked
+
+      - name: Upload binary
+        uses: https://git.badcluster.dev/actions/upload-artifact@v3
+        with:
+          name: phosphor-linux-x64
+          path: target/release/phosphor
+          if-no-files-found: error
+
+  windows:
+    runs-on: [self-hosted, Windows]
+    steps:
+      # Same approach as ipscanner's build-windows bootstrap: winget with
+      # --source winget pinned (msstore queries fail on this box), then PATH
+      # re-read from the registry and pushed into GITHUB_PATH. Rust's MSVC
+      # target needs the VS Build Tools C++ workload for link.exe; rustc
+      # locates it on its own, so it does not need to be on PATH.
+      - name: Bootstrap toolchain (VS Build Tools, rustup)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function EnsureWinget($id, $overrideArgs) {
+            winget list --id $id -e --source winget | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "Installing $id..."
+              $wingetArgs = @('install', '--id', $id, '-e', '--source', 'winget', '--silent',
+                              '--accept-package-agreements', '--accept-source-agreements')
+              if ($overrideArgs) { $wingetArgs += @('--override', $overrideArgs) }
+              winget @wingetArgs
+              if ($LASTEXITCODE -ne 0) { Write-Host "::error::winget install failed for $id (exit $LASTEXITCODE)"; exit 1 }
+            } else {
+              Write-Host "$id already installed, skipping."
+            }
+          }
+
+          EnsureWinget "Microsoft.VisualStudio.2022.BuildTools" "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+          EnsureWinget "Rustlang.Rustup" $null
+
+          $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+          $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+          $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+          $env:PATH = "$cargoBin;$machinePath;$userPath"
+
+          rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal -c clippy -c rustfmt
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          rustup default stable-x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+          Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
+
+      - uses: https://git.badcluster.dev/actions/checkout@v7
+
+      - name: Clippy
+        shell: powershell
+        run: |
+          cargo clippy --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Test
+        shell: powershell
+        run: |
+          cargo test --locked
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Release build
+        shell: powershell
+        run: |
+          cargo clean --release -p phosphor -p phosphor-core
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cargo build --release --locked
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Upload binary
+        uses: https://git.badcluster.dev/actions/upload-artifact@v3
+        with:
+          name: phosphor-windows-x64
+          path: target/release/phosphor.exe
+          if-no-files-found: error
+
+  macos:
+    runs-on: [self-hosted, macOS]
+    steps:
+      - name: Bootstrap Rust toolchain
+        run: |
+          set -e
+          if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
+          fi
+          "$HOME/.cargo/bin/rustup" toolchain install stable --profile minimal -c clippy -c rustfmt
+          "$HOME/.cargo/bin/rustup" default stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - uses: https://git.badcluster.dev/actions/checkout@v7
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Release build
+        run: |
+          cargo clean --release -p phosphor -p phosphor-core
+          cargo build --release --locked
+
+      - name: Upload binary
+        uses: https://git.badcluster.dev/actions/upload-artifact@v3
+        with:
+          name: phosphor-macos-arm64
+          path: target/release/phosphor
+          if-no-files-found: error
