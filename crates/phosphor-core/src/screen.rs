@@ -1,0 +1,531 @@
+//! The character-cell screen model: a grid of CP437 glyphs with attributes,
+//! a cursor, a scrolling region and a scrollback buffer.
+
+use std::collections::VecDeque;
+
+use crate::palette::{self, Rgb, VGA};
+
+/// A cell color. PC colors keep ANSI-BBS semantics (bold brightens the
+/// foreground, blink brightens the background in iCE mode) by being resolved
+/// at render time rather than when written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Color {
+    /// VGA palette index 0-15.
+    Pc(u8),
+    /// xterm 256-color index.
+    Xterm(u8),
+    /// 24-bit color.
+    Rgb(Rgb),
+}
+
+pub mod flags {
+    pub const BOLD: u8 = 1 << 0;
+    pub const BLINK: u8 = 1 << 1;
+    pub const UNDERLINE: u8 = 1 << 2;
+    pub const REVERSE: u8 = 1 << 3;
+    pub const CONCEAL: u8 = 1 << 4;
+    pub const FAINT: u8 = 1 << 5;
+}
+
+pub const DEFAULT_FG: Color = Color::Pc(7);
+pub const DEFAULT_BG: Color = Color::Pc(0);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cell {
+    /// CP437 glyph index.
+    pub ch: u8,
+    pub fg: Color,
+    pub bg: Color,
+    pub flags: u8,
+}
+
+impl Default for Cell {
+    fn default() -> Self {
+        Cell { ch: b' ', fg: DEFAULT_FG, bg: DEFAULT_BG, flags: 0 }
+    }
+}
+
+impl Cell {
+    pub fn new(ch: u8, fg: Color, bg: Color) -> Self {
+        Cell { ch, fg, bg, flags: 0 }
+    }
+
+    pub fn is_blank(&self) -> bool {
+        (self.ch == b' ' || self.ch == 0) && self.bg == DEFAULT_BG && self.flags & flags::REVERSE == 0
+    }
+
+    /// Resolve to concrete (foreground, background, blinks) colors.
+    ///
+    /// With `ice` set, the blink attribute selects a high-intensity background
+    /// instead of blinking text, as on a VGA with blink disabled.
+    pub fn resolve(&self, ice: bool) -> (Rgb, Rgb, bool) {
+        let bold = self.flags & flags::BOLD != 0;
+        let blink = self.flags & flags::BLINK != 0;
+        let mut fg = match self.fg {
+            Color::Pc(i) if bold && i < 8 => VGA[i as usize + 8],
+            c => color_rgb(c),
+        };
+        let mut bg = match self.bg {
+            Color::Pc(i) if blink && ice && i < 8 => VGA[i as usize + 8],
+            c => color_rgb(c),
+        };
+        if self.flags & flags::REVERSE != 0 {
+            std::mem::swap(&mut fg, &mut bg);
+        }
+        if self.flags & flags::CONCEAL != 0 {
+            fg = bg;
+        }
+        (fg, bg, blink && !ice)
+    }
+}
+
+pub fn color_rgb(c: Color) -> Rgb {
+    match c {
+        Color::Pc(i) => VGA[(i & 15) as usize],
+        Color::Xterm(i) => palette::xterm256(i),
+        Color::Rgb(rgb) => rgb,
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SavedCursor {
+    x: usize,
+    y: usize,
+    pen: Cell,
+}
+
+pub struct Screen {
+    cols: usize,
+    rows: usize,
+    cells: Vec<Cell>,
+    x: usize,
+    y: usize,
+    /// Set when a glyph was written to the last column; the wrap happens on the
+    /// next printable character (VT100 "last column flag").
+    pending_wrap: bool,
+    /// Attributes applied to newly written glyphs (`ch` is unused).
+    pub pen: Cell,
+    saved: Option<SavedCursor>,
+    scroll_top: usize,
+    scroll_bottom: usize,
+    pub autowrap: bool,
+    pub cursor_visible: bool,
+    pub ice_colors: bool,
+    scrollback: VecDeque<Vec<Cell>>,
+    scrollback_limit: usize,
+}
+
+impl Screen {
+    pub fn new(cols: usize, rows: usize, scrollback_limit: usize) -> Self {
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+        Screen {
+            cols,
+            rows,
+            cells: vec![Cell::default(); cols * rows],
+            x: 0,
+            y: 0,
+            pending_wrap: false,
+            pen: Cell::default(),
+            saved: None,
+            scroll_top: 0,
+            scroll_bottom: rows - 1,
+            autowrap: true,
+            cursor_visible: true,
+            ice_colors: false,
+            scrollback: VecDeque::new(),
+            scrollback_limit,
+        }
+    }
+
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    pub fn cursor(&self) -> (usize, usize) {
+        (self.x, self.y)
+    }
+
+    pub fn row(&self, y: usize) -> &[Cell] {
+        &self.cells[y * self.cols..(y + 1) * self.cols]
+    }
+
+    pub fn cell_mut(&mut self, x: usize, y: usize) -> Option<&mut Cell> {
+        if x < self.cols && y < self.rows { Some(&mut self.cells[y * self.cols + x]) } else { None }
+    }
+
+    pub fn scrollback_len(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    /// Line `i` of the scrollback, 0 being the oldest.
+    pub fn scrollback_line(&self, i: usize) -> &[Cell] {
+        &self.scrollback[i]
+    }
+
+    pub fn clear_scrollback(&mut self) {
+        self.scrollback.clear();
+    }
+
+    /// Full reset (RIS): clears the screen and modes but keeps scrollback.
+    pub fn reset(&mut self) {
+        self.pen = Cell::default();
+        self.cells.fill(Cell::default());
+        self.x = 0;
+        self.y = 0;
+        self.pending_wrap = false;
+        self.saved = None;
+        self.scroll_top = 0;
+        self.scroll_bottom = self.rows - 1;
+        self.autowrap = true;
+        self.cursor_visible = true;
+        self.ice_colors = false;
+    }
+
+    pub fn resize(&mut self, cols: usize, rows: usize) {
+        let cols = cols.max(1);
+        let rows = rows.max(1);
+        if cols == self.cols && rows == self.rows {
+            return;
+        }
+        let mut cells = vec![Cell::default(); cols * rows];
+        for y in 0..rows.min(self.rows) {
+            let n = cols.min(self.cols);
+            cells[y * cols..y * cols + n].copy_from_slice(&self.row(y)[..n]);
+        }
+        self.cells = cells;
+        self.cols = cols;
+        self.rows = rows;
+        self.x = self.x.min(cols - 1);
+        self.y = self.y.min(rows - 1);
+        self.scroll_top = 0;
+        self.scroll_bottom = rows - 1;
+        self.pending_wrap = false;
+    }
+
+    /// The cell used when erasing: a space in the current colors (ANSI.SYS
+    /// and ANSI-BBS erase with the current background).
+    fn blank(&self) -> Cell {
+        Cell { ch: b' ', flags: self.pen.flags & (flags::BLINK | flags::REVERSE), ..self.pen }
+    }
+
+    /// Write a glyph at the cursor and advance.
+    pub fn put(&mut self, ch: u8) {
+        if self.pending_wrap {
+            self.pending_wrap = false;
+            self.x = 0;
+            self.line_feed();
+        }
+        let idx = self.y * self.cols + self.x;
+        self.cells[idx] = Cell { ch, ..self.pen };
+        if self.x + 1 < self.cols {
+            self.x += 1;
+        } else if self.autowrap {
+            self.pending_wrap = true;
+        }
+    }
+
+    pub fn carriage_return(&mut self) {
+        self.x = 0;
+        self.pending_wrap = false;
+    }
+
+    /// Move down one line, scrolling the region if at its bottom.
+    pub fn line_feed(&mut self) {
+        self.pending_wrap = false;
+        if self.y == self.scroll_bottom {
+            self.scroll_up(1);
+        } else if self.y + 1 < self.rows {
+            self.y += 1;
+        }
+    }
+
+    /// Move up one line, scrolling the region down if at its top (ESC M).
+    pub fn reverse_index(&mut self) {
+        self.pending_wrap = false;
+        if self.y == self.scroll_top {
+            self.scroll_down(1);
+        } else if self.y > 0 {
+            self.y -= 1;
+        }
+    }
+
+    pub fn backspace(&mut self) {
+        self.pending_wrap = false;
+        self.x = self.x.saturating_sub(1);
+    }
+
+    pub fn tab(&mut self) {
+        self.pending_wrap = false;
+        self.x = ((self.x / 8 + 1) * 8).min(self.cols - 1);
+    }
+
+    pub fn back_tab(&mut self, n: usize) {
+        for _ in 0..n {
+            self.x = self.x.saturating_sub(1) / 8 * 8;
+        }
+        self.pending_wrap = false;
+    }
+
+    /// Absolute move, 0-based, clamped to the screen.
+    pub fn move_to(&mut self, x: usize, y: usize) {
+        self.x = x.min(self.cols - 1);
+        self.y = y.min(self.rows - 1);
+        self.pending_wrap = false;
+    }
+
+    pub fn move_by(&mut self, dx: isize, dy: isize) {
+        let x = (self.x as isize + dx).max(0) as usize;
+        let y = (self.y as isize + dy).max(0) as usize;
+        self.move_to(x, y);
+    }
+
+    pub fn set_scroll_region(&mut self, top: usize, bottom: usize) {
+        let bottom = bottom.min(self.rows - 1);
+        if top < bottom {
+            self.scroll_top = top;
+            self.scroll_bottom = bottom;
+        } else {
+            self.scroll_top = 0;
+            self.scroll_bottom = self.rows - 1;
+        }
+        self.move_to(0, 0);
+    }
+
+    pub fn save_cursor(&mut self) {
+        self.saved = Some(SavedCursor { x: self.x, y: self.y, pen: self.pen });
+    }
+
+    pub fn restore_cursor(&mut self) {
+        if let Some(s) = self.saved {
+            self.move_to(s.x, s.y);
+            self.pen = s.pen;
+        }
+    }
+
+    fn push_scrollback(&mut self, line: Vec<Cell>) {
+        if self.scrollback_limit == 0 {
+            return;
+        }
+        if self.scrollback.len() >= self.scrollback_limit {
+            self.scrollback.pop_front();
+        }
+        self.scrollback.push_back(line);
+    }
+
+    /// Scroll the region up `n` lines. Lines leaving the top of a full-screen
+    /// region go to scrollback.
+    pub fn scroll_up(&mut self, n: usize) {
+        let (top, bottom) = (self.scroll_top, self.scroll_bottom);
+        let n = n.min(bottom - top + 1);
+        if top == 0 && bottom == self.rows - 1 {
+            for y in 0..n {
+                let line = self.row(y).to_vec();
+                self.push_scrollback(line);
+            }
+        }
+        let c = self.cols;
+        self.cells.copy_within((top + n) * c..(bottom + 1) * c, top * c);
+        let blank = self.blank();
+        self.cells[(bottom + 1 - n) * c..(bottom + 1) * c].fill(blank);
+    }
+
+    pub fn scroll_down(&mut self, n: usize) {
+        let (top, bottom) = (self.scroll_top, self.scroll_bottom);
+        let n = n.min(bottom - top + 1);
+        let c = self.cols;
+        self.cells.copy_within(top * c..(bottom + 1 - n) * c, (top + n) * c);
+        let blank = self.blank();
+        self.cells[top * c..(top + n) * c].fill(blank);
+    }
+
+    /// ED: 0 = cursor to end, 1 = start to cursor, 2/3 = whole screen.
+    ///
+    /// Clearing the whole screen saves its content to scrollback first, so
+    /// BBS screens that are wiped between menus can still be reviewed, and,
+    /// like ANSI.SYS, homes the cursor.
+    pub fn erase_display(&mut self, mode: u32) {
+        let blank = self.blank();
+        let pos = self.y * self.cols + self.x;
+        match mode {
+            0 => self.cells[pos..].fill(blank),
+            1 => self.cells[..=pos].fill(blank),
+            _ => {
+                let used = (0..self.rows).rev().find(|&y| self.row(y).iter().any(|c| !c.is_blank()));
+                if let Some(last) = used {
+                    for y in 0..=last {
+                        let line = self.row(y).to_vec();
+                        self.push_scrollback(line);
+                    }
+                }
+                self.cells.fill(blank);
+                self.move_to(0, 0);
+            }
+        }
+        self.pending_wrap = false;
+    }
+
+    /// EL: 0 = cursor to end of line, 1 = start to cursor, 2 = whole line.
+    pub fn erase_line(&mut self, mode: u32) {
+        let blank = self.blank();
+        let start = self.y * self.cols;
+        let (a, b) = match mode {
+            0 => (self.x, self.cols),
+            1 => (0, self.x + 1),
+            _ => (0, self.cols),
+        };
+        self.cells[start + a..start + b].fill(blank);
+        self.pending_wrap = false;
+    }
+
+    /// ECH: blank `n` cells from the cursor without moving it.
+    pub fn erase_chars(&mut self, n: usize) {
+        let blank = self.blank();
+        let start = self.y * self.cols;
+        let end = (self.x + n).min(self.cols);
+        self.cells[start + self.x..start + end].fill(blank);
+    }
+
+    /// ICH: insert `n` blanks at the cursor, shifting the rest of the line right.
+    pub fn insert_chars(&mut self, n: usize) {
+        let blank = self.blank();
+        let start = self.y * self.cols;
+        let n = n.min(self.cols - self.x);
+        let line = &mut self.cells[start..start + self.cols];
+        line.copy_within(self.x..self.cols - n, self.x + n);
+        line[self.x..self.x + n].fill(blank);
+    }
+
+    /// DCH: delete `n` cells at the cursor, shifting the rest of the line left.
+    pub fn delete_chars(&mut self, n: usize) {
+        let blank = self.blank();
+        let start = self.y * self.cols;
+        let n = n.min(self.cols - self.x);
+        let line = &mut self.cells[start..start + self.cols];
+        line.copy_within(self.x + n.., self.x);
+        let cols = self.cols;
+        line[cols - n..].fill(blank);
+    }
+
+    /// IL: insert `n` lines at the cursor row (within the scroll region).
+    pub fn insert_lines(&mut self, n: usize) {
+        if self.y < self.scroll_top || self.y > self.scroll_bottom {
+            return;
+        }
+        let top = self.scroll_top;
+        self.scroll_top = self.y;
+        self.scroll_down(n);
+        self.scroll_top = top;
+        self.x = 0;
+    }
+
+    /// DL: delete `n` lines at the cursor row (within the scroll region).
+    pub fn delete_lines(&mut self, n: usize) {
+        if self.y < self.scroll_top || self.y > self.scroll_bottom {
+            return;
+        }
+        let (top, bottom) = (self.scroll_top, self.scroll_bottom);
+        // Temporarily narrow the region so scroll_up never feeds scrollback.
+        self.scroll_top = self.y;
+        let n = n.min(bottom - self.y + 1);
+        let c = self.cols;
+        self.cells.copy_within((self.y + n) * c..(bottom + 1) * c, self.y * c);
+        let blank = self.blank();
+        self.cells[(bottom + 1 - n) * c..(bottom + 1) * c].fill(blank);
+        self.scroll_top = top;
+        self.x = 0;
+    }
+
+    /// Write a string of CP437 glyphs directly at a position without moving
+    /// the cursor; used by the built-in text-mode UI.
+    pub fn draw_text(&mut self, x: usize, y: usize, text: &[u8], fg: Color, bg: Color) {
+        for (i, &ch) in text.iter().enumerate() {
+            if let Some(c) = self.cell_mut(x + i, y) {
+                *c = Cell::new(ch, fg, bg);
+            }
+        }
+    }
+
+    pub fn fill_rect(&mut self, x: usize, y: usize, w: usize, h: usize, cell: Cell) {
+        for yy in y..(y + h).min(self.rows) {
+            for xx in x..(x + w).min(self.cols) {
+                self.cells[yy * self.cols + xx] = cell;
+            }
+        }
+    }
+
+    /// Plain-text contents of a row, trailing blanks trimmed.
+    pub fn row_text(row: &[Cell]) -> String {
+        let s: String = row.iter().map(|c| crate::cp437::to_unicode(c.ch.max(b' '))).collect();
+        s.trim_end().to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn text(s: &Screen, y: usize) -> String {
+        Screen::row_text(s.row(y))
+    }
+
+    #[test]
+    fn delayed_wrap_at_last_column() {
+        let mut s = Screen::new(4, 3, 10);
+        for &b in b"abcd" {
+            s.put(b);
+        }
+        assert_eq!(s.cursor(), (3, 0));
+        s.carriage_return();
+        s.line_feed();
+        s.put(b'e');
+        assert_eq!(text(&s, 0), "abcd");
+        assert_eq!(text(&s, 1), "e");
+    }
+
+    #[test]
+    fn scrolling_feeds_scrollback() {
+        let mut s = Screen::new(4, 2, 10);
+        for &b in b"ab" {
+            s.put(b);
+            s.carriage_return();
+            s.line_feed();
+        }
+        assert_eq!(s.scrollback_len(), 1);
+        assert_eq!(Screen::row_text(s.scrollback_line(0)), "a");
+        assert_eq!(text(&s, 0), "b");
+    }
+
+    #[test]
+    fn clear_screen_saves_to_scrollback() {
+        let mut s = Screen::new(4, 3, 10);
+        s.put(b'x');
+        s.erase_display(2);
+        assert_eq!(s.scrollback_len(), 1);
+        assert_eq!(s.cursor(), (0, 0));
+    }
+
+    #[test]
+    fn insert_delete_chars() {
+        let mut s = Screen::new(5, 1, 0);
+        for &b in b"abcde" {
+            s.put(b);
+        }
+        s.move_to(1, 0);
+        s.delete_chars(2);
+        assert_eq!(text(&s, 0), "ade");
+        s.insert_chars(1);
+        assert_eq!(text(&s, 0), "a de");
+    }
+
+    #[test]
+    fn ice_colors_resolve() {
+        let c = Cell { ch: b'A', fg: Color::Pc(1), bg: Color::Pc(4), flags: flags::BOLD | flags::BLINK };
+        assert_eq!(c.resolve(false), (VGA[9], VGA[4], true));
+        assert_eq!(c.resolve(true), (VGA[9], VGA[12], false));
+    }
+}

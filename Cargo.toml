@@ -1,0 +1,27 @@
+[workspace]
+resolver = "3"
+members = ["crates/phosphor-core", "crates/phosphor"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://git.badcluster.dev/arelas/phosphor"
+rust-version = "1.85"
+
+[workspace.dependencies]
+phosphor-core = { path = "crates/phosphor-core" }
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "1.1"
+csv = "1.4"
+directories = "6.0"
+winit = "0.30.13"
+softbuffer = "0.4.8"
+arboard = { version = "3.7", default-features = false }
+
+[profile.release]
+lto = "thin"

@@ -1,0 +1,539 @@
+//! The windowed application: event loop handling, mode switching between the
+//! dialer and a live session, hotkeys, scrollback viewing and presentation.
+
+use std::num::NonZeroU32;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context as _, Result};
+use phosphor_core::dialer::{self, Directory, Entry};
+use phosphor_core::screen::{Cell, Screen};
+use phosphor_core::session::{self, NetEvent, Session, State};
+use phosphor_core::{Encoding, TermEvent, cp437};
+use winit::application::ApplicationHandler;
+use winit::dpi::PhysicalSize;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
+use winit::window::{Fullscreen, UserAttentionType, Window, WindowId};
+
+use crate::input::{self, Key, Mods};
+use crate::render::{Font, Frame, Renderer};
+use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
+use crate::ui::{self, format_date};
+
+const COLS: usize = 80;
+const ROWS: usize = 25;
+/// Terminal rows plus the status bar.
+const GRID_ROWS: usize = ROWS + 1;
+const SCROLLBACK_LINES: usize = 10_000;
+/// Cursor blink half-period; text blinks at half this rate.
+const TICK: Duration = Duration::from_millis(267);
+const NOTICE_TIME: Duration = Duration::from_secs(4);
+const HOTKEY: &str = if cfg!(target_os = "macos") { "Cmd" } else { "Alt" };
+
+pub enum UserEvent {
+    /// A network event for the session with this id.
+    Net(u64, NetEvent),
+}
+
+pub struct Paths {
+    pub directory: PathBuf,
+    pub captures: PathBuf,
+    /// Default location offered for import/export.
+    pub files: PathBuf,
+}
+
+impl Paths {
+    pub fn new() -> Paths {
+        let proj = directories::ProjectDirs::from("org", "Phosphor", "Phosphor");
+        let (config, data) = match &proj {
+            Some(p) => (p.config_dir().to_path_buf(), p.data_dir().to_path_buf()),
+            None => (PathBuf::from("."), PathBuf::from(".")),
+        };
+        let files = directories::UserDirs::new()
+            .map(|u| u.download_dir().unwrap_or(u.home_dir()).to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        Paths { directory: config.join("dialer.toml"), captures: data.join("captures"), files }
+    }
+}
+
+/// Load the dialing directory. A file that cannot be parsed is moved aside
+/// rather than overwritten, and the reason returned for display.
+pub fn load_directory(path: &std::path::Path) -> (Directory, Option<String>) {
+    match Directory::load(path) {
+        Ok(d) => (d, None),
+        Err(e) => {
+            let backup = path.with_extension(format!("toml.bad-{}", dialer::now()));
+            let moved = std::fs::rename(path, &backup).is_ok();
+            let mut msg = format!("Could not read the dialing directory: {e:#}.");
+            if moved {
+                msg.push_str(&format!(" It was moved to {}.", backup.display()));
+            }
+            (Directory::default(), Some(msg))
+        }
+    }
+}
+
+struct Gfx {
+    window: Rc<Window>,
+    surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
+    _context: softbuffer::Context<Rc<Window>>,
+}
+
+pub struct App {
+    proxy: EventLoopProxy<UserEvent>,
+    gfx: Option<Gfx>,
+    renderer: Renderer,
+    paths: Paths,
+    directory: Directory,
+    dialer: DialerUi,
+    dialer_screen: Screen,
+    status: Screen,
+    session: Option<Session>,
+    session_id: u64,
+    /// Directory index of the entry the session was dialed from.
+    session_index: Option<usize>,
+    /// Lines scrolled back from the live screen; 0 when live.
+    scroll: usize,
+    mods: ModifiersState,
+    tick: u64,
+    next_tick: Instant,
+    notice: Option<(String, Instant)>,
+    startup: Option<Entry>,
+}
+
+impl App {
+    pub fn new(proxy: EventLoopProxy<UserEvent>, paths: Paths, startup: Option<Entry>) -> App {
+        let (mut directory, load_error) = load_directory(&paths.directory);
+        directory.sort();
+        let mut dialer = DialerUi::new(paths.files.clone());
+        if let Some(msg) = load_error {
+            dialer.show_message(msg);
+        }
+        App {
+            proxy,
+            gfx: None,
+            renderer: Renderer::new(Font::vga_8x16(), COLS, GRID_ROWS),
+            paths,
+            directory,
+            dialer,
+            dialer_screen: Screen::new(dialer_ui::COLS, dialer_ui::ROWS, 0),
+            status: Screen::new(COLS, 1, 0),
+            session: None,
+            session_id: 0,
+            session_index: None,
+            scroll: 0,
+            mods: ModifiersState::empty(),
+            tick: 0,
+            next_tick: Instant::now() + TICK,
+            notice: None,
+            startup,
+        }
+    }
+
+    fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
+        let (nw, nh) = (self.renderer.native_width() as u32, self.renderer.native_height() as u32);
+        let attrs = Window::default_attributes()
+            .with_title("Phosphor")
+            .with_inner_size(PhysicalSize::new(nw * 2, nh * 2))
+            .with_min_inner_size(PhysicalSize::new(nw, nh));
+        let window = Rc::new(event_loop.create_window(attrs)?);
+        let context = softbuffer::Context::new(window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let surface = softbuffer::Surface::new(&context, window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.gfx = Some(Gfx { window, surface, _context: context });
+        Ok(())
+    }
+
+    fn request_redraw(&self) {
+        if let Some(g) = &self.gfx {
+            g.window.request_redraw();
+        }
+    }
+
+    fn set_title(&self, title: &str) {
+        if let Some(g) = &self.gfx {
+            g.window.set_title(title);
+        }
+    }
+
+    fn notify(&mut self, msg: impl Into<String>) {
+        self.notice = Some((msg.into(), Instant::now() + NOTICE_TIME));
+    }
+
+    fn save_directory(&mut self) {
+        if let Err(e) = self.directory.save(&self.paths.directory) {
+            self.dialer.show_message(format!("Could not save the dialing directory: {e:#}"));
+        }
+    }
+
+    fn connect(&mut self, entry: Entry, index: Option<usize>) {
+        let session = match Session::new(entry, COLS, ROWS, SCROLLBACK_LINES) {
+            Ok(s) => s,
+            Err(e) => return self.dialer.show_message(format!("{e:#}")),
+        };
+        self.session_id += 1;
+        let id = self.session_id;
+        let proxy = self.proxy.clone();
+        session::spawn_connection(session.entry.host.clone(), session.entry.port, move |ev| {
+            // Fails only when the event loop has exited.
+            let _ = proxy.send_event(UserEvent::Net(id, ev));
+        });
+        self.set_title(&format!("Phosphor \u{2014} {}", session.entry.name));
+        self.session = Some(session);
+        self.session_index = index;
+        self.scroll = 0;
+    }
+
+    fn hang_up(&mut self) {
+        self.session = None;
+        self.session_index = None;
+        self.scroll = 0;
+        self.set_title("Phosphor");
+    }
+
+    fn on_net(&mut self, id: u64, ev: NetEvent) {
+        let Some(session) = self.session.as_mut().filter(|_| id == self.session_id) else {
+            // A connection that finished after its session was abandoned.
+            if let NetEvent::Connected(stream) = ev {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
+            return;
+        };
+        let connected = matches!(ev, NetEvent::Connected(_));
+        session.handle(ev);
+        let events = session.take_events();
+        if connected && let Some(e) = self.session_index.and_then(|i| self.directory.entries.get_mut(i)) {
+            e.calls += 1;
+            e.last_connected = Some(dialer::now());
+            self.save_directory();
+        }
+        for ev in events {
+            match ev {
+                TermEvent::Bell => {
+                    if let Some(g) = self.gfx.as_ref().filter(|g| !g.window.has_focus()) {
+                        g.window.request_user_attention(Some(UserAttentionType::Informational));
+                    }
+                }
+                TermEvent::Title(t) => self.set_title(&format!("Phosphor \u{2014} {t}")),
+            }
+        }
+        self.request_redraw();
+    }
+
+    fn on_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
+        let mods = Mods::from(self.mods);
+        if mods.hotkey()
+            && let PhysicalKey::Code(code) = event.physical_key
+            && self.hotkey(event_loop, code)
+        {
+            return self.request_redraw();
+        }
+        let Some(key) = input::translate(event) else { return };
+        if self.session.is_some() {
+            self.terminal_key(key, mods);
+        } else {
+            match self.dialer.handle_key(key, mods, &mut self.directory) {
+                Action::None => {}
+                Action::Connect(i) => {
+                    let e = self.directory.entries[i].clone();
+                    self.connect(e, Some(i));
+                }
+                Action::QuickConnect(e) => self.connect(e, None),
+                Action::Changed => self.save_directory(),
+                Action::Quit => event_loop.exit(),
+            }
+        }
+        self.request_redraw();
+    }
+
+    /// Client hotkeys (Alt, or Cmd on macOS). Returns true if handled.
+    fn hotkey(&mut self, event_loop: &ActiveEventLoop, code: KeyCode) -> bool {
+        match code {
+            KeyCode::Enter | KeyCode::NumpadEnter => {
+                if let Some(g) = &self.gfx {
+                    let fs = g.window.fullscreen().is_none().then_some(Fullscreen::Borderless(None));
+                    g.window.set_fullscreen(fs);
+                }
+                return true;
+            }
+            KeyCode::KeyX => {
+                event_loop.exit();
+                return true;
+            }
+            _ => {}
+        }
+        let Some(session) = self.session.as_mut() else { return false };
+        match code {
+            KeyCode::KeyH => self.hang_up(),
+            KeyCode::KeyB => self.scroll = self.scroll.max(1).max(ROWS.min(session.term.screen.scrollback_len())),
+            KeyCode::KeyI => {
+                let s = &mut session.term.screen;
+                s.ice_colors = !s.ice_colors;
+                let msg = if s.ice_colors { "iCE colors on" } else { "iCE colors off (blinking)" };
+                self.notify(msg);
+            }
+            KeyCode::KeyE => {
+                let t = &mut session.term;
+                t.encoding = match t.encoding {
+                    Encoding::Cp437 => Encoding::Utf8,
+                    Encoding::Utf8 => Encoding::Cp437,
+                };
+                let msg = format!("Encoding: {}", t.encoding.name());
+                self.notify(msg);
+            }
+            KeyCode::KeyC => self.toggle_capture(),
+            KeyCode::KeyV => self.paste(),
+            _ => return false,
+        }
+        true
+    }
+
+    fn toggle_capture(&mut self) {
+        let Some(session) = self.session.as_mut() else { return };
+        if session.capture_path().is_some() {
+            session.stop_capture();
+            return self.notify("Capture stopped");
+        }
+        let now = dialer::now();
+        let name: String = session.entry.name.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
+        let path = self.paths.captures.join(format!("{name}-{}-{}.ans", format_date(now), now % 86_400));
+        let msg = match session.start_capture(path.clone()) {
+            Ok(()) => format!("Capturing to {}", path.display()),
+            Err(e) => format!("Capture failed: {e:#}"),
+        };
+        self.notify(msg);
+    }
+
+    fn paste(&mut self) {
+        let Some(session) = self.session.as_mut() else { return };
+        let text = match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
+            Ok(t) => t,
+            Err(e) => return self.notify(format!("Paste failed: {e}")),
+        };
+        let text = text.replace("\r\n", "\r").replace('\n', "\r");
+        let bytes = match session.term.encoding {
+            Encoding::Cp437 => cp437::encode(&text),
+            Encoding::Utf8 => text.into_bytes(),
+        };
+        session.send(&bytes);
+    }
+
+    fn terminal_key(&mut self, key: Key, mods: Mods) {
+        let Some(session) = self.session.as_mut() else { return };
+        if session.state == State::Closed {
+            return self.hang_up();
+        }
+        let max = session.term.screen.scrollback_len();
+        if self.scroll > 0 {
+            self.scroll = match key {
+                Key::Up => self.scroll + 1,
+                Key::Down => self.scroll - 1,
+                Key::PageUp => self.scroll + ROWS,
+                Key::PageDown => self.scroll.saturating_sub(ROWS),
+                Key::Home => max,
+                _ => 0,
+            }
+            .min(max);
+            return;
+        }
+        match key {
+            Key::PageUp if mods.shift => self.scroll = ROWS.min(max),
+            Key::Insert if mods.shift => self.paste(),
+            _ => {
+                let bytes = input::encode(key, mods, session.term.encoding);
+                if !bytes.is_empty() {
+                    session.send(&bytes);
+                }
+            }
+        }
+    }
+
+    fn on_wheel(&mut self, lines: isize) {
+        if let Some(s) = &self.session {
+            let max = s.term.screen.scrollback_len() as isize;
+            self.scroll = (self.scroll as isize + lines).clamp(0, max) as usize;
+            self.request_redraw();
+        }
+    }
+
+    fn draw_status(&mut self) {
+        let (fg, bg) = (ui::WHITE, ui::BLUE);
+        let s = &mut self.status;
+        s.fill_rect(0, 0, COLS, 1, Cell::new(b' ', fg, bg));
+        let notice = self.notice.as_ref().filter(|(_, until)| Instant::now() < *until).map(|(m, _)| m.clone());
+        let Some(session) = &self.session else {
+            let help = notice.unwrap_or_else(|| self.dialer.status_help().to_string());
+            return ui::text(s, 0, 0, COLS, &format!(" {help}"), fg, bg);
+        };
+        let screen = &session.term.screen;
+        if self.scroll > 0 {
+            let line = format!(
+                " SCROLLBACK {}/{}  \u{2191}\u{2193} PgUp PgDn Home  Any other key returns",
+                self.scroll,
+                screen.scrollback_len()
+            );
+            return ui::text(s, 0, 0, COLS, &line, ui::BLACK, ui::CYAN);
+        }
+        let e = &session.entry;
+        let line = match session.state {
+            State::Connecting => format!(" Connecting to {}...  {HOTKEY}-H cancel", e.address()),
+            State::Closed => match &session.error {
+                Some(err) => format!(" Connection failed: {err} \u{2502} Press any key"),
+                None => " Disconnected \u{2502} Press any key to return to the dialer".to_string(),
+            },
+            State::Connected => {
+                let t = session.elapsed().as_secs();
+                let mut flags = String::new();
+                if screen.ice_colors {
+                    flags.push_str(" iCE");
+                }
+                if session.capture_path().is_some() {
+                    flags.push_str(" CAP");
+                }
+                let right = notice.unwrap_or_else(|| format!("{HOTKEY}: H Hangup B Back I iCE C Cap V Paste X Exit"));
+                format!(
+                    " {} \u{2502} {} {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
+                    truncate(&e.name, 20),
+                    e.protocol.name(),
+                    session.term.encoding.name(),
+                    t / 3600,
+                    t / 60 % 60,
+                    t % 60,
+                    flags
+                )
+            }
+        };
+        ui::text(s, 0, 0, COLS, &line, fg, bg);
+    }
+
+    fn redraw(&mut self) {
+        self.draw_status();
+        let dialer_cursor = match &self.session {
+            None => self.dialer.draw(&mut self.dialer_screen, &self.directory),
+            Some(_) => None,
+        };
+        let Some(gfx) = self.gfx.as_mut() else { return };
+        let size = gfx.window.inner_size();
+        let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
+
+        let frame = match &self.session {
+            Some(session) => {
+                let sc = &session.term.screen;
+                let sb = sc.scrollback_len();
+                let off = self.scroll.min(sb);
+                let top = sb - off;
+                let mut rows: Vec<&[Cell]> =
+                    (top..top + ROWS).map(|i| if i < sb { sc.scrollback_line(i) } else { sc.row(i - sb) }).collect();
+                rows.push(self.status.row(0));
+                let cursor = (off == 0 && sc.cursor_visible && session.state == State::Connected).then(|| sc.cursor());
+                Frame { rows, cursor, ice: sc.ice_colors }
+            }
+            None => {
+                let mut rows: Vec<&[Cell]> = (0..dialer_ui::ROWS).map(|y| self.dialer_screen.row(y)).collect();
+                rows.push(self.status.row(0));
+                Frame { rows, cursor: dialer_cursor, ice: true }
+            }
+        };
+        self.renderer.draw(&frame, (self.tick / 2) % 2 == 0, self.tick % 2 == 0);
+
+        if let Err(e) = gfx.surface.resize(w, h) {
+            return log::error!("resizing surface: {e}");
+        }
+        match gfx.surface.buffer_mut() {
+            Ok(mut buf) => {
+                self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize);
+                if let Err(e) = buf.present() {
+                    log::error!("presenting frame: {e}");
+                }
+            }
+            Err(e) => log::error!("getting frame buffer: {e}"),
+        }
+    }
+}
+
+impl ApplicationHandler<UserEvent> for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.gfx.is_some() {
+            return;
+        }
+        if let Err(e) = self.create_window(event_loop) {
+            log::error!("creating window: {e:#}");
+            return event_loop.exit();
+        }
+        if let Some(e) = self.startup.take() {
+            let index =
+                self.directory.entries.iter().position(|x| x.host.eq_ignore_ascii_case(&e.host) && x.port == e.port);
+            match index {
+                Some(i) => {
+                    let e = self.directory.entries[i].clone();
+                    self.connect(e, Some(i));
+                }
+                None => self.connect(e, None),
+            }
+        }
+    }
+
+    fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            UserEvent::Net(id, ev) => self.on_net(id, ev),
+        }
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(_) => self.request_redraw(),
+            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                self.on_key(event_loop, &event)
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => (y * 3.0) as isize,
+                    MouseScrollDelta::PixelDelta(p) => (p.y / 16.0) as isize,
+                };
+                self.on_wheel(lines);
+            }
+            WindowEvent::DroppedFile(path) if self.session.is_none() => {
+                // Dropping a directory file onto the dialer imports it.
+                match dialer::import(&path) {
+                    Ok(entries) => {
+                        let added = self.directory.merge(entries);
+                        self.save_directory();
+                        self.dialer.show_message(format!("Imported {added} new entries from {}", path.display()));
+                    }
+                    Err(e) => self.dialer.show_message(format!("Import failed: {e:#}")),
+                }
+                self.request_redraw();
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        if now >= self.next_tick {
+            self.tick += 1;
+            self.next_tick = now + TICK;
+            self.request_redraw();
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_tick));
+    }
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+/// Headless import used by the command line.
+pub fn import_into_directory(paths: &Paths, file: &std::path::Path) -> Result<(usize, usize)> {
+    let mut dir = Directory::load(&paths.directory)?;
+    let entries = dialer::import(file)?;
+    let total = entries.len();
+    let added = dir.merge(entries);
+    dir.save(&paths.directory).context("saving dialing directory")?;
+    Ok((added, total))
+}
