@@ -56,7 +56,7 @@ supported and loaded at runtime.
 ## Usage
 
 ```
-phosphor                         open the dialing directory
+phosphor                         start, not connected (Alt-D opens the dialing directory)
 phosphor bbs.example.org         connect directly (also host:port,
                                  telnet://host:port, raw://host:port,
                                  ssh://user@host:port)
@@ -71,6 +71,10 @@ command-line output can appear after the next prompt. Use
 
 ### Dialing directory keys
 
+Open the dialing directory with `Alt-D` (`Cmd-D` on macOS) at any time. If you
+are connected, the call stays up behind it, and dialing another BBS asks before
+hanging up.
+
 | Key | Action |
 | --- | --- |
 | `Enter` | Dial the selected entry |
@@ -80,15 +84,17 @@ command-line output can appear after the next prompt. Use
 | `Q` | Quick connect to an address |
 | `I` / `X` | Import / export a directory file |
 | letter or digit | Jump to the next entry starting with it |
-| `Esc` | Quit |
+| `Esc` | Close the dialing directory |
 
-### Online hotkeys
+### Hotkeys
 
-On macOS use `Cmd` in place of `Alt`.
+Every client command is on `Alt` (on macOS, `Cmd`, since Option types
+characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 
 | Key | Action |
 | --- | --- |
-| `Alt-H` | Hang up and return to the dialer |
+| `Alt-D` | Open or close the dialing directory |
+| `Alt-H` | Hang up (or clear a finished call from the screen) |
 | `Alt-B`, `Shift-PgUp`, mouse wheel | Scrollback (arrows, `PgUp`/`PgDn`, `Home`; any other key returns) |
 | `Alt-I` | Toggle iCE colors / blinking |
 | `Alt-E` | Toggle CP437 / UTF-8 |

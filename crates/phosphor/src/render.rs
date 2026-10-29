@@ -207,5 +207,16 @@ mod tests {
         let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
         r.draw(&Frame { rows, cursor: None, ice: true }, true, true);
         write_ppm(&r, &dir.join("dialer.ppm"));
+
+        ui.confirm_hang_up("Example BBS", "another.example.com");
+        ui.draw(&mut s, &d);
+        let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+        r.draw(&Frame { rows, cursor: None, ice: true }, true, true);
+        write_ppm(&r, &dir.join("hangup.ppm"));
+
+        let idle = crate::app::idle_screen();
+        let rows: Vec<&[Cell]> = (0..25).map(|y| idle.row(y)).collect();
+        r.draw(&Frame { rows, cursor: None, ice: true }, true, true);
+        write_ppm(&r, &dir.join("idle.ppm"));
     }
 }

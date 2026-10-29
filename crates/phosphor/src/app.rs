@@ -103,6 +103,13 @@ pub struct App {
     directory: Directory,
     dialer: DialerUi,
     dialer_screen: Screen,
+    /// Whether the dialing directory is showing (Alt-D). It opens over a live
+    /// session without disturbing it.
+    dialer_open: bool,
+    /// An entry chosen while connected, waiting for the hang-up confirmation.
+    pending_dial: Option<(Entry, Option<usize>)>,
+    /// What shows when there is no session and the dialer is closed.
+    idle_screen: Screen,
     status: Screen,
     /// The terminal with a dialog drawn over it.
     overlay: Screen,
@@ -127,6 +134,9 @@ impl App {
         let (mut directory, load_error) = load_directory(&paths.directory);
         directory.sort();
         let mut dialer = DialerUi::new(paths.files.clone());
+        // The app starts on the idle screen; the dialer opens only to show a
+        // problem with the directory file.
+        let dialer_open = load_error.is_some();
         if let Some(msg) = load_error {
             dialer.show_message(msg);
         }
@@ -138,6 +148,9 @@ impl App {
             directory,
             dialer,
             dialer_screen: Screen::new(dialer_ui::COLS, dialer_ui::ROWS, 0),
+            dialer_open,
+            pending_dial: None,
+            idle_screen: idle_screen(),
             status: Screen::new(COLS, 1, 0),
             overlay: Screen::new(COLS, ROWS, 0),
             upload_prompt: None,
@@ -197,8 +210,12 @@ impl App {
         };
         let session = match Session::new(entry, COLS, ROWS, config) {
             Ok(s) => s,
-            Err(e) => return self.dialer.show_message(format!("{e:#}")),
+            Err(e) => {
+                self.dialer_open = true;
+                return self.dialer.show_message(format!("{e:#}"));
+            }
         };
+        self.dialer_open = false;
         self.session_id += 1;
         let id = self.session_id;
         let proxy = self.proxy.clone();
@@ -210,6 +227,18 @@ impl App {
         self.session = Some(session);
         self.session_index = index;
         self.scroll = 0;
+    }
+
+    /// Dial from the directory: straight away, or after confirming that the
+    /// live call should be hung up.
+    fn dial(&mut self, entry: Entry, index: Option<usize>) {
+        match &self.session {
+            Some(s) if s.state != State::Closed => {
+                self.dialer.confirm_hang_up(&s.entry.name, &entry.name);
+                self.pending_dial = Some((entry, index));
+            }
+            _ => self.connect(entry, index),
+        }
     }
 
     fn hang_up(&mut self) {
@@ -251,12 +280,16 @@ impl App {
                 }
                 SessionEvent::Term(TermEvent::Title(t)) => self.set_title(&format!("Phosphor \u{2014} {t}")),
                 SessionEvent::Notice(msg) => self.notify(msg),
+                // Both need the terminal view (the prompt and progress window
+                // live there), so they close the dialer if it is open.
                 SessionEvent::UploadRequested => {
+                    self.dialer_open = false;
                     self.scroll = 0;
                     self.upload_prompt = Some(UploadPrompt::new(true));
                     self.attention();
                 }
                 SessionEvent::TransferStarted => {
+                    self.dialer_open = false;
                     self.scroll = 0;
                     self.upload_prompt = None;
                     self.transfer_direction =
@@ -315,7 +348,9 @@ impl App {
             return self.request_redraw();
         }
         let Some(key) = input::translate(event) else { return };
-        if self.upload_prompt.is_some() {
+        if self.dialer_open {
+            self.dialer_key(key, mods);
+        } else if self.upload_prompt.is_some() {
             self.prompt_key(key, mods);
         } else if self.session.as_ref().is_some_and(|s| s.transfer().is_some()) {
             if key == Key::Escape
@@ -326,19 +361,32 @@ impl App {
             }
         } else if self.session.is_some() {
             self.terminal_key(key, mods);
-        } else {
-            match self.dialer.handle_key(key, mods, &mut self.directory) {
-                Action::None => {}
-                Action::Connect(i) => {
-                    let e = self.directory.entries[i].clone();
-                    self.connect(e, Some(i));
+        }
+        // With no session and the dialer closed (the idle screen), only the
+        // hotkeys do anything.
+        self.request_redraw();
+    }
+
+    fn dialer_key(&mut self, key: Key, mods: Mods) {
+        match self.dialer.handle_key(key, mods, &mut self.directory) {
+            Action::None => {}
+            Action::Connect(i) => {
+                let e = self.directory.entries[i].clone();
+                self.dial(e, Some(i));
+            }
+            Action::QuickConnect(e) => self.dial(e, None),
+            Action::Changed => self.save_directory(),
+            Action::HangUpAndDial => {
+                if let Some((e, i)) = self.pending_dial.take() {
+                    self.hang_up();
+                    self.connect(e, i);
                 }
-                Action::QuickConnect(e) => self.connect(e, None),
-                Action::Changed => self.save_directory(),
-                Action::Quit => event_loop.exit(),
+            }
+            Action::Close => {
+                self.dialer_open = false;
+                self.pending_dial = None;
             }
         }
-        self.request_redraw();
     }
 
     /// Client hotkeys (Alt, or Cmd on macOS). Returns true if handled.
@@ -355,7 +403,19 @@ impl App {
                 event_loop.exit();
                 return true;
             }
+            // The dialing directory, from anywhere; the session (if any)
+            // stays connected behind it.
+            KeyCode::KeyD => {
+                self.dialer_open = !self.dialer_open;
+                self.pending_dial = None;
+                return true;
+            }
             _ => {}
+        }
+        // Session hotkeys act on what is on screen, so they are swallowed
+        // while the dialer covers the session.
+        if self.dialer_open {
+            return true;
         }
         let Some(session) = self.session.as_mut() else { return false };
         match code {
@@ -447,9 +507,8 @@ impl App {
 
     fn terminal_key(&mut self, key: Key, mods: Mods) {
         let Some(session) = self.session.as_mut() else { return };
-        if session.state == State::Closed {
-            return self.hang_up();
-        }
+        // A finished call stays on screen to be read (and scrolled back)
+        // until Alt-H clears it or another call is dialed.
         let max = session.term.screen.scrollback_len();
         if self.scroll > 0 {
             self.scroll = match key {
@@ -465,6 +524,7 @@ impl App {
         }
         match key {
             Key::PageUp if mods.shift => self.scroll = ROWS.min(max),
+            _ if session.state == State::Closed => {}
             Key::Insert if mods.shift => self.paste(),
             _ => {
                 let bytes = input::encode(key, mods, session.term.encoding);
@@ -476,7 +536,7 @@ impl App {
     }
 
     fn on_wheel(&mut self, lines: isize) {
-        if let Some(s) = &self.session {
+        if let Some(s) = self.session.as_ref().filter(|_| !self.dialer_open) {
             let max = s.term.screen.scrollback_len() as isize;
             self.scroll = (self.scroll as isize + lines).clamp(0, max) as usize;
             self.request_redraw();
@@ -488,9 +548,13 @@ impl App {
         let s = &mut self.status;
         s.fill_rect(0, 0, COLS, 1, Cell::new(b' ', fg, bg));
         let notice = self.notice.as_ref().filter(|(_, until)| Instant::now() < *until).map(|(m, _)| m.clone());
-        let Some(session) = &self.session else {
+        if self.dialer_open {
             let help = notice.unwrap_or_else(|| self.dialer.status_help().to_string());
             return ui::text(s, 0, 0, COLS, &format!(" {help}"), fg, bg);
+        }
+        let Some(session) = &self.session else {
+            let help = notice.unwrap_or_else(|| format!("{HOTKEY}-D Dialing directory  {HOTKEY}-X Exit"));
+            return ui::text(s, 0, 0, COLS, &format!(" Not connected \u{2502} {help}"), fg, bg);
         };
         let screen = &session.term.screen;
         if self.scroll > 0 {
@@ -509,8 +573,10 @@ impl App {
         let line = match session.state {
             State::Connecting => format!(" Connecting to {}...  {HOTKEY}-H cancel", e.address()),
             State::Closed => match &session.error {
-                Some(err) => format!(" Connection failed: {err} \u{2502} Press any key"),
-                None => " Disconnected \u{2502} Press any key to return to the dialer".to_string(),
+                Some(err) => format!(" Connection failed: {err} \u{2502} {HOTKEY}-D Dialing directory"),
+                None => {
+                    format!(" Disconnected \u{2502} {HOTKEY}-D Dialing directory  {HOTKEY}-H Clear  {HOTKEY}-B Back")
+                }
             },
             State::Connected => {
                 let t = session.elapsed().as_secs();
@@ -521,12 +587,10 @@ impl App {
                 if session.capture_path().is_some() {
                     flags.push_str(" CAP");
                 }
-                let right = notice.unwrap_or_else(|| format!("{HOTKEY}: H Hangup B Back U Upload I iCE C Cap X Exit"));
+                let right = notice.unwrap_or_else(|| format!("{HOTKEY}: D Dir H Hangup B Back U Upload X Exit"));
                 format!(
-                    " {} \u{2502} {} {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
-                    truncate(&e.name, 20),
-                    e.protocol.name(),
-                    session.term.encoding.name(),
+                    " {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
+                    truncate(&e.name, 16),
                     t / 3600,
                     t / 60 % 60,
                     t % 60,
@@ -539,10 +603,8 @@ impl App {
 
     fn redraw(&mut self) {
         self.draw_status();
-        let dialer_cursor = match &self.session {
-            None => self.dialer.draw(&mut self.dialer_screen, &self.directory),
-            Some(_) => None,
-        };
+        let dialer_cursor =
+            if self.dialer_open { self.dialer.draw(&mut self.dialer_screen, &self.directory) } else { None };
         let Some(gfx) = self.gfx.as_mut() else { return };
         let size = gfx.window.inner_size();
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
@@ -570,6 +632,11 @@ impl App {
         };
 
         let frame = match &self.session {
+            _ if self.dialer_open => {
+                let mut rows: Vec<&[Cell]> = (0..dialer_ui::ROWS).map(|y| self.dialer_screen.row(y)).collect();
+                rows.push(self.status.row(0));
+                Frame { rows, cursor: dialer_cursor, ice: true }
+            }
             Some(session) if overlay => {
                 let mut rows: Vec<&[Cell]> = (0..ROWS).map(|y| self.overlay.row(y)).collect();
                 rows.push(self.status.row(0));
@@ -587,9 +654,9 @@ impl App {
                 Frame { rows, cursor, ice: sc.ice_colors }
             }
             None => {
-                let mut rows: Vec<&[Cell]> = (0..dialer_ui::ROWS).map(|y| self.dialer_screen.row(y)).collect();
+                let mut rows: Vec<&[Cell]> = (0..ROWS).map(|y| self.idle_screen.row(y)).collect();
                 rows.push(self.status.row(0));
-                Frame { rows, cursor: dialer_cursor, ice: true }
+                Frame { rows, cursor: None, ice: true }
             }
         };
         self.renderer.draw(&frame, (self.tick / 2).is_multiple_of(2), self.tick.is_multiple_of(2));
@@ -653,8 +720,10 @@ impl ApplicationHandler<UserEvent> for App {
                 };
                 self.on_wheel(lines);
             }
-            WindowEvent::DroppedFile(path) if self.session.is_none() => {
-                // Dropping a directory file onto the dialer imports it.
+            WindowEvent::DroppedFile(path) if self.session.is_none() || self.dialer_open => {
+                // Dropping a directory file onto the dialer (or the idle
+                // screen) imports it, and shows the dialer with the result.
+                self.dialer_open = true;
                 match dialer::import(&path) {
                     Ok(entries) => {
                         let added = self.directory.merge(entries);
@@ -692,6 +761,19 @@ impl ApplicationHandler<UserEvent> for App {
 
 fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
+}
+
+/// The screen shown with no session and the dialer closed: blank, with a
+/// hint in the middle (the status bar repeats it).
+pub(crate) fn idle_screen() -> Screen {
+    let mut s = Screen::new(COLS, ROWS, 0);
+    let lines =
+        [("Phosphor".to_string(), ui::LIGHT_CYAN), (format!("{HOTKEY}-D opens the dialing directory"), ui::GRAY)];
+    for (i, (text, fg)) in lines.iter().enumerate() {
+        let x = (COLS - text.chars().count()) / 2;
+        ui::label(&mut s, x, ROWS / 2 - 1 + i * 2, text, *fg, ui::BLACK);
+    }
+    s
 }
 
 /// Headless import used by the command line.

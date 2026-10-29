@@ -24,7 +24,10 @@ pub enum Action {
     QuickConnect(Entry),
     /// The directory changed and should be saved.
     Changed,
-    Quit,
+    /// The user confirmed hanging up the current call to dial the one chosen.
+    HangUpAndDial,
+    /// Close the dialing directory.
+    Close,
 }
 
 const FIELDS: [&str; 9] =
@@ -115,6 +118,8 @@ enum Mode {
     Edit(Box<Form>),
     Prompt(PromptKind, TextField),
     ConfirmDelete,
+    /// Dialing while connected: asks before hanging up the current call.
+    ConfirmHangUp(String),
     Message(String),
 }
 
@@ -135,12 +140,20 @@ impl DialerUi {
         self.mode = Mode::Message(msg.into());
     }
 
+    /// Ask whether to hang up `current` to dial `next`; answers with
+    /// [`Action::HangUpAndDial`] on yes.
+    pub fn confirm_hang_up(&mut self, current: &str, next: &str) {
+        let msg = format!("Hang up {} and dial {}? (Y/N)", truncate(current, 24), truncate(next, 24));
+        self.mode = Mode::ConfirmHangUp(msg);
+    }
+
     pub fn status_help(&self) -> &'static str {
         match self.mode {
-            Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  Q Quick  I Import  X Export  Esc Quit",
+            Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  Q Quick  I Import  X Export  Esc Close",
             Mode::Edit(_) => "Enter Save  Esc Cancel  Tab/\u{2191}\u{2193} Field  Space/\u{2190}\u{2192} Change option",
             Mode::Prompt(..) => "Enter OK  Esc Cancel",
             Mode::ConfirmDelete => "Y Delete  N Keep",
+            Mode::ConfirmHangUp(_) => "Y Hang up and dial  N Stay connected",
             Mode::Message(_) => "Press any key",
         }
     }
@@ -176,7 +189,7 @@ impl DialerUi {
                     let p = self.files_dir.join("phosphor-export.lst");
                     self.mode = Mode::Prompt(PromptKind::Export, TextField::new(&p.to_string_lossy(), 400));
                 }
-                Key::Escape => return Action::Quit,
+                Key::Escape => return Action::Close,
                 Key::Char(c) if c.is_alphanumeric() => {
                     // Jump to the next entry starting with the typed character.
                     let c = c.to_ascii_lowercase();
@@ -253,6 +266,12 @@ impl DialerUi {
                     return Action::Changed;
                 }
                 self.mode = Mode::List;
+            }
+            Mode::ConfirmHangUp(_) => {
+                self.mode = Mode::List;
+                if let Key::Char('y' | 'Y') = key {
+                    return Action::HangUpAndDial;
+                }
             }
             Mode::Message(_) => self.mode = Mode::List,
         }
@@ -397,6 +416,10 @@ impl DialerUi {
                 message_box(s, "Confirm", &msg);
                 None
             }
+            Mode::ConfirmHangUp(msg) => {
+                message_box(s, "Still connected", msg);
+                None
+            }
             Mode::Message(msg) => {
                 message_box(s, "Phosphor", msg);
                 None
@@ -475,5 +498,46 @@ fn truncate(s: &str, n: usize) -> String {
         let mut t: String = s.chars().take(n - 1).collect();
         t.push('\u{00BB}');
         t
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dir() -> Directory {
+        let mut d = Directory::default();
+        d.merge(vec![
+            Entry::from_address("alpha.example.org").unwrap(),
+            Entry::from_address("beta.example.org").unwrap(),
+        ]);
+        d
+    }
+
+    fn key(ui: &mut DialerUi, d: &mut Directory, k: Key) -> Action {
+        ui.handle_key(k, Mods::default(), d)
+    }
+
+    #[test]
+    fn escape_closes_instead_of_quitting() {
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new()), dir());
+        assert!(matches!(key(&mut ui, &mut d, Key::Escape), Action::Close));
+    }
+
+    #[test]
+    fn hang_up_confirmation() {
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new()), dir());
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(0)));
+
+        ui.confirm_hang_up("Alpha", "Beta");
+        assert_eq!(ui.status_help(), "Y Hang up and dial  N Stay connected");
+        assert!(matches!(key(&mut ui, &mut d, Key::Char('y')), Action::HangUpAndDial));
+        // Back to the list afterwards.
+        assert!(matches!(key(&mut ui, &mut d, Key::Escape), Action::Close));
+
+        // Anything but Y keeps the call and returns to the list.
+        ui.confirm_hang_up("Alpha", "Beta");
+        assert!(matches!(key(&mut ui, &mut d, Key::Char('n')), Action::None));
+        assert!(ui.status_help().starts_with("Enter Dial"));
     }
 }
