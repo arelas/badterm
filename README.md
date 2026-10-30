@@ -217,7 +217,11 @@ that BBS's mode rather than the global one. Its "iCE colors" setting is Auto (th
 turns them on with `CSI ?33h`, as before), On or Off; with On or Off, `Alt-I`
 changes that BBS's setting too.
 
-`Alt-O` (or `O` in the dialing directory) opens the settings: phosphor
+`Alt-O` (or `O` in the dialing directory) opens the settings, on four
+tabs (`Tab` and `Shift-Tab`, or `PgUp`/`PgDn`, move between them).
+**Folders** sets where downloads, captures and saved screens go and where
+the upload and ANSI-art pickers start (`Enter` to change, `Del` for the
+default). The others: phosphor
 mode and its scanlines (off, light, medium or strong), character cells, pixel shape, ANSI music, redialing, and the colors
 of Phosphor's own screens. Pick one of the color schemes (Classic blue,
 Midnight, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit

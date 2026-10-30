@@ -26,7 +26,7 @@ use crate::input::{self, Key, Mods};
 use crate::render::{Display, Font, Frame, Renderer, Scaling};
 use crate::secrets::{self, Keychain, Store};
 use crate::selection::Selection;
-use crate::settings::{Music, Settings};
+use crate::settings::{Folders, Music, Settings};
 use crate::sound::Player;
 use crate::ui::art::{self as art_ui, ArtAction, ArtView};
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
@@ -285,7 +285,7 @@ impl App {
             overlay: Screen::new(COLS, ROWS, 0),
             upload_prompt: None,
             download_prompt: None,
-            upload_dir: std::env::home_dir().unwrap_or_else(|| PathBuf::from(".")),
+            upload_dir: PathBuf::new(),
             upload_protocol: 0,
             download_protocol: 0,
             save_prompt: None,
@@ -378,7 +378,7 @@ impl App {
         let config = SessionConfig {
             scrollback: SCROLLBACK_LINES,
             known_hosts: self.paths.known_hosts.clone(),
-            download_dir: self.paths.downloads.clone(),
+            download_dir: self.folder(Folders::DOWNLOADS),
             ssh_agent: true,
             ssh_key_dir: self.paths.ssh_keys.clone(),
         };
@@ -562,7 +562,7 @@ impl App {
             (Outcome::Completed(files), Some(Direction::Download)) => match files.as_slice() {
                 [] => "Download finished; no files were sent".into(),
                 [one] => format!("Downloaded {}", one.display()),
-                many => format!("Downloaded {} files to {}", many.len(), self.paths.downloads.display()),
+                many => format!("Downloaded {} files to {}", many.len(), self.folder(Folders::DOWNLOADS).display()),
             },
             (Outcome::Completed(files), _) => match files.as_slice() {
                 [one] => format!("Uploaded {}", one.file_name().unwrap_or_default().to_string_lossy()),
@@ -847,7 +847,8 @@ impl App {
             KeyCode::KeyC => self.toggle_capture(),
             KeyCode::KeyS => {
                 let now = dialer::now();
-                let path = self.paths.downloads.join(format!("{}-{}.ans", file_stem(&session.entry.name), stamp(now)));
+                let name = format!("{}-{}.ans", file_stem(&session.entry.name), stamp(now));
+                let path = self.folder(Folders::SAVES).join(name);
                 self.upload_prompt = None;
                 self.save_prompt = Some(SavePrompt::new(&path));
             }
@@ -921,13 +922,27 @@ impl App {
         self.own_crt_mode().unwrap_or(self.settings.crt)
     }
 
+    /// Where Phosphor puts things, or starts looking, when the settings
+    /// don't say (`Folders` order).
+    fn default_folder(&self, i: usize) -> PathBuf {
+        match i {
+            Folders::DOWNLOADS => self.paths.downloads.clone(),
+            Folders::CAPTURES => self.paths.captures.clone(),
+            Folders::UPLOADS => std::env::home_dir().unwrap_or_else(|| PathBuf::from(".")),
+            // Saved screens and the art picker go with the downloads.
+            _ => self.folder(Folders::DOWNLOADS),
+        }
+    }
+
+    /// A folder: the one chosen in the settings, or the default.
+    fn folder(&self, i: usize) -> PathBuf {
+        self.settings.folders.get(i).cloned().unwrap_or_else(|| self.default_folder(i))
+    }
+
     fn open_art_picker(&mut self) {
         if self.art_dir.as_os_str().is_empty() {
-            self.art_dir = if self.paths.downloads.is_dir() {
-                self.paths.downloads.clone()
-            } else {
-                std::env::home_dir().unwrap_or_else(|| PathBuf::from("."))
-            };
+            let art = self.folder(Folders::ART);
+            self.art_dir = if art.is_dir() { art } else { std::env::home_dir().unwrap_or_else(|| PathBuf::from(".")) };
         }
         self.art_picker = Some(FilePicker::new(self.art_dir.clone(), false, art_ui::EXTENSIONS));
         self.help_open = false;
@@ -963,7 +978,8 @@ impl App {
     }
 
     fn open_settings(&mut self) {
-        self.settings_ui.open(theme::user_themes(&self.paths.themes), bezel::names(&self.paths.bezels));
+        let defaults = (0..Folders::NAMES.len()).map(|i| self.default_folder(i)).collect();
+        self.settings_ui.open(theme::user_themes(&self.paths.themes), bezel::names(&self.paths.bezels), defaults);
         self.settings_open = true;
         self.help_open = false;
     }
@@ -1053,6 +1069,9 @@ impl App {
 
     /// Put changed settings into effect, and save them.
     fn apply_settings(&mut self) {
+        // The pickers start in the chosen folders again.
+        self.upload_dir = PathBuf::new();
+        self.art_dir = PathBuf::new();
         self.check_for_updates();
         self.load_bezel();
         ui::theme::set_current(self.settings.colors);
@@ -1263,6 +1282,9 @@ impl App {
 
     fn open_upload(&mut self, requested: bool) {
         self.download_prompt = None;
+        if self.upload_dir.as_os_str().is_empty() {
+            self.upload_dir = self.folder(Folders::UPLOADS);
+        }
         self.upload_prompt = Some(UploadPrompt::new(requested, self.upload_dir.clone(), self.upload_protocol));
     }
 
@@ -1314,7 +1336,9 @@ impl App {
             session.stop_capture();
             return self.notify("Capture stopped");
         }
-        let path = self.paths.captures.join(format!("{}-{}.ans", file_stem(&session.entry.name), stamp(dialer::now())));
+        let name = format!("{}-{}.ans", file_stem(&session.entry.name), stamp(dialer::now()));
+        let path = self.folder(Folders::CAPTURES).join(name);
+        let Some(session) = self.session.as_mut() else { return };
         let msg = match session.start_capture(path.clone()) {
             Ok(()) => format!("Capturing to {}", path.display()),
             Err(e) => format!("Capture failed: {e:#}"),

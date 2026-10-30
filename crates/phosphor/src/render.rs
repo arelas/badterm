@@ -534,9 +534,28 @@ mod tests {
         let mut ps = phosphor_core::Screen::new(80, 25, 0);
         sui.draw(&mut ps, &settings, Some("green screen"), None);
         page(&mut r, &ps, "settings.ppm");
-        for k in
-            [Key::Up, Key::Up, Key::Up, Key::Enter, Key::Down, Key::Down, Key::Down, Key::Down, Key::Enter, Key::Right]
-        {
+        let mut fui = crate::ui::settings::SettingsUi::default();
+        fui.open(Vec::new(), Vec::new(), vec![std::path::PathBuf::from("/home/sysop/Downloads/Phosphor"); 5]);
+        let mut fs = crate::settings::Settings::default();
+        fs.folders.captures = Some("/home/sysop/BBS/captures".into());
+        for k in [Key::Tab, Key::Tab, Key::Down] {
+            fui.handle_key(k, crate::input::Mods::default(), &mut fs);
+        }
+        fui.draw(&mut ps, &fs, None, None);
+        page(&mut r, &ps, "folders.ppm");
+        for k in [
+            Key::Tab,
+            Key::Tab,
+            Key::Tab,
+            Key::Down,
+            Key::Enter,
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Enter,
+            Key::Right,
+        ] {
             sui.handle_key(k, crate::input::Mods::default(), &mut settings);
         }
         crate::ui::theme::set_current(settings.colors);
@@ -546,7 +565,7 @@ mod tests {
         let mut ms = crate::settings::Settings::default();
         ms.macros[0] = "{user}^M~{password}^M".into();
         ms.macros[2] = "/x^M".into();
-        for k in [Key::Down; 7].into_iter().chain([Key::Enter]) {
+        for k in [Key::Tab, Key::Down, Key::Down, Key::Down, Key::Enter] {
             mui.handle_key(k, crate::input::Mods::default(), &mut ms);
         }
         crate::ui::theme::set_current(Default::default());

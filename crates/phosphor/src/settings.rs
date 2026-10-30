@@ -1,7 +1,7 @@
 //! Display preferences kept between runs, in `settings.toml` next to the
 //! dialing directory.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -38,6 +38,53 @@ impl Music {
     }
 }
 
+/// The folders the user has chosen, in [`Folders::NAMES`] order; `None`
+/// is Phosphor's default.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Folders {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub downloads: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub captures: Option<PathBuf>,
+    /// Where Alt-S saves the scrollback or screen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saves: Option<PathBuf>,
+    /// Where the upload picker starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uploads: Option<PathBuf>,
+    /// Where the ANSI viewer's picker starts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub art: Option<PathBuf>,
+}
+
+impl Folders {
+    pub const NAMES: [&str; 5] = ["Downloads", "Captures", "Saved screens", "Uploads start in", "ANSI art starts in"];
+    pub const DOWNLOADS: usize = 0;
+    pub const CAPTURES: usize = 1;
+    pub const SAVES: usize = 2;
+    pub const UPLOADS: usize = 3;
+    pub const ART: usize = 4;
+
+    fn slot(&mut self, i: usize) -> &mut Option<PathBuf> {
+        match i {
+            0 => &mut self.downloads,
+            1 => &mut self.captures,
+            2 => &mut self.saves,
+            3 => &mut self.uploads,
+            _ => &mut self.art,
+        }
+    }
+
+    pub fn get(&self, i: usize) -> Option<&PathBuf> {
+        [&self.downloads, &self.captures, &self.saves, &self.uploads, &self.art][i].as_ref()
+    }
+
+    pub fn set(&mut self, i: usize, path: Option<PathBuf>) {
+        *self.slot(i) = path;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -59,6 +106,8 @@ pub struct Settings {
     pub bezel: String,
     /// Keyboard macros, Alt-1 to Alt-0 (see [`crate::macros`]).
     pub macros: Vec<String>,
+    /// Where files go and where pickers start; unset ones are the defaults.
+    pub folders: Folders,
     /// Ask the project's server for a newer version at each start. Off
     /// unless turned on, as it contacts the server.
     pub check_updates: bool,
@@ -76,6 +125,7 @@ impl Default for Settings {
             colors: Theme::default(),
             bezel: String::new(),
             macros: vec![String::new(); crate::macros::COUNT],
+            folders: Folders::default(),
             check_updates: false,
         }
     }
@@ -120,6 +170,7 @@ mod tests {
             colors,
             bezel: "Beige".into(),
             macros: vec!["{user}^M".into(); 10],
+            folders: Folders { downloads: Some("/tmp/dl".into()), ..Folders::default() },
             check_updates: true,
         };
         let text = toml::to_string_pretty(&s).unwrap();

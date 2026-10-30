@@ -28,7 +28,7 @@ pub enum Action {
     Export(String),
 }
 
-const ITEMS: [&str; 13] = [
+const ITEMS: [&str; 18] = [
     "Phosphor mode",
     "Scanlines",
     "Character cells",
@@ -42,6 +42,11 @@ const ITEMS: [&str; 13] = [
     "Edit colors...",
     "Import a theme...",
     "Save as a theme...",
+    "Downloads",
+    "Captures",
+    "Saved screens",
+    "Uploads start in",
+    "ANSI art starts in",
 ];
 const I_CRT: usize = 0;
 const I_SCANLINES: usize = 1;
@@ -56,8 +61,22 @@ const I_SCHEME: usize = 9;
 const I_COLORS: usize = 10;
 const I_IMPORT: usize = 11;
 const I_EXPORT: usize = 12;
+/// The folders, in `Folders::NAMES` order.
+const I_FOLDER: usize = 13;
 /// Items that open something rather than having a value.
 const ACTIONS: [usize; 4] = [I_MACROS, I_COLORS, I_IMPORT, I_EXPORT];
+
+/// The tabs, and the items on each.
+const TABS: [(&str, &[usize]); 4] = [
+    ("Display", &[I_CRT, I_SCANLINES, I_NINE_DOT, I_ASPECT, I_BEZEL]),
+    ("General", &[I_MUSIC, I_REDIAL, I_UPDATES, I_MACROS]),
+    ("Folders", &[I_FOLDER, I_FOLDER + 1, I_FOLDER + 2, I_FOLDER + 3, I_FOLDER + 4]),
+    ("Colors", &[I_SCHEME, I_COLORS, I_IMPORT, I_EXPORT]),
+];
+
+fn is_folder(item: usize) -> bool {
+    (I_FOLDER..I_FOLDER + 5).contains(&item)
+}
 
 /// Rows of the color grid: the eight background colors (bright ones blink
 /// on a real VGA, so the interface leaves them out, as Telix did).
@@ -82,6 +101,10 @@ enum Mode {
 
 #[derive(Default)]
 pub struct SettingsUi {
+    tab: usize,
+    /// The item chosen on each tab (its position there).
+    item_on: [usize; 4],
+    /// The item chosen (its number), as `item_on` gives it.
     item: usize,
     part: usize,
     mode: Mode,
@@ -89,15 +112,25 @@ pub struct SettingsUi {
     themes: Vec<(String, Theme)>,
     /// The bezels to choose from, by name.
     bezels: Vec<String>,
+    /// The folders Phosphor uses when none is chosen.
+    folder_defaults: Vec<PathBuf>,
 }
 
 impl SettingsUi {
     /// Start at the menu, as the screen opens, with the themes and bezels
     /// there are now.
-    pub fn open(&mut self, themes: Vec<(String, Theme)>, bezels: Vec<String>) {
+    pub fn open(&mut self, themes: Vec<(String, Theme)>, bezels: Vec<String>, folder_defaults: Vec<PathBuf>) {
         self.mode = Mode::Menu;
         self.themes = themes;
         self.bezels = bezels;
+        self.folder_defaults = folder_defaults;
+        self.item = TABS[self.tab].1[self.item_on[self.tab]];
+    }
+
+    fn select(&mut self, tab: usize, pos: usize) {
+        self.tab = tab;
+        self.item_on[tab] = pos;
+        self.item = TABS[tab].1[pos];
     }
 
     /// Show the outcome of an import or export.
@@ -116,7 +149,7 @@ impl SettingsUi {
 
     pub fn handle_key(&mut self, key: Key, mods: Mods, settings: &mut Settings) -> Action {
         match &mut self.mode {
-            Mode::Menu => self.menu_key(key, settings),
+            Mode::Menu => self.menu_key(key, mods, settings),
             Mode::Message(_) => {
                 self.mode = Mode::Menu;
                 Action::None
@@ -151,6 +184,8 @@ impl SettingsUi {
                     let item = *item;
                     self.mode = Mode::Menu;
                     match item {
+                        // An empty folder is the default one.
+                        _ if is_folder(item) => self.set_folder(item, &value, settings),
                         _ if value.is_empty() => Action::None,
                         I_IMPORT => Action::Import(PathBuf::from(value)),
                         _ => Action::Export(value),
@@ -199,15 +234,62 @@ impl SettingsUi {
         }
     }
 
-    fn menu_key(&mut self, key: Key, settings: &mut Settings) -> Action {
-        let n = ITEMS.len();
+    /// Choose a folder: a path, or empty for the default. It is created
+    /// if it does not exist.
+    fn set_folder(&mut self, item: usize, value: &str, settings: &mut Settings) -> Action {
+        let i = item - I_FOLDER;
+        if value.is_empty() {
+            settings.folders.set(i, None);
+            return Action::Changed;
+        }
+        let path = expand_home(value);
+        match std::fs::create_dir_all(&path) {
+            Ok(()) => {
+                settings.folders.set(i, Some(path));
+                Action::Changed
+            }
+            Err(e) => {
+                self.mode = Mode::Message(format!("Could not use {}: {e}", path.display()));
+                Action::None
+            }
+        }
+    }
+
+    /// The folder an item shows: the chosen one, or the default.
+    fn folder(&self, item: usize, settings: &Settings) -> (PathBuf, bool) {
+        let i = item - I_FOLDER;
+        match settings.folders.get(i) {
+            Some(p) => (p.clone(), true),
+            None => (self.folder_defaults.get(i).cloned().unwrap_or_default(), false),
+        }
+    }
+
+    fn menu_key(&mut self, key: Key, mods: Mods, settings: &mut Settings) -> Action {
+        let items = TABS[self.tab].1;
+        let n = items.len();
+        let pos = self.item_on[self.tab];
         let back = key == Key::Left;
         match key {
-            Key::Up => self.item = (self.item + n - 1) % n,
-            Key::Down | Key::Tab => self.item = (self.item + 1) % n,
-            Key::Home => self.item = 0,
-            Key::End => self.item = n - 1,
+            Key::Up => self.select(self.tab, (pos + n - 1) % n),
+            Key::Down => self.select(self.tab, (pos + 1) % n),
+            Key::Home => self.select(self.tab, 0),
+            Key::End => self.select(self.tab, n - 1),
+            // Tabs: Tab and Shift-Tab, or PgUp and PgDn.
+            Key::Tab | Key::PageDown | Key::PageUp => {
+                let t = TABS.len();
+                let tab = if key == Key::PageUp || mods.shift { (self.tab + t - 1) % t } else { (self.tab + 1) % t };
+                self.select(tab, self.item_on[tab]);
+            }
             Key::Escape => return Action::Close,
+            Key::Enter if is_folder(self.item) => {
+                let (path, _) = self.folder(self.item, settings);
+                self.mode = Mode::Prompt(self.item, TextField::new(&path.to_string_lossy(), 1000));
+            }
+            Key::Delete | Key::Backspace if is_folder(self.item) => {
+                settings.folders.set(self.item - I_FOLDER, None);
+                return Action::Changed;
+            }
+            _ if is_folder(self.item) => {}
             Key::Enter if self.item == I_COLORS => self.mode = Mode::Parts,
             Key::Enter if self.item == I_MACROS => {
                 let first = settings.macros.first().cloned().unwrap_or_default();
@@ -316,7 +398,7 @@ impl SettingsUi {
             }
         }
         let help = match self.mode {
-            Mode::Menu => "\u{2191}\u{2193} Choose   \u{2190}\u{2192} Change   Enter Open   Esc Done",
+            Mode::Menu => "Tab Next tab   \u{2191}\u{2193} Choose   \u{2190}\u{2192} Change   Enter Open   Esc Done",
             Mode::Parts => "\u{2191}\u{2193} Choose a part   Enter Pick its colors   Esc Back",
             Mode::Grid { .. } => "\u{2190}\u{2192} Foreground   \u{2191}\u{2193} Background   Enter Keep   Esc Undo",
             Mode::Prompt(..) => "Enter OK   Esc Cancel",
@@ -360,19 +442,44 @@ impl SettingsUi {
 
     fn draw_menu(&self, s: &mut Screen, settings: &Settings, own_crt: Option<&str>, update: Option<&str>) {
         let t = theme::current();
-        let (w, h) = (60, ITEMS.len() + 6);
-        let (x, y) = ((COLS - w) / 2, 2);
+        let (w, h) = (72, 16);
+        let (x, y) = ((COLS - w) / 2, 3);
         frame(s, x, y, w, h, "Settings", t.window.fg(), t.window.bg());
-        for (i, name) in ITEMS.iter().enumerate() {
-            let yy = y + 2 + i + usize::from(i >= I_SCHEME);
-            let focused = i == self.item;
+        // The tabs, along the top as in NetRunner.
+        let mut tx = x + 2;
+        for (i, (name, _)) in TABS.iter().enumerate() {
+            let a = if i == self.tab { t.selected } else { t.window_text };
+            let label_text = format!(" {name} ");
+            text(s, tx, y + 1, label_text.len(), &label_text, a.fg(), a.bg());
+            tx += label_text.len() + 1;
+        }
+        divider(s, x, y + 2, w, t.window.fg(), t.window.bg());
+        for (pos, &item) in TABS[self.tab].1.iter().enumerate() {
+            let yy = y + 4 + pos;
+            let focused = item == self.item;
             let name_attr = if focused { t.keys } else { t.field_name };
-            text(s, x + 2, yy, 20, &format!("{name:>19}"), name_attr.fg(), name_attr.bg());
-            if ACTIONS.contains(&i) {
+            text(s, x + 2, yy, 20, &format!("{:>19}", ITEMS[item]), name_attr.fg(), name_attr.bg());
+            let a = if focused { t.input } else { t.field_value };
+            if is_folder(item) {
+                let (path, chosen) = self.folder(item, settings);
+                let shown = path.to_string_lossy().into_owned();
+                let room = w - 26;
+                let shown = if shown.chars().count() > room {
+                    format!("\u{2026}{}", shown.chars().skip(shown.chars().count() + 1 - room).collect::<String>())
+                } else {
+                    shown
+                };
+                text(s, x + 23, yy, room, &shown, a.fg(), a.bg());
+                if !chosen {
+                    let d = t.note;
+                    label(s, x + w - 11, yy, "(default)", d.fg(), if focused { a.bg() } else { d.bg() });
+                }
                 continue;
             }
-            let a = if focused { t.input } else { t.field_value };
-            let v = format!("\u{25C4} {:<22} \u{25BA}", self.value(i, settings));
+            if ACTIONS.contains(&item) {
+                continue;
+            }
+            let v = format!("\u{25C4} {:<22} \u{25BA}", self.value(item, settings));
             text(s, x + 23, yy, 26, &v, a.fg(), a.bg());
         }
         let note = match (self.item, own_crt, update) {
@@ -384,6 +491,7 @@ impl SettingsUi {
             (I_SCHEME | I_IMPORT | I_EXPORT, ..) => {
                 "Themes are kept in the themes folder (phosphor --paths)".to_string()
             }
+            (i, ..) if is_folder(i) => "Enter to change (created if need be); Del for the default".to_string(),
             _ => String::new(),
         };
         label(s, x + 2, y + h - 2, &note, t.note.fg(), t.note.bg());
@@ -467,6 +575,39 @@ mod tests {
     }
 
     #[test]
+    fn tabs_and_folders() {
+        let mut ui = SettingsUi::default();
+        let dir = std::env::temp_dir().join(format!("phosphor-folders-{}", std::process::id()));
+        ui.open(Vec::new(), Vec::new(), vec![PathBuf::from("/default"); 5]);
+        let mut s = Settings::default();
+        // Shift-Tab goes back, round to the last tab.
+        ui.handle_key(Key::Tab, Mods { shift: true, ..Mods::default() }, &mut s);
+        assert_eq!((ui.tab, ui.item), (3, I_SCHEME));
+        ui.handle_key_test(Key::PageUp, &mut s);
+        assert_eq!((ui.tab, ui.item), (2, I_FOLDER));
+        // Each tab remembers its place.
+        ui.handle_key_test(Key::Down, &mut s);
+        ui.handle_key_test(Key::Tab, &mut s);
+        ui.handle_key_test(Key::PageUp, &mut s);
+        assert_eq!(ui.item, I_FOLDER + 1);
+        // Choose a folder (made if missing), then go back to the default.
+        ui.handle_key_test(Key::Enter, &mut s);
+        let Mode::Prompt(_, field) = &mut ui.mode else { panic!() };
+        *field = TextField::new(&dir.to_string_lossy(), 1000);
+        assert_eq!(ui.handle_key_test(Key::Enter, &mut s), Action::Changed);
+        assert_eq!(s.folders.captures.as_deref(), Some(dir.as_path()));
+        assert!(dir.is_dir());
+        let mut screen = Screen::new(COLS, ROWS, 0);
+        ui.draw(&mut screen, &s, None, None);
+        assert_eq!(ui.handle_key_test(Key::Delete, &mut s), Action::Changed);
+        assert_eq!(s.folders.captures, None);
+        ui.draw(&mut screen, &s, None, None);
+        let rows: Vec<String> = (0..ROWS).map(|y| Screen::row_text(screen.row(y))).collect();
+        assert!(rows.iter().any(|r| r.contains("Captures") && r.contains("(default)")), "{rows:#?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn macro_editor() {
         let mut ui = SettingsUi { item: I_MACROS, ..SettingsUi::default() };
         let mut s = Settings::default();
@@ -489,7 +630,7 @@ mod tests {
         let mut ui = SettingsUi::default();
         let mut mine = Theme::default();
         mine.window.bg = 2;
-        ui.open(vec![("Mine".into(), mine)], vec!["Beige".into(), "Platinum".into()]);
+        ui.open(vec![("Mine".into(), mine)], vec!["Beige".into(), "Platinum".into()], vec![PathBuf::from("/dl"); 5]);
         let mut s = Settings::default();
         ui.item = I_BEZEL;
         ui.handle_key_test(Key::Right, &mut s);
@@ -529,9 +670,11 @@ mod tests {
         assert_eq!(s.crt, CrtMode::Color);
         assert_eq!(ui.handle_key_test(Key::Left, &mut s), Action::Changed);
         assert_eq!(s.crt, CrtMode::Off);
-        for _ in 0..I_SCHEME {
-            ui.handle_key_test(Key::Down, &mut s);
+        // Tab to the colors.
+        for _ in 0..3 {
+            ui.handle_key_test(Key::Tab, &mut s);
         }
+        assert_eq!(ui.item, I_SCHEME);
         ui.handle_key_test(Key::Right, &mut s);
         assert_eq!(s.colors, SCHEMES[1].1);
         assert_eq!(theme::current(), SCHEMES[1].1);
