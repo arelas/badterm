@@ -1,7 +1,7 @@
 #!/bin/sh
-# Build Phosphor's .deb and .rpm from a release binary.
+# Build BadTerm's .deb and .rpm from a release binary.
 #
-#   packaging/linux/build-packages.sh target/release/phosphor 0.1.7 out-prefix
+#   packaging/linux/build-packages.sh target/release/badterm 0.1.7 out-prefix
 #
 # writes out-prefix.deb and out-prefix.rpm. nfpm is downloaded once into a
 # cache directory and checked against a pinned SHA-256 sum (the one in the
@@ -13,7 +13,7 @@ VERSION=$2
 OUT=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$HERE/../..
-CACHE=${PHOSPHOR_TOOL_CACHE:-$HOME/.cache/phosphor-packaging}
+CACHE=${BADTERM_TOOL_CACHE:-$HOME/.cache/badterm-packaging}
 
 NFPM_VERSION=2.48.0
 NFPM_URL=https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz
@@ -33,12 +33,12 @@ tar -xzf "$TARBALL" -C "$WORK" nfpm
 
 STAGE=$WORK/stage
 mkdir -p "$STAGE/icons"
-cp "$BIN" "$STAGE/phosphor"
-cp "$HERE/phosphor.desktop" "$ROOT/README.md" "$ROOT/LICENSE" "$STAGE/"
+cp "$BIN" "$STAGE/badterm"
+cp "$HERE/badterm.desktop" "$ROOT/README.md" "$ROOT/LICENSE" "$STAGE/"
 SIZES="16 24 32 48 64 128 256 512"
 for size in $SIZES; do
     mkdir -p "$STAGE/icons/${size}x$size/apps"
-    cp "$ROOT/crates/phosphor/assets/icon/phosphor-$size.png" "$STAGE/icons/${size}x$size/apps/phosphor.png"
+    cp "$ROOT/crates/badterm/assets/icon/badterm-$size.png" "$STAGE/icons/${size}x$size/apps/badterm.png"
 done
 
 chmod -R u=rwX,go=rX "$STAGE"
@@ -52,7 +52,7 @@ echo "Needs glibc $GLIBC"
 sed -e "s|\${VERSION}|$VERSION|g" -e "s|\${STAGE}|$STAGE|g" -e "s|\${GLIBC}|$GLIBC|g" \
     "$HERE/nfpm.yaml" > "$WORK/nfpm.yaml"
 for size in $SIZES; do
-    d=${size}x$size/apps/phosphor.png
+    d=${size}x$size/apps/badterm.png
     printf '  - src: %s\n    dst: %s\n' "$STAGE/icons/$d" "/usr/share/icons/hicolor/$d" >> "$WORK/nfpm.yaml"
 done
 for fmt in deb rpm; do

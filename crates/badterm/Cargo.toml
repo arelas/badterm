@@ -1,0 +1,44 @@
+[package]
+name = "badterm"
+description = "A cross-platform ANSI-BBS telnet client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+badterm-core.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger.workspace = true
+directories.workspace = true
+winit.workspace = true
+softbuffer.workspace = true
+arboard.workspace = true
+keyring.workspace = true
+serde.workspace = true
+toml.workspace = true
+
+# User bezels are PNG images.
+png = "0.18.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+# ANSI music: ALSA, loaded at run time on Linux (no build-time library, and
+# no sound rather than no start where it is missing); cpal elsewhere.
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.9"
+
+[target.'cfg(any(windows, target_os = "macos"))'.dependencies]
+cpal = { version = "0.18.2", default-features = false }
+
+# Receiving telnet:// links (an Apple Event).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSAppleEventManager", "NSAppleEventDescriptor", "NSString"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = { version = "0.1.34", default-features = false }

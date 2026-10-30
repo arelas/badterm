@@ -1,0 +1,29 @@
+[package]
+name = "badterm-core"
+description = "Terminal emulation, telnet protocol and dialing directory for the BadTerm BBS client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+csv.workspace = true
+russh.workspace = true
+ring.workspace = true
+rustls.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+webpki-roots.workspace = true
+zmodem2.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "net"] }
+# A TLS test server's certificate.
+rcgen = { version = "0.14", default-features = false, features = ["ring", "crypto"] }

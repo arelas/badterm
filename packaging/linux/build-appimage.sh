@@ -1,7 +1,7 @@
 #!/bin/sh
-# Build Phosphor.AppImage from a release binary.
+# Build BadTerm.AppImage from a release binary.
 #
-#   packaging/linux/build-appimage.sh target/release/phosphor 0.1.6 out.AppImage
+#   packaging/linux/build-appimage.sh target/release/badterm 0.1.6 out.AppImage
 #
 # appimagetool and the AppImage runtime are downloaded once into a cache
 # directory and checked against pinned SHA-256 sums (the digests GitHub
@@ -12,8 +12,8 @@ BIN=$1
 VERSION=$2
 OUT=$3
 HERE=$(cd "$(dirname "$0")" && pwd)
-ICONS=$HERE/../../crates/phosphor/assets/icon
-CACHE=${PHOSPHOR_TOOL_CACHE:-$HOME/.cache/phosphor-packaging}
+ICONS=$HERE/../../crates/badterm/assets/icon
+CACHE=${BADTERM_TOOL_CACHE:-$HOME/.cache/badterm-packaging}
 
 TOOL_URL=https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
 TOOL_SHA=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
@@ -36,16 +36,16 @@ chmod +x "$CACHE/appimagetool-1.9.1"
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
-APPDIR=$WORK/Phosphor.AppDir
+APPDIR=$WORK/BadTerm.AppDir
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
-cp "$BIN" "$APPDIR/usr/bin/phosphor"
-cp "$HERE/phosphor.desktop" "$APPDIR/phosphor.desktop"
-cp "$HERE/phosphor.desktop" "$APPDIR/usr/share/applications/phosphor.desktop"
-cp "$ICONS/phosphor-256.png" "$APPDIR/phosphor.png"
-cp "$ICONS/phosphor-256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/phosphor.png"
+cp "$BIN" "$APPDIR/usr/bin/badterm"
+cp "$HERE/badterm.desktop" "$APPDIR/badterm.desktop"
+cp "$HERE/badterm.desktop" "$APPDIR/usr/share/applications/badterm.desktop"
+cp "$ICONS/badterm-256.png" "$APPDIR/badterm.png"
+cp "$ICONS/badterm-256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/badterm.png"
 cat > "$APPDIR/AppRun" <<'APPRUN'
 #!/bin/sh
-exec "$(dirname "$(readlink -f "$0")")/usr/bin/phosphor" "$@"
+exec "$(dirname "$(readlink -f "$0")")/usr/bin/badterm" "$@"
 APPRUN
 chmod +x "$APPDIR/AppRun"
 

@@ -1,17 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["crates/phosphor-core", "crates/phosphor"]
+members = ["crates/badterm-core", "crates/badterm"]
 
 [workspace.package]
 version = "0.1.16"
 edition = "2024"
 license = "GPL-3.0-or-later"
 authors = ["Bad Cluster"]
-repository = "https://git.badcluster.dev/arelas/phosphor"
+repository = "https://git.badcluster.dev/arelas/badterm"
 rust-version = "1.89"
 
 [workspace.dependencies]
-phosphor-core = { path = "crates/phosphor-core" }
+badterm-core = { path = "crates/badterm-core" }
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"

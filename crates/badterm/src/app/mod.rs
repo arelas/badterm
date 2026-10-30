@@ -1,0 +1,645 @@
+//! The windowed application: event loop handling, mode switching between the
+//! dialer and a live session, hotkeys, scrollback viewing, file transfers and
+//! presentation.
+
+use std::num::NonZeroU32;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+
+use anyhow::{Context as _, Result};
+use badterm_core::dialer::{self, CrtMode, Directory, Entry};
+use badterm_core::export::{self, AnsiOptions};
+use badterm_core::screen::{Cell, Screen};
+use badterm_core::session::{NetEvent, Session, SessionConfig, SessionEvent, State};
+use badterm_core::transfer::{Direction, Outcome};
+use badterm_core::{Encoding, TermEvent};
+use winit::application::ApplicationHandler;
+use winit::dpi::PhysicalSize;
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
+use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
+use winit::window::{Fullscreen, UserAttentionType, Window, WindowId};
+
+use crate::bezel::{self, Bezel};
+use crate::input::{self, Key, Mods};
+use crate::render::{Display, Font, Frame, Renderer, Scaling};
+use crate::secrets::{self, Keychain, Store};
+use crate::selection::Selection;
+use crate::settings::{Folders, Music, ScaleMode, Settings};
+use crate::sound::Player;
+use crate::ui::art::{self as art_ui, ArtAction, ArtView};
+use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
+use crate::ui::files::{FilePicker, PickerAction};
+use crate::ui::login::{LoginAction, LoginPrompt};
+use crate::ui::save::{SaveFormat, SavePrompt};
+use crate::ui::settings::{self as settings_ui, SettingsUi};
+use crate::ui::theme::{self, ThemeFile};
+use crate::ui::transfer::{self as transfer_ui, DownloadAction, DownloadPrompt, UploadAction, UploadPrompt};
+use crate::ui::{self, HOTKEY, format_date};
+
+mod call;
+mod draw;
+mod keys;
+mod mouse;
+mod prefs;
+
+const COLS: usize = 80;
+const ROWS: usize = 25;
+/// Terminal rows plus the status bar.
+const GRID_ROWS: usize = ROWS + 1;
+const SCROLLBACK_LINES: usize = 10_000;
+/// Cursor blink half-period; text blinks at half this rate.
+const TICK: Duration = Duration::from_millis(267);
+const NOTICE_TIME: Duration = Duration::from_secs(4);
+/// The news of a newer version stays a while longer.
+const UPDATE_NOTICE_TIME: Duration = Duration::from_secs(20);
+/// Between redials of a busy or unreachable BBS.
+const REDIAL_DELAY: Duration = Duration::from_secs(15);
+const MAX_REDIALS: u32 = 10;
+/// How often the screen updates while baud rate emulation holds text back.
+const PACE_FRAME: Duration = Duration::from_millis(16);
+
+pub enum UserEvent {
+    /// A network event for the session with this id.
+    Net(u64, NetEvent),
+    /// A telnet:// (or rlogin://, ...) link opened with BadTerm while it
+    /// runs; macOS sends these to the running app.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    OpenUrl(String),
+    /// The update check found this newer version.
+    UpdateAvailable(String),
+}
+
+/// A busy call waiting to be dialed again.
+struct Redial {
+    entry: Entry,
+    index: Option<usize>,
+    /// Which redial this will be: 1 for the first.
+    attempt: u32,
+    at: Instant,
+}
+
+pub struct Paths {
+    pub directory: PathBuf,
+    /// Display preferences.
+    pub settings: PathBuf,
+    pub captures: PathBuf,
+    /// Pinned SSH host keys.
+    pub known_hosts: PathBuf,
+    /// Where ZMODEM downloads are saved.
+    pub downloads: PathBuf,
+    /// Default location offered for import/export.
+    pub files: PathBuf,
+    /// Where default SSH keys are looked for.
+    pub ssh_keys: Option<PathBuf>,
+    /// Color themes (`.toml`), shared or saved from the settings.
+    pub themes: PathBuf,
+    /// The user's own monitor bezels (`.png`).
+    pub bezels: PathBuf,
+}
+
+impl Paths {
+    pub fn new() -> Paths {
+        let proj = directories::ProjectDirs::from("dev", "Bad Cluster", "BadTerm");
+        let (config, data) = match &proj {
+            Some(p) => (p.config_dir().to_path_buf(), p.data_dir().to_path_buf()),
+            None => (PathBuf::from("."), PathBuf::from(".")),
+        };
+        // BadTerm was called Phosphor up to 0.1.16: bring its folders along.
+        if let Some(old) = directories::ProjectDirs::from("org", "Phosphor", "Phosphor") {
+            move_old_folder(old.config_dir(), &config);
+            move_old_folder(old.data_dir(), &data);
+        }
+        let files = directories::UserDirs::new()
+            .map(|u| u.download_dir().unwrap_or(u.home_dir()).to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."));
+        Paths {
+            directory: config.join("dialer.toml"),
+            settings: config.join("settings.toml"),
+            themes: config.join("themes"),
+            bezels: config.join("bezels"),
+            captures: data.join("captures"),
+            known_hosts: config.join("known_hosts"),
+            downloads: files.join("BadTerm"),
+            files,
+            ssh_keys: directories::BaseDirs::new().map(|b| b.home_dir().join(".ssh")),
+        }
+    }
+}
+
+/// Move a folder from where an older version kept it, unless the new one
+/// already exists (on macOS the config and data folders are one).
+fn move_old_folder(old: &std::path::Path, new: &std::path::Path) {
+    if !old.is_dir() || new.exists() {
+        return;
+    }
+    if let Some(parent) = new.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match std::fs::rename(old, new) {
+        Ok(()) => log::info!("moved {} to {}", old.display(), new.display()),
+        Err(e) => log::warn!("moving {} to {}: {e}", old.display(), new.display()),
+    }
+}
+
+/// Load the dialing directory. A file that cannot be parsed is moved aside
+/// rather than overwritten, and the reason returned for display.
+pub fn load_directory(path: &std::path::Path) -> (Directory, Option<String>) {
+    match Directory::load(path) {
+        Ok(d) => (d, None),
+        Err(e) => {
+            let backup = path.with_extension(format!("toml.bad-{}", dialer::now()));
+            let moved = std::fs::rename(path, &backup).is_ok();
+            let mut msg = format!("Could not read the dialing directory: {e:#}.");
+            if moved {
+                msg.push_str(&format!(" It was moved to {}.", backup.display()));
+            }
+            (Directory::default(), Some(msg))
+        }
+    }
+}
+
+struct Gfx {
+    window: Rc<Window>,
+    surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
+    _context: softbuffer::Context<Rc<Window>>,
+}
+
+pub struct App {
+    proxy: EventLoopProxy<UserEvent>,
+    gfx: Option<Gfx>,
+    renderer: Renderer,
+    paths: Paths,
+    directory: Directory,
+    dialer: DialerUi,
+    dialer_screen: Screen,
+    /// Whether the dialing directory is showing (Alt-D). It opens over a live
+    /// session without disturbing it.
+    dialer_open: bool,
+    /// An entry chosen while connected, waiting for the hang-up confirmation.
+    pending_dial: Option<(Entry, Option<usize>)>,
+    /// What shows when there is no session and the dialer is closed.
+    idle_screen: Screen,
+    /// The settings screen (Alt-O), over everything else while open.
+    settings_ui: SettingsUi,
+    settings_open: bool,
+    /// The help screen (Alt-Z), over everything else while open.
+    help_open: bool,
+    /// "Exit BadTerm?" is showing (Alt-X).
+    confirm_exit: bool,
+    /// The splash screen shows until then (or a key).
+    splash_until: Option<Instant>,
+    /// A newer version, if the update check found one.
+    update: Option<String>,
+    /// The ANSI viewer (Alt-F): choosing a file, then the art.
+    art_picker: Option<FilePicker>,
+    art: Option<ArtView>,
+    art_dir: PathBuf,
+    /// A file to view at start (given on the command line).
+    view_at_start: Option<PathBuf>,
+    /// The monitor bezel around the screen, and its drawing for the
+    /// window's size.
+    bezel: Option<Bezel>,
+    bezel_name: String,
+    bezel_frame: Option<((usize, usize), bezel::Rendered)>,
+    /// Whether this run has checked for updates.
+    update_checked: bool,
+    /// Where the settings and help screens are drawn.
+    page_screen: Screen,
+    status: Screen,
+    /// The terminal with a dialog drawn over it.
+    overlay: Screen,
+    upload_prompt: Option<UploadPrompt>,
+    /// Alt-G: starting an XMODEM or YMODEM download.
+    download_prompt: Option<DownloadPrompt>,
+    /// Where the last upload came from, and its protocol, for the next.
+    upload_dir: PathBuf,
+    upload_protocol: usize,
+    download_protocol: usize,
+    /// Alt-S: where to save the scrollback.
+    save_prompt: Option<SavePrompt>,
+    /// Terminal text selected with the mouse.
+    selection: Option<Selection>,
+    /// The left button is down, extending `selection`.
+    dragging: bool,
+    /// Mouse position in window pixels.
+    mouse: (f64, f64),
+    settings: Settings,
+    /// Plays ANSI music.
+    player: Player,
+    /// Where the last frame was drawn in the window: (x, y, w, h).
+    view_rect: (usize, usize, usize, usize),
+    /// The SSH login's question, while one is waiting.
+    login: Option<LoginPrompt>,
+    /// A typed password to remember once the login succeeds.
+    remember: Option<String>,
+    secrets: Rc<dyn Store>,
+    /// False once the keychain has failed; passwords then stay in the file.
+    keychain_ok: bool,
+    /// Direction of the transfer in progress, for reporting its outcome.
+    transfer_direction: Option<Direction>,
+    session: Option<Session>,
+    session_id: u64,
+    /// Directory index of the entry the session was dialed from.
+    session_index: Option<usize>,
+    /// A keyboard macro being sent: what is left, and when to go on after
+    /// a pause.
+    macro_steps: std::collections::VecDeque<crate::macros::Step>,
+    macro_at: Instant,
+    /// How many times the current call has been redialed.
+    redials: u32,
+    redial: Option<Redial>,
+    /// Lines scrolled back from the live screen; 0 when live.
+    scroll: usize,
+    mods: ModifiersState,
+    tick: u64,
+    next_tick: Instant,
+    notice: Option<(String, Instant)>,
+    startup: Option<Entry>,
+}
+
+impl App {
+    pub fn new(proxy: EventLoopProxy<UserEvent>, paths: Paths, startup: Option<Entry>, view: Option<PathBuf>) -> App {
+        let (mut directory, mut load_error) = load_directory(&paths.directory);
+        directory.sort();
+        // New default entries (the first time, the whole starter directory).
+        // Not over a file that could not be read: that was moved aside.
+        if load_error.is_none()
+            && directory.offer_defaults()
+            && let Err(e) = directory.save(&paths.directory)
+        {
+            load_error = Some(format!("Could not save the dialing directory: {e:#}"));
+        }
+        let settings = Settings::load(&paths.settings);
+        ui::theme::set_current(settings.colors);
+        let secrets: Rc<dyn Store> = Rc::new(Keychain);
+        let mut dialer = DialerUi::new(paths.files.clone(), secrets.clone());
+        // The app starts on the idle screen; the dialer opens only to show a
+        // problem with the directory file.
+        let dialer_open = load_error.is_some();
+        if let Some(msg) = load_error {
+            dialer.show_message(msg);
+        }
+        App {
+            proxy,
+            gfx: None,
+            renderer: Renderer::new(Font::vga_8x16(), COLS, GRID_ROWS),
+            paths,
+            directory,
+            dialer,
+            dialer_screen: Screen::new(dialer_ui::COLS, dialer_ui::ROWS, 0),
+            dialer_open,
+            pending_dial: None,
+            idle_screen: idle_screen(None),
+            settings_ui: SettingsUi::default(),
+            settings_open: false,
+            help_open: false,
+            confirm_exit: false,
+            splash_until: None,
+            update: None,
+            art_picker: None,
+            art: None,
+            art_dir: PathBuf::new(),
+            view_at_start: view,
+            bezel: None,
+            bezel_name: String::new(),
+            bezel_frame: None,
+            update_checked: false,
+            page_screen: Screen::new(settings_ui::COLS, settings_ui::ROWS, 0),
+            status: Screen::new(COLS, 1, 0),
+            overlay: Screen::new(COLS, ROWS, 0),
+            upload_prompt: None,
+            download_prompt: None,
+            upload_dir: PathBuf::new(),
+            upload_protocol: 0,
+            download_protocol: 0,
+            save_prompt: None,
+            selection: None,
+            dragging: false,
+            mouse: (0.0, 0.0),
+            view_rect: (0, 0, 1, 1),
+            settings,
+            player: Player::default(),
+            login: None,
+            remember: None,
+            secrets,
+            keychain_ok: true,
+            transfer_direction: None,
+            session: None,
+            session_id: 0,
+            session_index: None,
+            redials: 0,
+            macro_steps: std::collections::VecDeque::new(),
+            macro_at: Instant::now(),
+            redial: None,
+            scroll: 0,
+            mods: ModifiersState::empty(),
+            tick: 0,
+            next_tick: Instant::now() + TICK,
+            notice: None,
+            startup,
+        }
+    }
+
+    fn create_window(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
+        let (nw, nh) = (self.renderer.native_width() as u32, self.renderer.native_height() as u32);
+        let attrs = Window::default_attributes()
+            .with_title("BadTerm")
+            .with_inner_size(PhysicalSize::new(nw * 2, nh * 2))
+            .with_min_inner_size(PhysicalSize::new(nw, nh))
+            .with_window_icon(window_icon());
+        // The Wayland app ID and X11 class, which desktops match to
+        // badterm.desktop for the launcher icon.
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let attrs = {
+            use winit::platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11};
+            let attrs = WindowAttributesExtWayland::with_name(attrs, "badterm", "badterm");
+            WindowAttributesExtX11::with_name(attrs, "badterm", "badterm")
+        };
+        let window = Rc::new(event_loop.create_window(attrs)?);
+        let context = softbuffer::Context::new(window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let surface = softbuffer::Surface::new(&context, window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+        self.gfx = Some(Gfx { window, surface, _context: context });
+        Ok(())
+    }
+
+    fn request_redraw(&self) {
+        if let Some(g) = &self.gfx {
+            g.window.request_redraw();
+        }
+    }
+
+    fn set_title(&self, title: &str) {
+        if let Some(g) = &self.gfx {
+            g.window.set_title(title);
+        }
+    }
+
+    fn notify(&mut self, msg: impl Into<String>) {
+        self.notice = Some((msg.into(), Instant::now() + NOTICE_TIME));
+    }
+
+    fn save_directory(&mut self) {
+        if self.keychain_ok
+            && let Err(e) = secrets::migrate(&mut self.directory, &*self.secrets)
+        {
+            self.keychain_ok = false;
+            log::warn!("keychain unavailable: {e}");
+            self.notify("No keychain available; passwords are kept in the directory file");
+        }
+        if let Err(e) = self.directory.save(&self.paths.directory) {
+            self.dialer.show_message(format!("Could not save the dialing directory: {e:#}"));
+        }
+    }
+
+    /// Ask for the user's attention if the window is in the background.
+    fn attention(&self) {
+        if let Some(g) = self.gfx.as_ref().filter(|g| !g.window.has_focus()) {
+            g.window.request_user_attention(Some(UserAttentionType::Informational));
+        }
+    }
+}
+
+impl ApplicationHandler<UserEvent> for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.gfx.is_some() {
+            return;
+        }
+        if let Err(e) = self.create_window(event_loop) {
+            log::error!("creating window: {e:#}");
+            return event_loop.exit();
+        }
+        self.load_bezel();
+        // Not when started to call a BBS or show a file: get on with it.
+        if self.settings.splash && self.startup.is_none() && self.view_at_start.is_none() {
+            self.splash_until = Some(Instant::now() + ui::splash::TIME);
+        }
+        if let Some(path) = self.view_at_start.take() {
+            self.view_art(&path);
+        }
+        if let Some(e) = self.startup.take() {
+            self.dial_address(e);
+        }
+        self.check_for_updates();
+    }
+
+    fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            UserEvent::Net(id, ev) => self.on_net(id, ev),
+            UserEvent::UpdateAvailable(version) => {
+                let msg = format!("BadTerm {version} is out: {}", badterm_core::update::DOWNLOAD_PAGE);
+                self.notice = Some((msg, Instant::now() + UPDATE_NOTICE_TIME));
+                self.update = Some(version);
+                self.idle_screen = idle_screen(self.update.as_deref());
+                self.request_redraw();
+            }
+            UserEvent::OpenUrl(url) => match Entry::from_address(&url) {
+                // Before the window exists: the link that launched the app.
+                Some(e) if self.gfx.is_none() => self.startup = Some(e),
+                Some(e) => {
+                    // A link that launched the app can come just after the
+                    // window: the call matters more than the splash.
+                    self.splash_until = None;
+                    if let Some(g) = &self.gfx {
+                        g.window.focus_window();
+                    }
+                    self.dial_address(e);
+                    self.request_redraw();
+                }
+                None => self.notify(format!("Not a BBS address: {url}")),
+            },
+        }
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        match event {
+            // Closing the window in a call asks first, as Alt-X does.
+            WindowEvent::CloseRequested => {
+                let in_call = self.session.as_ref().is_some_and(|s| s.state == State::Connected);
+                if in_call && !self.confirm_exit {
+                    self.confirm_exit = true;
+                    self.request_redraw();
+                } else {
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::Resized(_) => self.request_redraw(),
+            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                self.on_key(event_loop, &event)
+            }
+            WindowEvent::CursorMoved { position, .. } => self.on_mouse_move(position.x, position.y),
+            WindowEvent::MouseInput { state, button, .. } => self.on_mouse_button(button, state),
+            WindowEvent::MouseWheel { delta, .. } => {
+                let lines = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => (y * 3.0) as isize,
+                    MouseScrollDelta::PixelDelta(p) => (p.y / 16.0) as isize,
+                };
+                self.on_wheel(lines);
+            }
+            // Art dropped while not in a call opens the viewer.
+            WindowEvent::DroppedFile(path)
+                if self.session.as_ref().is_none_or(|s| s.state != State::Connected)
+                    && !self.dialer_open
+                    && is_art(&path) =>
+            {
+                self.view_art(&path);
+                self.request_redraw();
+            }
+            WindowEvent::DroppedFile(path) if self.session.is_none() || self.dialer_open => {
+                // Dropping a directory file onto the dialer (or the idle
+                // screen) imports it, and shows the dialer with the result.
+                self.dialer_open = true;
+                match dialer::import(&path) {
+                    Ok(entries) => {
+                        let added = self.directory.merge(entries);
+                        self.save_directory();
+                        self.dialer.show_message(format!("Imported {added} new entries from {}", path.display()));
+                    }
+                    Err(e) => self.dialer.show_message(format!("Import failed: {e:#}")),
+                }
+                self.request_redraw();
+            }
+            // Dropping files onto a connected session uploads them.
+            WindowEvent::DroppedFile(path) => {
+                self.upload_prompt = None;
+                self.start_upload(vec![path]);
+                self.request_redraw();
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        if now >= self.next_tick {
+            self.tick += 1;
+            self.next_tick = now + TICK;
+            if let Some(s) = self.session.as_mut() {
+                s.tick();
+                self.session_events();
+            }
+            if self.redial.as_ref().is_some_and(|r| now >= r.at) {
+                self.redial_now();
+            }
+            self.request_redraw();
+        }
+        // Baud rate emulation shows text a few characters at a time.
+        let mut wake = self.next_tick;
+        if let Some(until) = self.splash_until {
+            if now >= until {
+                self.splash_until = None;
+                self.request_redraw();
+            } else {
+                wake = wake.min(until);
+            }
+        }
+        if !self.macro_steps.is_empty() {
+            self.run_macro();
+            if !self.macro_steps.is_empty() {
+                wake = wake.min(self.macro_at);
+            }
+        }
+        if let Some(s) = self.session.as_mut().filter(|s| s.pacing()) {
+            s.pump();
+            self.session_events();
+            self.request_redraw();
+            wake = wake.min(now + PACE_FRAME);
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
+    }
+}
+
+/// The icon for the title bar and taskbar (Windows and X11; macOS takes the
+/// app bundle's icon, Wayland the desktop file's).
+fn window_icon() -> Option<winit::window::Icon> {
+    let rgba = include_bytes!("../../assets/icon/badterm-64.rgba");
+    winit::window::Icon::from_rgba(rgba.to_vec(), 64, 64).map_err(|e| log::warn!("window icon: {e}")).ok()
+}
+
+/// The terminal rows on view, `scroll` lines back from the live screen.
+fn terminal_rows(session: &Session, scroll: usize) -> Vec<&[Cell]> {
+    let sc = &session.term.screen;
+    let sb = sc.scrollback_len();
+    let top = sb - scroll.min(sb);
+    (top..top + sc.rows()).map(|i| if i < sb { sc.scrollback_line(i) } else { sc.row(i - sb) }).collect()
+}
+
+/// A BBS name made safe for a file name.
+fn file_stem(name: &str) -> String {
+    name.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect()
+}
+
+/// A date and second-of-day stamp for file names.
+fn stamp(now: u64) -> String {
+    format!("{}-{}", format_date(now), now % 86_400)
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+fn is_art(path: &std::path::Path) -> bool {
+    let name = path.to_string_lossy().to_ascii_lowercase();
+    art_ui::EXTENSIONS.iter().any(|x| name.ends_with(x))
+}
+
+/// Which keyboard macro a hotkey sends: Alt-1 is the first, Alt-0 the tenth.
+fn macro_index(code: KeyCode) -> Option<usize> {
+    const DIGITS: [KeyCode; 10] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+        KeyCode::Digit0,
+    ];
+    DIGITS.iter().position(|&d| d == code)
+}
+
+/// The screen shown with no session and the dialer closed: blank, with a
+/// hint in the middle (the status bar repeats it).
+pub(crate) fn idle_screen(update: Option<&str>) -> Screen {
+    let t = ui::theme::current();
+    let mut s = Screen::new(COLS, ROWS, 0);
+    s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', t.help.fg(), t.help.bg()));
+    // Like a terminal program's start-up banner, at the top left.
+    let version = format!(
+        "BadTerm {} ({} {}), the ANSI-BBS client",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    let lines = [
+        (version, t.info),
+        ("Copyright (C) 2026 Bad Cluster".to_string(), t.help),
+        ("Free software under the GNU GPL, version 3 or later; no warranty.".to_string(), t.help),
+        (badterm_core::update::DOWNLOAD_PAGE.to_string(), t.help),
+        (String::new(), t.help),
+        (format!("{HOTKEY}-D Dialing directory   {HOTKEY}-O Settings   {HOTKEY}-Z Help   {HOTKEY}-X Exit"), t.help_key),
+    ];
+    for (i, (text, a)) in lines.iter().enumerate() {
+        ui::label(&mut s, 0, i, text, a.fg(), a.bg());
+    }
+    if let Some(v) = update {
+        let text = format!("BadTerm {v} is out: {}", badterm_core::update::DOWNLOAD_PAGE);
+        ui::label(&mut s, 0, lines.len() + 1, &text, t.help_key.fg(), t.help_key.bg());
+    }
+    s
+}
+
+/// Headless import used by the command line.
+pub fn import_into_directory(paths: &Paths, file: &std::path::Path) -> Result<(usize, usize)> {
+    let mut dir = Directory::load(&paths.directory)?;
+    let entries = dialer::import(file)?;
+    let total = entries.len();
+    let added = dir.merge(entries);
+    dir.save(&paths.directory).context("saving dialing directory")?;
+    Ok((added, total))
+}

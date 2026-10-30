@@ -1,6 +1,6 @@
-# nfpm configuration for Phosphor's .deb and .rpm. build-packages.sh stages
+# nfpm configuration for BadTerm's .deb and .rpm. build-packages.sh stages
 # the files under ${STAGE} and fills in the ${...} values.
-name: phosphor
+name: badterm
 arch: amd64
 platform: linux
 version: ${VERSION}
@@ -9,11 +9,16 @@ section: net
 priority: optional
 maintainer: Bad Cluster <noreply@badcluster.dev>
 vendor: Bad Cluster
-homepage: https://badcluster.dev/phosphor/
+homepage: https://badcluster.dev/badterm/
 license: GPL-3.0-or-later
+# BadTerm was called Phosphor up to 0.1.16; this package takes its place.
+replaces:
+  - phosphor
+conflicts:
+  - phosphor
 description: |-
   ANSI-BBS client for telnet, SSH and RLogin
-  Phosphor connects to bulletin board systems over telnet, telnet over TLS,
+  BadTerm connects to bulletin board systems over telnet, telnet over TLS,
   SSH and RLogin, and draws them with the IBM VGA fonts: iCE colors, ANSI
   music, ZMODEM transfers, a dialing directory and a CRT phosphor mode.
 
@@ -36,19 +41,19 @@ overrides:
       - alsa-lib
 
 contents:
-  - src: ${STAGE}/phosphor
-    dst: /usr/bin/phosphor
+  - src: ${STAGE}/badterm
+    dst: /usr/bin/badterm
     file_info:
       mode: 0755
-  - src: ${STAGE}/phosphor.desktop
-    dst: /usr/share/applications/phosphor.desktop
+  - src: ${STAGE}/badterm.desktop
+    dst: /usr/share/applications/badterm.desktop
   - src: ${STAGE}/README.md
-    dst: /usr/share/doc/phosphor/README.md
+    dst: /usr/share/doc/badterm/README.md
   - src: ${STAGE}/LICENSE
-    dst: /usr/share/doc/phosphor/copyright
+    dst: /usr/share/doc/badterm/copyright
     packager: deb
   - src: ${STAGE}/LICENSE
-    dst: /usr/share/licenses/phosphor/LICENSE
+    dst: /usr/share/licenses/badterm/LICENSE
     packager: rpm
     type: license
   # build-packages.sh adds each icon here (just the files: the hicolor

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Publish the website to badcluster.dev/phosphor.
+"""Publish the website to badcluster.dev/badterm.
 
 Points the download buttons at the newest release's files (links whose file
 that release lacks are left out), then copies the site to the web server
-with rsync. nginx serves /phosphor/ from /var/www/phosphor on oracle1.
+with rsync. nginx serves /badterm/ from /var/www/badterm on oracle1.
 
     site/deploy.py            # build and upload
     site/deploy.py --dry-run  # build into a temporary folder and stop
 
-The server can be changed with PHOSPHOR_SITE_DEST (an rsync destination).
+The server can be changed with BADTERM_SITE_DEST (an rsync destination).
 """
 
 import html
@@ -21,15 +21,15 @@ import sys
 import tempfile
 import urllib.request
 
-API = "https://git.badcluster.dev/api/v1/repos/arelas/phosphor/releases?limit=1"
-DEST = os.environ.get("PHOSPHOR_SITE_DEST", "ubuntu@oracle1.badcluster.dev:/var/www/phosphor/")
+API = "https://git.badcluster.dev/api/v1/repos/arelas/badterm/releases?limit=1"
+DEST = os.environ.get("BADTERM_SITE_DEST", "ubuntu@oracle1.badcluster.dev:/var/www/badterm/")
 SITE = os.path.dirname(os.path.abspath(__file__))
 FILES = ["index.html", "style.css", "img"]
 
 
 def latest_release():
     # Cloudflare turns away Python's default user agent.
-    req = urllib.request.Request(API, headers={"User-Agent": "phosphor-site-deploy", "Accept": "application/json"})
+    req = urllib.request.Request(API, headers={"User-Agent": "badterm-site-deploy", "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=30) as r:
         releases = json.load(r)
     if not releases:
@@ -68,7 +68,7 @@ def main():
     dry = "--dry-run" in sys.argv[1:]
     release = latest_release()
     print(f"Latest release: {release['tag_name']}")
-    out = tempfile.mkdtemp(prefix="phosphor-site-")
+    out = tempfile.mkdtemp(prefix="badterm-site-")
     for name in FILES:
         src = os.path.join(SITE, name)
         if os.path.isdir(src):
@@ -88,7 +88,7 @@ def main():
     print(" ".join(cmd))
     subprocess.run(cmd, check=True)
     shutil.rmtree(out)
-    print("Published: https://badcluster.dev/phosphor/")
+    print("Published: https://badcluster.dev/badterm/")
 
 
 if __name__ == "__main__":

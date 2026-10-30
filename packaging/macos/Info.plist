@@ -5,17 +5,17 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Phosphor</string>
+	<string>BadTerm</string>
 	<key>CFBundleExecutable</key>
-	<string>phosphor</string>
+	<string>badterm</string>
 	<key>CFBundleIconFile</key>
-	<string>phosphor</string>
+	<string>badterm</string>
 	<key>CFBundleIdentifier</key>
-	<string>org.Phosphor.Phosphor</string>
+	<string>dev.badcluster.BadTerm</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Phosphor</string>
+	<string>BadTerm</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

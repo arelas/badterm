@@ -4,14 +4,14 @@
 # build machine has. cargo-zigbuild links with Zig's toolchain, which
 # carries the old glibc's symbol versions.
 #
-#   packaging/linux/build-release.sh    # -> target/x86_64-unknown-linux-gnu/release/phosphor
+#   packaging/linux/build-release.sh    # -> target/x86_64-unknown-linux-gnu/release/badterm
 #
 # Zig is downloaded once into a cache directory and checked against the
 # SHA-256 sum ziglang.org publishes for it; cargo-zigbuild is installed
 # there at a pinned version.
 set -eu
 
-CACHE=${PHOSPHOR_TOOL_CACHE:-$HOME/.cache/phosphor-packaging}
+CACHE=${BADTERM_TOOL_CACHE:-$HOME/.cache/badterm-packaging}
 GLIBC=2.28
 TARGET=x86_64-unknown-linux-gnu
 
@@ -35,9 +35,9 @@ fi
 
 rustup target add "$TARGET" >/dev/null 2>&1 || true
 export PATH="$ZIG_DIR:$ZIGBUILD_ROOT/bin:$PATH"
-cargo zigbuild --release --locked --target "$TARGET.$GLIBC" -p phosphor
+cargo zigbuild --release --locked --target "$TARGET.$GLIBC" -p badterm
 
-BIN=target/$TARGET/release/phosphor
+BIN=target/$TARGET/release/badterm
 NEWEST=$(objdump -T "$BIN" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
 echo "$BIN needs glibc $NEWEST"
 if [ "$(printf '%s\n%s\n' "$NEWEST" "$GLIBC" | sort -V | tail -1)" != "$GLIBC" ]; then

@@ -12,7 +12,7 @@ The next things to do, in order.
       Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
       mouse copy, Alt-S, directory search and sort
 - [ ] Give the website its permanent home (it is at
-      badcluster.dev/phosphor for now), and redeploy it from CI on release
+      badcluster.dev/badterm for now), and redeploy it from CI on release
 
 ## Done (0.1)
 
@@ -53,10 +53,10 @@ The next things to do, in order.
       square-wave synthesis; ALSA loaded at run time, cpal on macOS/Windows)
 - [x] Website (`site/`): features, phosphor-mode screenshots, downloads,
       The Vortex BBS
-- [x] `phosphor --render`: ANSI file to PNG, with SAUCE iCE detection
+- [x] `badterm --render`: ANSI file to PNG, with SAUCE iCE detection
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
-- [x] Website at badcluster.dev/phosphor (site/deploy.py)
+- [x] Website at badcluster.dev/badterm (site/deploy.py)
 - [x] Linux .deb and .rpm (nfpm), Windows installer (Inno Setup)
 - [x] telnet://, telnets:// and rlogin:// links on Windows, macOS and Linux
 - [x] RLogin, telnet over TLS (pinned like SSH host keys)
@@ -105,7 +105,7 @@ The next things to do, in order.
       key bindings
 - [ ] Multiple simultaneous sessions (tabs)
 - [ ] Scripting (e.g. Lua or Rhai); per-entry macros
-- [ ] Optional curses/TUI front end built on `phosphor-core`
+- [ ] Optional curses/TUI front end built on `badterm-core`
 
 ## Packaging
 

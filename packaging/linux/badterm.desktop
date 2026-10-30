@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=BadTerm
+GenericName=BBS Client
+Comment=ANSI-BBS telnet and SSH client
+Exec=badterm %u
+Icon=badterm
+Terminal=false
+Categories=Network;TerminalEmulator;
+Keywords=BBS;telnet;ANSI;SSH;ZMODEM;
+MimeType=x-scheme-handler/telnet;x-scheme-handler/telnets;x-scheme-handler/rlogin;
+StartupWMClass=badterm

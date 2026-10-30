@@ -436,6 +436,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "badterm"
+version = "0.1.16"
+dependencies = [
+ "anyhow",
+ "arboard",
+ "badterm-core",
+ "cpal",
+ "directories",
+ "env_logger",
+ "keyring",
+ "libloading 0.9.0",
+ "log",
+ "objc2 0.6.5",
+ "objc2-foundation 0.3.2",
+ "png",
+ "serde",
+ "softbuffer",
+ "toml",
+ "windows-sys 0.61.2",
+ "winit",
+ "winresource",
+]
+
+[[package]]
+name = "badterm-core"
+version = "0.1.16"
+dependencies = [
+ "anyhow",
+ "csv",
+ "log",
+ "rcgen",
+ "ring",
+ "russh",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "toml",
+ "webpki-roots",
+ "zmodem2",
+]
+
+[[package]]
 name = "base16ct"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2768,50 +2812,6 @@ checksum = "44dc769b75f93afdddd8c7fa12d685292ddeff1e66f7f0f3a234cf1818afe892"
 dependencies = [
  "base64ct",
  "ctutils",
-]
-
-[[package]]
-name = "phosphor"
-version = "0.1.16"
-dependencies = [
- "anyhow",
- "arboard",
- "cpal",
- "directories",
- "env_logger",
- "keyring",
- "libloading 0.9.0",
- "log",
- "objc2 0.6.5",
- "objc2-foundation 0.3.2",
- "phosphor-core",
- "png",
- "serde",
- "softbuffer",
- "toml",
- "windows-sys 0.61.2",
- "winit",
- "winresource",
-]
-
-[[package]]
-name = "phosphor-core"
-version = "0.1.16"
-dependencies = [
- "anyhow",
- "csv",
- "log",
- "rcgen",
- "ring",
- "russh",
- "rustls",
- "serde",
- "serde_json",
- "tokio",
- "tokio-rustls",
- "toml",
- "webpki-roots",
- "zmodem2",
 ]
 
 [[package]]

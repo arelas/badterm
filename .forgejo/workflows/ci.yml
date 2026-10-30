@@ -1,6 +1,6 @@
 name: CI
 
-# Canonical CI for Phosphor, on the Bad Cluster Forgejo instance
+# Canonical CI for BadTerm, on the Bad Cluster Forgejo instance
 # (git.badcluster.dev). Forgejo-only; there is no GitHub equivalent.
 #
 # actions/* are pinned to https://git.badcluster.dev/actions/... (this
@@ -51,7 +51,7 @@ jobs:
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       # lrzsz's sz/rz are what most Unix BBSes run; the interop tests in
-      # crates/phosphor-core/tests/lrzsz.rs transfer files against them.
+      # crates/badterm-core/tests/lrzsz.rs transfer files against them.
       # Three runner instances share one VM, so another job (or unattended-upgrades)
       # can hold apt's lock: on 2026-10-29 the v0.1.1 tag run failed with "Could not
       # get lock /var/lib/apt/lists/lock" while the main run was installing lrzsz.
@@ -76,11 +76,11 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      # PHOSPHOR_REQUIRE_LRZSZ turns a missing sz/rz into a failure instead
+      # BADTERM_REQUIRE_LRZSZ turns a missing sz/rz into a failure instead
       # of a skipped test, so interop can't silently stop being checked.
       - name: Test
         env:
-          PHOSPHOR_REQUIRE_LRZSZ: '1'
+          BADTERM_REQUIRE_LRZSZ: '1'
         run: cargo test --locked
 
       # Against glibc 2.28 (cargo-zigbuild), not the runner's own, which is
@@ -88,7 +88,7 @@ jobs:
       # on Ubuntu 24.04 or Debian 13.
       - name: Release build
         run: |
-          cargo clean --release --target x86_64-unknown-linux-gnu -p phosphor -p phosphor-core
+          cargo clean --release --target x86_64-unknown-linux-gnu -p badterm -p badterm-core
           packaging/linux/build-release.sh
 
       # Named after the ref: the version tag for releases, the branch otherwise.
@@ -98,21 +98,21 @@ jobs:
       - name: Package
         run: |
           set -e
-          name="phosphor-${GITHUB_REF_NAME}-linux-x64"
+          name="badterm-${GITHUB_REF_NAME}-linux-x64"
           rm -rf dist && mkdir -p "dist/$name"
-          cp target/x86_64-unknown-linux-gnu/release/phosphor README.md LICENSE packaging/linux/phosphor.desktop "dist/$name/"
-          cp crates/phosphor/assets/icon/phosphor-256.png "dist/$name/phosphor.png"
+          cp target/x86_64-unknown-linux-gnu/release/badterm README.md LICENSE packaging/linux/badterm.desktop "dist/$name/"
+          cp crates/badterm/assets/icon/badterm-256.png "dist/$name/badterm.png"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
-          packaging/linux/build-appimage.sh target/x86_64-unknown-linux-gnu/release/phosphor "${GITHUB_REF_NAME#v}" "dist/$name.AppImage"
+          packaging/linux/build-appimage.sh target/x86_64-unknown-linux-gnu/release/badterm "${GITHUB_REF_NAME#v}" "dist/$name.AppImage"
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-          packaging/linux/build-packages.sh target/x86_64-unknown-linux-gnu/release/phosphor "$version" "dist/$name"
+          packaging/linux/build-packages.sh target/x86_64-unknown-linux-gnu/release/badterm "$version" "dist/$name"
           dpkg-deb --info "dist/$name.deb"
           dpkg-deb --contents "dist/$name.deb"
 
       - name: Upload package
         uses: https://git.badcluster.dev/actions/upload-artifact@v3
         with:
-          name: phosphor-linux-x64
+          name: badterm-linux-x64
           path: |
             dist/*.tar.gz
             dist/*.AppImage
@@ -181,7 +181,7 @@ jobs:
       - name: Release build
         shell: powershell
         run: |
-          cargo clean --release -p phosphor -p phosphor-core
+          cargo clean --release -p badterm -p badterm-core
           if ($LASTEXITCODE -ne 0) { exit 1 }
           cargo build --release --locked
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -190,10 +190,10 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $name = "phosphor-$env:GITHUB_REF_NAME-windows-x64"
+          $name = "badterm-$env:GITHUB_REF_NAME-windows-x64"
           if (Test-Path dist) { Remove-Item -Recurse -Force dist }
           New-Item -ItemType Directory -Path "dist\$name" | Out-Null
-          Copy-Item target\release\phosphor.exe, README.md, LICENSE -Destination "dist\$name"
+          Copy-Item target\release\badterm.exe, README.md, LICENSE -Destination "dist\$name"
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
 
           # The installer. Its version is the crate's, since a branch name
@@ -205,7 +205,7 @@ jobs:
             "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $iscc) { Write-Host "::error::ISCC.exe not found"; exit 1 }
-          & $iscc /Qp "/DAppVersion=$version" "/DOutputName=$name-setup" packaging\windows\phosphor.iss
+          & $iscc /Qp "/DAppVersion=$version" "/DOutputName=$name-setup" packaging\windows\badterm.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       # Install for this user into a scratch folder, check the files and the
@@ -215,24 +215,24 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
-          $dir = Join-Path $env:RUNNER_TEMP "phosphor-install-test"
+          $dir = Join-Path $env:RUNNER_TEMP "badterm-install-test"
           $p = Start-Process -Wait -PassThru $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir", '/TASKS=links'
           if ($p.ExitCode -ne 0) { Write-Host "::error::setup exited with $($p.ExitCode)"; exit 1 }
-          if (-not (Test-Path "$dir\phosphor.exe")) { Write-Host "::error::phosphor.exe not installed"; exit 1 }
+          if (-not (Test-Path "$dir\badterm.exe")) { Write-Host "::error::badterm.exe not installed"; exit 1 }
           $cmd = (Get-ItemProperty 'HKCU:\Software\Classes\telnet\shell\open\command').'(default)'
           Write-Host "telnet:// opens: $cmd"
-          if ($cmd -notlike "*$dir\phosphor.exe*") { Write-Host "::error::telnet:// handler not registered"; exit 1 }
+          if ($cmd -notlike "*$dir\badterm.exe*") { Write-Host "::error::telnet:// handler not registered"; exit 1 }
           $p = Start-Process -Wait -PassThru "$dir\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
           if ($p.ExitCode -ne 0) { Write-Host "::error::uninstall exited with $($p.ExitCode)"; exit 1 }
           # The uninstaller removes itself a moment after exiting.
           Start-Sleep -Seconds 3
-          if (Test-Path "$dir\phosphor.exe") { Write-Host "::error::phosphor.exe left behind"; exit 1 }
+          if (Test-Path "$dir\badterm.exe") { Write-Host "::error::badterm.exe left behind"; exit 1 }
           if (Test-Path 'HKCU:\Software\Classes\telnet\shell\open\command') { Write-Host "::error::handler left behind"; exit 1 }
 
       - name: Upload package
         uses: https://git.badcluster.dev/actions/upload-artifact@v3
         with:
-          name: phosphor-windows-x64
+          name: badterm-windows-x64
           path: |
             dist/*.zip
             dist/*-setup.exe
@@ -266,22 +266,22 @@ jobs:
 
       - name: Release build
         run: |
-          cargo clean --release -p phosphor -p phosphor-core
+          cargo clean --release -p badterm -p badterm-core
           cargo build --release --locked
 
-      # Phosphor.app in a disk image. Architecture from the runner itself
+      # BadTerm.app in a disk image. Architecture from the runner itself
       # rather than assumed.
       - name: Package
         run: |
           set -e
           rm -rf dist && mkdir -p dist
-          packaging/macos/build-dmg.sh target/release/phosphor "${GITHUB_REF_NAME#v}" \
-            "dist/phosphor-${GITHUB_REF_NAME}-macos-$(uname -m).dmg"
+          packaging/macos/build-dmg.sh target/release/badterm "${GITHUB_REF_NAME#v}" \
+            "dist/badterm-${GITHUB_REF_NAME}-macos-$(uname -m).dmg"
 
       - name: Upload package
         uses: https://git.badcluster.dev/actions/upload-artifact@v3
         with:
-          name: phosphor-macos
+          name: badterm-macos
           path: dist/*.dmg
           if-no-files-found: error
 
@@ -305,15 +305,15 @@ jobs:
 
       - uses: https://git.badcluster.dev/actions/download-artifact@v3
         with:
-          name: phosphor-linux-x64
+          name: badterm-linux-x64
           path: dist/release
       - uses: https://git.badcluster.dev/actions/download-artifact@v3
         with:
-          name: phosphor-windows-x64
+          name: badterm-windows-x64
           path: dist/release
       - uses: https://git.badcluster.dev/actions/download-artifact@v3
         with:
-          name: phosphor-macos
+          name: badterm-macos
           path: dist/release
 
       - name: Verify every expected asset is present
