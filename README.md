@@ -195,7 +195,7 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-O` | Settings, and the interface colors |
 | `Alt-F` | View ANSI art: a file picker, then the art with its SAUCE details |
 | `Alt-Z` | Help: every key on one page |
-| `Alt-X` | Exit |
+| `Alt-X` | Exit (asks first; `Y` or `Alt-X` again to confirm) |
 
 `Alt-P`, `Alt-A`, `Alt-W` and `Alt-M` work anywhere, including in the dialing
 directory, and are remembered in `settings.toml`. An entry's "Screen mode"

@@ -160,6 +160,8 @@ pub struct App {
     settings_open: bool,
     /// The help screen (Alt-Z), over everything else while open.
     help_open: bool,
+    /// "Exit Phosphor?" is showing (Alt-X).
+    confirm_exit: bool,
     /// A newer version, if the update check found one.
     update: Option<String>,
     /// The ANSI viewer (Alt-F): choosing a file, then the art.
@@ -265,6 +267,7 @@ impl App {
             settings_ui: SettingsUi::default(),
             settings_open: false,
             help_open: false,
+            confirm_exit: false,
             update: None,
             art_picker: None,
             art: None,
@@ -596,6 +599,14 @@ impl App {
         }
         let Some(key) = input::translate(event) else { return };
         self.selection = None;
+        if self.confirm_exit {
+            match key {
+                Key::Char('y') | Key::Char('Y') | Key::Enter => event_loop.exit(),
+                Key::Char('n') | Key::Char('N') | Key::Escape => self.confirm_exit = false,
+                _ => {}
+            }
+            return self.request_redraw();
+        }
         if self.help_open {
             self.help_open = false;
         } else if self.settings_open {
@@ -658,6 +669,10 @@ impl App {
 
     /// Client hotkeys (Alt, or Cmd on macOS). Returns true if handled.
     fn hotkey(&mut self, event_loop: &ActiveEventLoop, code: KeyCode) -> bool {
+        // While "Exit Phosphor?" shows, only Alt-X (yes) does anything.
+        if self.confirm_exit && code != KeyCode::KeyX {
+            return true;
+        }
         match code {
             KeyCode::Enter | KeyCode::NumpadEnter => {
                 if let Some(g) = &self.gfx {
@@ -666,8 +681,12 @@ impl App {
                 }
                 return true;
             }
+            // Asks first; Alt-X again (or Y) is yes.
             KeyCode::KeyX => {
-                event_loop.exit();
+                if self.confirm_exit {
+                    event_loop.exit();
+                }
+                self.confirm_exit = true;
                 return true;
             }
             // The stored login: the user name, then the password.
@@ -1552,6 +1571,33 @@ impl App {
                 Frame::plain(rows, None, true)
             }
         };
+        // "Exit Phosphor?" over whatever is showing.
+        let confirm_screen;
+        let frame = if self.confirm_exit {
+            let n = frame.rows.len() - 1;
+            let cols = frame.rows.first().map_or(COLS, |r| r.len());
+            let mut sc = Screen::new(cols, n, 0);
+            for (y, row) in frame.rows[..n].iter().enumerate() {
+                for (x, c) in row.iter().enumerate() {
+                    if let Some(cell) = sc.cell_mut(x, y) {
+                        *cell = *c;
+                    }
+                }
+            }
+            let msg = match &self.session {
+                Some(s) if s.state == State::Connected => {
+                    format!("This hangs up the call to {}.  Y exit   N stay", s.entry.name)
+                }
+                _ => "Y exit   N stay".to_string(),
+            };
+            ui::message_box(&mut sc, "Exit Phosphor?", &msg);
+            confirm_screen = sc;
+            let mut rows: Vec<&[Cell]> = (0..n).map(|y| confirm_screen.row(y)).collect();
+            rows.push(frame.rows[n]);
+            Frame { rows, cursor: None, ..frame }
+        } else {
+            frame
+        };
         // The terminal's own height (and font) unless the dialer or the idle
         // screen is showing; one more row for the status bar.
         let text_rows = frame.rows.len() - 1;
@@ -1652,7 +1698,16 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            // Closing the window in a call asks first, as Alt-X does.
+            WindowEvent::CloseRequested => {
+                let in_call = self.session.as_ref().is_some_and(|s| s.state == State::Connected);
+                if in_call && !self.confirm_exit {
+                    self.confirm_exit = true;
+                    self.request_redraw();
+                } else {
+                    event_loop.exit();
+                }
+            }
             WindowEvent::Resized(_) => self.request_redraw(),
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),

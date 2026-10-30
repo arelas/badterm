@@ -33,6 +33,20 @@ pub fn label(s: &mut Screen, x: usize, y: usize, text: &str, fg: Color, bg: Colo
     s.draw_text(x, y, &cp437::encode(text), fg, bg);
 }
 
+/// A centered box with a title and a message, wrapped to fit.
+pub fn message_box(s: &mut Screen, title: &str, msg: &str) {
+    let lines = wrap(msg, 60);
+    let w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0).max(title.len() + 4) + 6;
+    let h = lines.len() + 4;
+    let x = s.cols().saturating_sub(w) / 2;
+    let y = s.rows().saturating_sub(h) / 2;
+    let t = theme::current();
+    frame(s, x, y, w, h, title, t.window.fg(), t.window.bg());
+    for (i, l) in lines.iter().enumerate() {
+        label(s, x + 3, y + 2 + i, l, t.window.fg(), t.window.bg());
+    }
+}
+
 /// Draw a double-line box with a filled interior and an optional title.
 pub fn frame(s: &mut Screen, x: usize, y: usize, w: usize, h: usize, title: &str, fg: Color, bg: Color) {
     s.fill_rect(x, y, w, h, Cell::new(b' ', fg, bg));

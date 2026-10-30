@@ -742,19 +742,6 @@ fn font_name(id: u8) -> &'static str {
     EXTRA_FONTS.iter().find(|&&(f, _)| f == id).map_or("CP437 (IBM PC)", |&(_, name)| name)
 }
 
-fn message_box(s: &mut Screen, title: &str, msg: &str) {
-    let lines = wrap(msg, 60);
-    let w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0).max(title.len() + 4) + 6;
-    let h = lines.len() + 4;
-    let x = (COLS - w) / 2;
-    let y = (ROWS - h) / 2;
-    let t = theme::current();
-    frame(s, x, y, w, h, title, t.window.fg(), t.window.bg());
-    for (i, l) in lines.iter().enumerate() {
-        label(s, x + 3, y + 2 + i, l, t.window.fg(), t.window.bg());
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
