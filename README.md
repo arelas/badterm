@@ -125,6 +125,9 @@ supported, and they and ALSA (for ANSI music) are loaded at run time.
 
 ## Usage
 
+Phosphor opens with its splash screen for a second (any key skips it),
+then a start-up banner with the version, as terminal programs did.
+
 ```
 phosphor                         start, not connected (Alt-D opens the dialing directory)
 phosphor bbs.example.org         connect directly (also host:port,

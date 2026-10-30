@@ -162,6 +162,8 @@ pub struct App {
     help_open: bool,
     /// "Exit Phosphor?" is showing (Alt-X).
     confirm_exit: bool,
+    /// The splash screen shows until then (or a key).
+    splash_until: Option<Instant>,
     /// A newer version, if the update check found one.
     update: Option<String>,
     /// The ANSI viewer (Alt-F): choosing a file, then the art.
@@ -268,6 +270,7 @@ impl App {
             settings_open: false,
             help_open: false,
             confirm_exit: false,
+            splash_until: None,
             update: None,
             art_picker: None,
             art: None,
@@ -590,6 +593,10 @@ impl App {
     }
 
     fn on_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
+        // Any key closes the splash screen (and does nothing else).
+        if self.splash_until.take().is_some() {
+            return self.request_redraw();
+        }
         let mods = Mods::from(self.mods);
         if mods.hotkey()
             && let PhysicalKey::Code(code) = event.physical_key
@@ -1477,7 +1484,10 @@ impl App {
         let dialer_cursor =
             if self.dialer_open { self.dialer.draw(&mut self.dialer_screen, &self.directory) } else { None };
         let mut page_cursor = None;
-        if self.help_open {
+        let splash = self.splash_until.is_some();
+        if splash {
+            ui::splash::draw(&mut self.page_screen);
+        } else if self.help_open {
             ui::help::draw(&mut self.page_screen);
         } else if self.settings_open {
             let own = self.own_crt_mode().map(|m| m.name());
@@ -1531,7 +1541,7 @@ impl App {
         };
 
         let frame = match &self.session {
-            _ if self.help_open || self.settings_open || self.art_picker.is_some() => {
+            _ if splash || self.help_open || self.settings_open || self.art_picker.is_some() => {
                 let mut rows: Vec<&[Cell]> = (0..settings_ui::ROWS).map(|y| self.page_screen.row(y)).collect();
                 rows.push(self.status.row(0));
                 Frame::plain(rows, page_cursor, true)
@@ -1662,6 +1672,7 @@ impl ApplicationHandler<UserEvent> for App {
             return event_loop.exit();
         }
         self.load_bezel();
+        self.splash_until = Some(Instant::now() + ui::splash::TIME);
         if let Some(path) = self.view_at_start.take() {
             self.view_art(&path);
         }
@@ -1772,6 +1783,14 @@ impl ApplicationHandler<UserEvent> for App {
         }
         // Baud rate emulation shows text a few characters at a time.
         let mut wake = self.next_tick;
+        if let Some(until) = self.splash_until {
+            if now >= until {
+                self.splash_until = None;
+                self.request_redraw();
+            } else {
+                wake = wake.min(until);
+            }
+        }
         if !self.macro_steps.is_empty() {
             self.run_macro();
             if !self.macro_steps.is_empty() {
@@ -1845,15 +1864,27 @@ pub(crate) fn idle_screen(update: Option<&str>) -> Screen {
     let t = ui::theme::current();
     let mut s = Screen::new(COLS, ROWS, 0);
     s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', t.help.fg(), t.help.bg()));
-    let hint = format!("{HOTKEY}-D opens the dialing directory   {HOTKEY}-O settings");
-    let lines = [("Phosphor".to_string(), t.info), (hint, t.help)];
+    // Like a terminal program's start-up banner, at the top left.
+    let version = format!(
+        "Phosphor {} ({} {}), the ANSI-BBS client",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH
+    );
+    let lines = [
+        (version, t.info),
+        ("Copyright (C) 2026 The Phosphor contributors".to_string(), t.help),
+        ("Free software under the GNU GPL, version 3 or later; no warranty.".to_string(), t.help),
+        (phosphor_core::update::DOWNLOAD_PAGE.to_string(), t.help),
+        (String::new(), t.help),
+        (format!("{HOTKEY}-D Dialing directory   {HOTKEY}-O Settings   {HOTKEY}-Z Help   {HOTKEY}-X Exit"), t.help_key),
+    ];
     for (i, (text, a)) in lines.iter().enumerate() {
-        let x = (COLS - text.chars().count()) / 2;
-        ui::label(&mut s, x, ROWS / 2 - 1 + i * 2, text, a.fg(), a.bg());
+        ui::label(&mut s, 0, i, text, a.fg(), a.bg());
     }
     if let Some(v) = update {
         let text = format!("Phosphor {v} is out: {}", phosphor_core::update::DOWNLOAD_PAGE);
-        ui::label(&mut s, (COLS - text.chars().count()) / 2, ROWS / 2 + 4, &text, t.help_key.fg(), t.help_key.bg());
+        ui::label(&mut s, 0, lines.len() + 1, &text, t.help_key.fg(), t.help_key.bg());
     }
     s
 }

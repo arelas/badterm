@@ -8,6 +8,7 @@ pub mod help;
 pub mod login;
 pub mod save;
 pub mod settings;
+pub mod splash;
 pub mod theme;
 pub mod transfer;
 

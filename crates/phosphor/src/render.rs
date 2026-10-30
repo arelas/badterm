@@ -541,6 +541,9 @@ mod tests {
         page(&mut r, &ps, "help.ppm");
         crate::ui::theme::set_current(Default::default());
 
+        crate::ui::splash::draw(&mut ps);
+        page(&mut r, &ps, "splash.ppm");
+
         // The ANSI viewer, with its SAUCE box.
         let art_path = dir.join("viewer-test.ans");
         let mut art = ans.clone();
