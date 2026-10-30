@@ -45,6 +45,10 @@ const NOTICE_TIME: Duration = Duration::from_secs(4);
 pub enum UserEvent {
     /// A network event for the session with this id.
     Net(u64, NetEvent),
+    /// A telnet:// (or rlogin://, ...) link opened with Phosphor while it
+    /// runs; macOS sends these to the running app.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    OpenUrl(String),
 }
 
 pub struct Paths {
@@ -307,6 +311,17 @@ impl App {
         self.session = Some(session);
         self.session_index = index;
         self.scroll = 0;
+    }
+
+    /// Dial an address from the command line or a link, with the directory's
+    /// settings for that system if it has an entry for it.
+    fn dial_address(&mut self, e: Entry) {
+        let id = e.system_id();
+        let index = self.directory.entries.iter().position(|x| x.system_id() == id);
+        let e = index.map_or(e, |i| self.directory.entries[i].clone());
+        // Where the hang-up question shows, if one is needed.
+        self.dialer_open = true;
+        self.dial(e, index);
     }
 
     /// Dial from the directory: straight away, or after confirming that the
@@ -1077,21 +1092,25 @@ impl ApplicationHandler<UserEvent> for App {
             return event_loop.exit();
         }
         if let Some(e) = self.startup.take() {
-            let index =
-                self.directory.entries.iter().position(|x| x.host.eq_ignore_ascii_case(&e.host) && x.port == e.port);
-            match index {
-                Some(i) => {
-                    let e = self.directory.entries[i].clone();
-                    self.connect(e, Some(i));
-                }
-                None => self.connect(e, None),
-            }
+            self.dial_address(e);
         }
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Net(id, ev) => self.on_net(id, ev),
+            UserEvent::OpenUrl(url) => match Entry::from_address(&url) {
+                // Before the window exists: the link that launched the app.
+                Some(e) if self.gfx.is_none() => self.startup = Some(e),
+                Some(e) => {
+                    if let Some(g) = &self.gfx {
+                        g.window.focus_window();
+                    }
+                    self.dial_address(e);
+                    self.request_redraw();
+                }
+                None => self.notify(format!("Not a BBS address: {url}")),
+            },
         }
     }
 

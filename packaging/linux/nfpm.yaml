@@ -1,0 +1,55 @@
+# nfpm configuration for Phosphor's .deb and .rpm. build-packages.sh stages
+# the files under ${STAGE} and fills in the ${...} values.
+name: phosphor
+arch: amd64
+platform: linux
+version: ${VERSION}
+release: "1"
+section: net
+priority: optional
+maintainer: The Phosphor contributors <noreply@badcluster.dev>
+vendor: The Phosphor contributors
+homepage: https://badcluster.dev/phosphor/
+license: GPL-3.0-or-later
+description: |-
+  ANSI-BBS client for telnet, SSH and RLogin
+  Phosphor connects to bulletin board systems over telnet, telnet over TLS,
+  SSH and RLogin, and draws them with the IBM VGA fonts: iCE colors, ANSI
+  music, ZMODEM transfers, a dialing directory and a CRT phosphor mode.
+
+# The binary links only glibc; the windowing, keyboard and sound libraries
+# are opened when needed, so they are recommendations.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= ${GLIBC})
+    recommends:
+      - libxkbcommon-x11-0
+      - libwayland-client0
+      - libasound2t64 | libasound2
+  rpm:
+    depends:
+      - glibc >= ${GLIBC}
+    recommends:
+      - libxkbcommon-x11
+      - libwayland-client
+      - alsa-lib
+
+contents:
+  - src: ${STAGE}/phosphor
+    dst: /usr/bin/phosphor
+    file_info:
+      mode: 0755
+  - src: ${STAGE}/phosphor.desktop
+    dst: /usr/share/applications/phosphor.desktop
+  - src: ${STAGE}/README.md
+    dst: /usr/share/doc/phosphor/README.md
+  - src: ${STAGE}/LICENSE
+    dst: /usr/share/doc/phosphor/copyright
+    packager: deb
+  - src: ${STAGE}/LICENSE
+    dst: /usr/share/licenses/phosphor/LICENSE
+    packager: rpm
+    type: license
+  # build-packages.sh adds each icon here (just the files: the hicolor
+  # directories belong to the icon theme), so this list stays last.

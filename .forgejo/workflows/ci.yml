@@ -18,8 +18,8 @@ name: CI
 # downloads and compiled dependencies are reused.
 #
 # A `v*` tag matching the Cargo.toml version also publishes a Forgejo
-# prerelease with every platform package (Linux tarball and AppImage,
-# Windows zip, macOS disk image), once every build passes.
+# prerelease with every platform package (Linux tarball, AppImage, .deb and
+# .rpm; Windows installer and zip; macOS disk image), once every build passes.
 #
 # Persistent workspaces also mean target/ survives between runs. Cargo's
 # freshness check is mtime-based, so before the release build each job
@@ -89,8 +89,9 @@ jobs:
           cargo build --release --locked
 
       # Named after the ref: the version tag for releases, the branch otherwise.
-      # A tarball (with the desktop file and icon, for installing by hand) and
-      # an AppImage. build-appimage.sh pins and checksums the tools it fetches.
+      # A tarball (with the desktop file and icon, for installing by hand), an
+      # AppImage, and .deb and .rpm packages. The scripts pin and checksum the
+      # tools they fetch.
       - name: Package
         run: |
           set -e
@@ -100,6 +101,10 @@ jobs:
           cp crates/phosphor/assets/icon/phosphor-256.png "dist/$name/phosphor.png"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           packaging/linux/build-appimage.sh target/release/phosphor "${GITHUB_REF_NAME#v}" "dist/$name.AppImage"
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          packaging/linux/build-packages.sh target/release/phosphor "$version" "dist/$name"
+          dpkg-deb --info "dist/$name.deb"
+          dpkg-deb --contents "dist/$name.deb"
 
       - name: Upload package
         uses: https://git.badcluster.dev/actions/upload-artifact@v3
@@ -108,6 +113,8 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.AppImage
+            dist/*.deb
+            dist/*.rpm
           if-no-files-found: error
 
   windows:
@@ -139,6 +146,8 @@ jobs:
 
           EnsureWinget "Microsoft.VisualStudio.2022.BuildTools" "--quiet --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
           EnsureWinget "Rustlang.Rustup" $null
+          # Builds the installer (free for non-commercial use, as here).
+          EnsureWinget "JRSoftware.InnoSetup" $null
 
           $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
           $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
@@ -184,11 +193,46 @@ jobs:
           Copy-Item target\release\phosphor.exe, README.md, LICENSE -Destination "dist\$name"
           Compress-Archive -Path "dist\$name" -DestinationPath "dist\$name.zip"
 
+          # The installer. Its version is the crate's, since a branch name
+          # is not a version number.
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.*)"').Matches[0].Groups[1].Value
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { Write-Host "::error::ISCC.exe not found"; exit 1 }
+          & $iscc /Qp "/DAppVersion=$version" "/DOutputName=$name-setup" packaging\windows\phosphor.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # Install for this user into a scratch folder, check the files and the
+      # telnet:// handler, then uninstall and check they are gone.
+      - name: Test the installer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP "phosphor-install-test"
+          $p = Start-Process -Wait -PassThru $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir", '/TASKS=links'
+          if ($p.ExitCode -ne 0) { Write-Host "::error::setup exited with $($p.ExitCode)"; exit 1 }
+          if (-not (Test-Path "$dir\phosphor.exe")) { Write-Host "::error::phosphor.exe not installed"; exit 1 }
+          $cmd = (Get-ItemProperty 'HKCU:\Software\Classes\telnet\shell\open\command').'(default)'
+          Write-Host "telnet:// opens: $cmd"
+          if ($cmd -notlike "*$dir\phosphor.exe*") { Write-Host "::error::telnet:// handler not registered"; exit 1 }
+          $p = Start-Process -Wait -PassThru "$dir\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          if ($p.ExitCode -ne 0) { Write-Host "::error::uninstall exited with $($p.ExitCode)"; exit 1 }
+          # The uninstaller removes itself a moment after exiting.
+          Start-Sleep -Seconds 3
+          if (Test-Path "$dir\phosphor.exe") { Write-Host "::error::phosphor.exe left behind"; exit 1 }
+          if (Test-Path 'HKCU:\Software\Classes\telnet\shell\open\command') { Write-Host "::error::handler left behind"; exit 1 }
+
       - name: Upload package
         uses: https://git.badcluster.dev/actions/upload-artifact@v3
         with:
           name: phosphor-windows-x64
-          path: dist/*.zip
+          path: |
+            dist/*.zip
+            dist/*-setup.exe
           if-no-files-found: error
 
   macos:
@@ -273,7 +317,8 @@ jobs:
         run: |
           ls -la dist/release
           fail=0
-          for pattern in "*-linux-x64.tar.gz" "*-linux-x64.AppImage" "*-windows-x64.zip" "*-macos-*.dmg"; do
+          for pattern in "*-linux-x64.tar.gz" "*-linux-x64.AppImage" "*-linux-x64.deb" "*-linux-x64.rpm" \
+                         "*-windows-x64.zip" "*-windows-x64-setup.exe" "*-macos-*.dmg"; do
             n=$(ls dist/release/$pattern 2>/dev/null | wc -l)
             if [ "$n" -eq 0 ]; then echo "MISSING ASSET: $pattern"; fail=1;
             else echo "ok: $pattern -> $(ls dist/release/$pattern)"; fi

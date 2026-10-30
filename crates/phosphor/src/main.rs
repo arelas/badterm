@@ -14,6 +14,8 @@ mod app;
 mod console;
 mod crt;
 mod input;
+#[cfg(target_os = "macos")]
+mod macos_urls;
 mod png;
 mod render;
 mod secrets;
@@ -147,6 +149,14 @@ fn main() -> ExitCode {
 
 fn run(paths: app::Paths, startup: Option<Entry>) -> anyhow::Result<()> {
     let event_loop = EventLoop::<app::UserEvent>::with_user_event().build()?;
+    #[cfg(target_os = "macos")]
+    {
+        let proxy = event_loop.create_proxy();
+        macos_urls::install(move |url| {
+            // Fails only once the event loop has exited.
+            let _ = proxy.send_event(app::UserEvent::OpenUrl(url));
+        });
+    }
     let mut app = app::App::new(event_loop.create_proxy(), paths, startup);
     event_loop.run_app(&mut app)?;
     Ok(())

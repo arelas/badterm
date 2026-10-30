@@ -8,4 +8,5 @@ Icon=phosphor
 Terminal=false
 Categories=Network;TerminalEmulator;
 Keywords=BBS;telnet;ANSI;SSH;ZMODEM;
+MimeType=x-scheme-handler/telnet;x-scheme-handler/telnets;x-scheme-handler/rlogin;
 StartupWMClass=phosphor

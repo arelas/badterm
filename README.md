@@ -68,16 +68,24 @@ fonts and colors of a host terminal.
 
 ## Installing
 
-Downloads are on the [releases page](https://git.badcluster.dev/arelas/phosphor/releases).
+Downloads are on the [website](https://badcluster.dev/phosphor/) and the
+[releases page](https://git.badcluster.dev/arelas/phosphor/releases).
 
-- **Windows**: unzip `phosphor-…-windows-x64.zip` and run `phosphor.exe`.
+- **Windows**: run `phosphor-…-windows-x64-setup.exe`. It installs for you
+  alone without administrator rights (or for everyone, if you choose), adds
+  Phosphor to the Start menu and opens `telnet://`, `telnets://` and
+  `rlogin://` links with it. Or unzip `phosphor-…-windows-x64.zip` and run
+  `phosphor.exe` from anywhere.
 - **macOS**: open `phosphor-…-macos-arm64.dmg` and drag Phosphor to
   Applications. Phosphor isn't signed with an Apple Developer ID yet, so the
-  first time, Control-click it and choose Open.
-- **Linux**: `phosphor-…-linux-x64.AppImage` runs on most distributions:
-  `chmod +x` it and run it. The tarball has the bare program, plus
-  `phosphor.desktop` and `phosphor.png` for adding it to your menus by hand
-  (copy them to `~/.local/share/applications/` and
+  first time, Control-click it and choose Open. It opens `telnet://` links
+  once it has been run.
+- **Linux**: install `phosphor-…-linux-x64.deb` (Debian, Ubuntu) or
+  `phosphor-…-linux-x64.rpm` (Fedora, RHEL, openSUSE), for example with
+  `sudo apt install ./phosphor-…-linux-x64.deb`. Or use the AppImage, which
+  runs on most distributions: `chmod +x` it and run it. The tarball has the
+  bare program, plus `phosphor.desktop` and `phosphor.png` for adding it to
+  your menus by hand (copy them to `~/.local/share/applications/` and
   `~/.local/share/icons/hicolor/256x256/apps/`).
 
 ## Building
