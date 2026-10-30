@@ -324,6 +324,7 @@ mod tests {
     #[test]
     #[ignore]
     fn snapshot() {
+        use crate::input::Key;
         let dir = std::path::PathBuf::from(std::env::var("PHOSPHOR_SNAPSHOT_DIR").expect("set PHOSPHOR_SNAPSHOT_DIR"));
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -485,6 +486,29 @@ mod tests {
             &Display { scaling: Scaling::Fill, pixel_aspect: 1.2, crt: crate::crt::CrtMode::Off },
             "80x50.png",
         );
+
+        // The settings menu, the color editor and help.
+        let page = |r: &mut Renderer, s: &phosphor_core::Screen, name: &str| {
+            let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+            r.set_layout(Font::vga_8x16(), 8, 80, 25);
+            r.draw(&Frame::plain(rows, None, true), true, true);
+            write_ppm(r, &dir.join(name));
+        };
+        let mut settings = crate::settings::Settings::default();
+        let mut sui = crate::ui::settings::SettingsUi::default();
+        let mut ps = phosphor_core::Screen::new(80, 25, 0);
+        sui.draw(&mut ps, &settings, Some("green screen"));
+        page(&mut r, &ps, "settings.ppm");
+        for k in [Key::End, Key::Enter, Key::Down, Key::Down, Key::Down, Key::Down, Key::Enter, Key::Right] {
+            sui.handle_key(k, &mut settings);
+        }
+        crate::ui::theme::set_current(settings.colors);
+        sui.draw(&mut ps, &settings, None);
+        page(&mut r, &ps, "colors.ppm");
+        crate::ui::theme::set_current(crate::ui::theme::SCHEMES[2].1);
+        crate::ui::help::draw(&mut ps);
+        page(&mut r, &ps, "help.ppm");
+        crate::ui::theme::set_current(Default::default());
 
         // 132x37, with a dialog centered over it.
         let mut t132 = Terminal::new(132, 37, 0);

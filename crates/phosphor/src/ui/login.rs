@@ -60,22 +60,30 @@ impl LoginPrompt {
             self.instructions.lines().filter(|l| !l.trim().is_empty()).flat_map(|l| wrap(l, W - 6)).take(4).collect();
         let h = 7 + info.len() + usize::from(self.can_remember);
         let (x, y) = ((s.cols() - W) / 2, (s.rows().saturating_sub(h)) / 2);
-        frame(s, x, y, W, h, &truncate(&self.title, W - 8), WHITE, BLUE);
+        let t = theme::current();
+        frame(s, x, y, W, h, &truncate(&self.title, W - 8), t.window.fg(), t.window.bg());
         let mut row = y + 2;
         for line in &info {
-            label(s, x + 3, row, line, LIGHT_CYAN, BLUE);
+            label(s, x + 3, row, line, t.field_value.fg(), t.field_value.bg());
             row += 1;
         }
-        text(s, x + 3, row, W - 6, &truncate(&self.question, W - 6), WHITE, BLUE);
-        let cursor = self.field.draw(s, x + 3, row + 1, W - 6, !self.echo, WHITE, BLACK);
+        text(s, x + 3, row, W - 6, &truncate(&self.question, W - 6), t.window.fg(), t.window.bg());
+        let cursor = self.field.draw(s, x + 3, row + 1, W - 6, !self.echo, t.input.fg(), t.input.bg());
         row += 3;
         if self.can_remember {
             let mark = if self.remember { 'x' } else { ' ' };
             let place = if self.keychain { "in the keychain" } else { "in the directory file" };
-            label(s, x + 3, row, &format!("[{mark}] Remember password {place}   Tab"), GRAY, BLUE);
+            label(
+                s,
+                x + 3,
+                row,
+                &format!("[{mark}] Remember password {place}   Tab"),
+                t.window_text.fg(),
+                t.window_text.bg(),
+            );
             row += 1;
         }
-        label(s, x + 3, row, "Enter log in   Esc cancel", YELLOW, BLUE);
+        label(s, x + 3, row, "Enter log in   Esc cancel", t.keys.fg(), t.keys.bg());
         cursor
     }
 }

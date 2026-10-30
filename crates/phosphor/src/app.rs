@@ -30,6 +30,7 @@ use crate::sound::Player;
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
 use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::save::{SaveFormat, SavePrompt};
+use crate::ui::settings::{self as settings_ui, SettingsUi};
 use crate::ui::transfer::{self as transfer_ui, UploadPrompt};
 use crate::ui::{self, HOTKEY, format_date};
 
@@ -140,6 +141,13 @@ pub struct App {
     pending_dial: Option<(Entry, Option<usize>)>,
     /// What shows when there is no session and the dialer is closed.
     idle_screen: Screen,
+    /// The settings screen (Alt-O), over everything else while open.
+    settings_ui: SettingsUi,
+    settings_open: bool,
+    /// The help screen (Alt-Z), over everything else while open.
+    help_open: bool,
+    /// Where the settings and help screens are drawn.
+    page_screen: Screen,
     status: Screen,
     /// The terminal with a dialog drawn over it.
     overlay: Screen,
@@ -195,6 +203,7 @@ impl App {
             load_error = Some(format!("Could not save the dialing directory: {e:#}"));
         }
         let settings = Settings::load(&paths.settings);
+        ui::theme::set_current(settings.colors);
         let secrets: Rc<dyn Store> = Rc::new(Keychain);
         let mut dialer = DialerUi::new(paths.files.clone(), secrets.clone());
         // The app starts on the idle screen; the dialer opens only to show a
@@ -214,6 +223,10 @@ impl App {
             dialer_open,
             pending_dial: None,
             idle_screen: idle_screen(),
+            settings_ui: SettingsUi::default(),
+            settings_open: false,
+            help_open: false,
+            page_screen: Screen::new(settings_ui::COLS, settings_ui::ROWS, 0),
             status: Screen::new(COLS, 1, 0),
             overlay: Screen::new(COLS, ROWS, 0),
             upload_prompt: None,
@@ -516,7 +529,11 @@ impl App {
         }
         let Some(key) = input::translate(event) else { return };
         self.selection = None;
-        if self.dialer_open {
+        if self.help_open {
+            self.help_open = false;
+        } else if self.settings_open {
+            self.settings_key(key);
+        } else if self.dialer_open {
             self.dialer_key(key, mods);
         } else if self.login.is_some() {
             self.login_key(key, mods);
@@ -554,6 +571,7 @@ impl App {
                     self.connect(e, i);
                 }
             }
+            Action::Settings => self.open_settings(),
             Action::Close => {
                 self.dialer_open = false;
                 self.pending_dial = None;
@@ -639,13 +657,28 @@ impl App {
             KeyCode::KeyD => {
                 self.dialer_open = !self.dialer_open;
                 self.pending_dial = None;
+                self.settings_open = false;
+                self.help_open = false;
+                return true;
+            }
+            KeyCode::KeyO => {
+                if self.settings_open {
+                    self.settings_open = false;
+                } else {
+                    self.open_settings();
+                }
+                return true;
+            }
+            // Help, as in Telix.
+            KeyCode::KeyZ => {
+                self.help_open = !self.help_open;
                 return true;
             }
             _ => {}
         }
         // Session hotkeys act on what is on screen, so they are swallowed
-        // while the dialer covers the session.
-        if self.dialer_open {
+        // while the dialer (or settings, or help) covers the session.
+        if self.dialer_open || self.settings_open || self.help_open {
             return true;
         }
         let Some(session) = self.session.as_mut() else { return false };
@@ -751,6 +784,35 @@ impl App {
         self.own_crt_mode().unwrap_or(self.settings.crt)
     }
 
+    fn open_settings(&mut self) {
+        self.settings_ui.open();
+        self.settings_open = true;
+        self.help_open = false;
+    }
+
+    fn settings_key(&mut self, key: Key) {
+        match self.settings_ui.handle_key(key, &mut self.settings) {
+            settings_ui::Action::None => {}
+            settings_ui::Action::Changed => self.apply_settings(),
+            settings_ui::Action::Close => self.settings_open = false,
+        }
+    }
+
+    /// Put changed settings into effect, and save them.
+    fn apply_settings(&mut self) {
+        ui::theme::set_current(self.settings.colors);
+        self.idle_screen = idle_screen();
+        if self.settings.music == Music::Off {
+            self.player.stop();
+        }
+        if let Some(s) = self.session.as_mut() {
+            s.term.music_on_csi_m = self.settings.music == Music::All;
+        }
+        if let Err(e) = self.settings.save(&self.paths.settings) {
+            log::warn!("saving settings: {e:#}");
+        }
+    }
+
     fn settings_changed(&mut self, msg: impl Into<String>) {
         if let Err(e) = self.settings.save(&self.paths.settings) {
             log::warn!("saving settings: {e:#}");
@@ -769,7 +831,7 @@ impl App {
     /// or 80 for the dialer and the idle screen.
     fn view_cols(&self) -> usize {
         match &self.session {
-            Some(s) if !self.dialer_open => s.term.screen.cols(),
+            Some(s) if !self.dialer_open && !self.settings_open && !self.help_open => s.term.screen.cols(),
             _ => COLS,
         }
     }
@@ -995,20 +1057,30 @@ impl App {
     }
 
     fn draw_status(&mut self) {
-        let (fg, bg) = (ui::WHITE, ui::BLUE);
+        let theme = ui::theme::current();
+        let (fg, bg) = (theme.status.fg(), theme.status.bg());
         let cols = self.view_cols();
         if self.status.cols() != cols {
             self.status = Screen::new(cols, 1, 0);
         }
         let s = &mut self.status;
         s.fill_rect(0, 0, cols, 1, Cell::new(b' ', fg, bg));
+        if self.help_open || self.settings_open {
+            let line = if self.help_open {
+                " Help \u{2502} Any key returns"
+            } else {
+                " Settings \u{2502} Changes are saved as you make them \u{2502} Esc returns"
+            };
+            return ui::text(s, 0, 0, cols, line, fg, bg);
+        }
         let notice = self.notice.as_ref().filter(|(_, until)| Instant::now() < *until).map(|(m, _)| m.clone());
         if self.dialer_open {
             let help = notice.unwrap_or_else(|| self.dialer.status_help().to_string());
             return ui::text(s, 0, 0, cols, &format!(" {help}"), fg, bg);
         }
         let Some(session) = &self.session else {
-            let help = notice.unwrap_or_else(|| format!("{HOTKEY}-D Dialing directory  {HOTKEY}-X Exit"));
+            let help =
+                notice.unwrap_or_else(|| format!("{HOTKEY}-D Dialing directory  {HOTKEY}-Z Help  {HOTKEY}-X Exit"));
             return ui::text(s, 0, 0, cols, &format!(" Not connected \u{2502} {help}"), fg, bg);
         };
         let screen = &session.term.screen;
@@ -1018,7 +1090,7 @@ impl App {
                 self.scroll,
                 screen.scrollback_len()
             );
-            return ui::text(s, 0, 0, cols, &line, ui::BLACK, ui::CYAN);
+            return ui::text(s, 0, 0, cols, &line, theme.status_alt.fg(), theme.status_alt.bg());
         }
         let e = &session.entry;
         if session.transfer().is_some() {
@@ -1061,7 +1133,7 @@ impl App {
                 if e.baud > 0 {
                     flags.push_str(&format!(" {}bps", e.baud));
                 }
-                let right = notice.unwrap_or_else(|| format!("{HOTKEY}: D Dir H Hangup B Back U Upload X Exit"));
+                let right = notice.unwrap_or_else(|| format!("{HOTKEY}: D Dir H Hangup U Upload Z Help X Exit"));
                 format!(
                     " {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
                     truncate(&e.name, 16),
@@ -1079,6 +1151,12 @@ impl App {
         self.draw_status();
         let dialer_cursor =
             if self.dialer_open { self.dialer.draw(&mut self.dialer_screen, &self.directory) } else { None };
+        if self.help_open {
+            ui::help::draw(&mut self.page_screen);
+        } else if self.settings_open {
+            let own = self.own_crt_mode().map(|m| m.name());
+            self.settings_ui.draw(&mut self.page_screen, &self.settings, own);
+        }
         let crt = self.crt_mode();
         let Some(gfx) = self.gfx.as_mut() else { return };
         let size = gfx.window.inner_size();
@@ -1122,6 +1200,11 @@ impl App {
         };
 
         let frame = match &self.session {
+            _ if self.help_open || self.settings_open => {
+                let mut rows: Vec<&[Cell]> = (0..settings_ui::ROWS).map(|y| self.page_screen.row(y)).collect();
+                rows.push(self.status.row(0));
+                Frame::plain(rows, None, true)
+            }
             _ if self.dialer_open => {
                 let mut rows: Vec<&[Cell]> = (0..dialer_ui::ROWS).map(|y| self.dialer_screen.row(y)).collect();
                 rows.push(self.status.row(0));
@@ -1317,12 +1400,14 @@ fn truncate(s: &str, n: usize) -> String {
 /// The screen shown with no session and the dialer closed: blank, with a
 /// hint in the middle (the status bar repeats it).
 pub(crate) fn idle_screen() -> Screen {
+    let t = ui::theme::current();
     let mut s = Screen::new(COLS, ROWS, 0);
-    let lines =
-        [("Phosphor".to_string(), ui::LIGHT_CYAN), (format!("{HOTKEY}-D opens the dialing directory"), ui::GRAY)];
-    for (i, (text, fg)) in lines.iter().enumerate() {
+    s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', t.help.fg(), t.help.bg()));
+    let hint = format!("{HOTKEY}-D opens the dialing directory   {HOTKEY}-O settings");
+    let lines = [("Phosphor".to_string(), t.info), (hint, t.help)];
+    for (i, (text, a)) in lines.iter().enumerate() {
         let x = (COLS - text.chars().count()) / 2;
-        ui::label(&mut s, x, ROWS / 2 - 1 + i * 2, text, *fg, ui::BLACK);
+        ui::label(&mut s, x, ROWS / 2 - 1 + i * 2, text, a.fg(), a.bg());
     }
     s
 }

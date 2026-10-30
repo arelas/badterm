@@ -2,8 +2,11 @@
 //! [`Screen`] so it renders exactly like BBS content.
 
 pub mod dialer;
+pub mod help;
 pub mod login;
 pub mod save;
+pub mod settings;
+pub mod theme;
 pub mod transfer;
 
 use phosphor_core::cp437;
@@ -15,16 +18,6 @@ use crate::input::{Key, Mods};
 
 /// The modifier for Phosphor's own hotkeys, as shown in help text.
 pub const HOTKEY: &str = if cfg!(target_os = "macos") { "Cmd" } else { "Alt" };
-
-pub const BLACK: Color = Color::Pc(0);
-pub const BLUE: Color = Color::Pc(1);
-pub const CYAN: Color = Color::Pc(3);
-pub const GRAY: Color = Color::Pc(7);
-pub const DARK_GRAY: Color = Color::Pc(8);
-pub const LIGHT_CYAN: Color = Color::Pc(11);
-pub const YELLOW: Color = Color::Pc(14);
-pub const WHITE: Color = Color::Pc(15);
-pub const LIGHT_RED: Color = Color::Pc(12);
 
 /// Draw `text` at (x, y), truncated or space-padded to `width` cells.
 pub fn text(s: &mut Screen, x: usize, y: usize, width: usize, text: &str, fg: Color, bg: Color) {
@@ -57,7 +50,7 @@ pub fn frame(s: &mut Screen, x: usize, y: usize, w: usize, h: usize, title: &str
     if !title.is_empty() {
         let t = format!(" {title} ");
         let tx = x + (w.saturating_sub(t.chars().count())) / 2;
-        label(s, tx, y, &t, YELLOW, bg);
+        label(s, tx, y, &t, theme::current().window_title.fg(), bg);
     }
 }
 

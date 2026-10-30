@@ -31,6 +31,8 @@ pub enum Action {
     HangUpAndDial,
     /// Close the dialing directory.
     Close,
+    /// Open the settings screen.
+    Settings,
 }
 
 const FIELDS: [&str; 15] = [
@@ -287,6 +289,7 @@ impl DialerUi {
                     }
                     return Action::Changed;
                 }
+                Key::Char('o') | Key::Char('O') => return Action::Settings,
                 Key::Char('/') | Key::F(3) => self.finding = true,
                 Key::Char('f') if mods.ctrl => self.finding = true,
                 Key::Delete | Key::Char('d') | Key::Char('D') if current.is_some() => self.mode = Mode::ConfirmDelete,
@@ -510,21 +513,24 @@ impl DialerUi {
 
     /// Render into `s` (80x25). Returns the text cursor position, if any.
     pub fn draw(&mut self, s: &mut Screen, dir: &Directory) -> Option<(usize, usize)> {
-        s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', GRAY, BLACK));
+        let t = theme::current();
+        s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', t.help.fg(), t.help.bg()));
         let title = format!(" Phosphor {} \u{2502} Dialing Directory", env!("CARGO_PKG_VERSION"));
-        text(s, 0, 0, COLS, &title, WHITE, BLUE);
+        text(s, 0, 0, COLS, &title, t.title_bar.fg(), t.title_bar.bg());
         let view = dir.view(&self.filter.value);
         let count = if view.len() == dir.entries.len() {
             format!("{} entries ", dir.entries.len())
         } else {
             format!("{} of {} entries ", view.len(), dir.entries.len())
         };
-        label(s, COLS - count.len(), 0, &count, LIGHT_CYAN, BLUE);
+        label(s, COLS - count.len(), 0, &count, t.title_bar.fg(), t.title_bar.bg());
 
-        frame(s, 0, 1, COLS, 21, "", LIGHT_CYAN, BLUE);
+        frame(s, 0, 1, COLS, 21, "", t.border.fg(), t.border.bg());
+        s.fill_rect(1, LIST_TOP, COLS - 2, LIST_ROWS, Cell::new(b' ', t.entries.fg(), t.entries.bg()));
         let header = format!(" {:<30} {:<30} {:<7} {:>5}", "Name", "Address", "Type", "Calls");
-        text(s, 1, 2, COLS - 2, &header, YELLOW, BLUE);
-        divider(s, 0, 3, COLS, LIGHT_CYAN, BLUE);
+        text(s, 1, 2, COLS - 2, &header, t.headings.fg(), t.headings.bg());
+        divider(s, 0, 3, COLS, t.border.fg(), t.border.bg());
+        let (list_fg, list_bg) = (t.entries.fg(), t.entries.bg());
 
         let n = view.len();
         self.selected = self.selected.min(n.saturating_sub(1));
@@ -534,7 +540,7 @@ impl DialerUi {
             self.top = self.selected + 1 - LIST_ROWS;
         }
         if n == 0 && !dir.entries.is_empty() {
-            text(s, 2, LIST_TOP + 1, COLS - 4, "Nothing matches. Esc clears the search.", GRAY, BLUE);
+            text(s, 2, LIST_TOP + 1, COLS - 4, "Nothing matches. Esc clears the search.", list_fg, list_bg);
         } else if n == 0 {
             text(
                 s,
@@ -542,8 +548,8 @@ impl DialerUi {
                 LIST_TOP + 1,
                 COLS - 4,
                 "No entries yet. Press Ins to add a BBS, Q to quick-connect,",
-                GRAY,
-                BLUE,
+                list_fg,
+                list_bg,
             );
             text(
                 s,
@@ -551,8 +557,8 @@ impl DialerUi {
                 LIST_TOP + 2,
                 COLS - 4,
                 "or I to import a SyncTERM .lst, CSV, JSON or TOML directory.",
-                GRAY,
-                BLUE,
+                list_fg,
+                list_bg,
             );
         }
         for (row, (pos, e)) in
@@ -567,15 +573,16 @@ impl DialerUi {
                 e.protocol.name(),
                 e.calls
             );
-            let (fg, bg) = if pos == self.selected { (BLACK, CYAN) } else { (WHITE, BLUE) };
+            let a = if pos == self.selected { t.selected } else { t.entries };
+            let (fg, bg) = (a.fg(), a.bg());
             text(s, 1, LIST_TOP + row, COLS - 2, &line, fg, bg);
         }
         // Scroll indicators.
         if self.top > 0 {
-            label(s, COLS - 1, LIST_TOP, "\u{25B2}", YELLOW, BLUE);
+            label(s, COLS - 1, LIST_TOP, "\u{25B2}", t.headings.fg(), t.border.bg());
         }
         if self.top + LIST_ROWS < n {
-            label(s, COLS - 1, LIST_TOP + LIST_ROWS - 1, "\u{25BC}", YELLOW, BLUE);
+            label(s, COLS - 1, LIST_TOP + LIST_ROWS - 1, "\u{25BC}", t.headings.fg(), t.border.bg());
         }
 
         if let Some(e) = view.get(self.selected).map(|&i| &dir.entries[i]) {
@@ -584,22 +591,23 @@ impl DialerUi {
             if !e.comment.is_empty() {
                 info.push_str(&format!("   {}", e.comment));
             }
-            text(s, 0, 22, COLS, &info, LIGHT_CYAN, BLACK);
+            text(s, 0, 22, COLS, &info, t.info.fg(), t.info.bg());
         }
 
         // The bottom line: the search, or the keys the status bar has no
         // room for.
         let mut cursor = None;
         if self.finding || !self.filter.value.is_empty() {
-            label(s, 1, 24, "Find:", YELLOW, BLACK);
-            let (fg, bg) = if self.finding { (WHITE, BLUE) } else { (LIGHT_CYAN, BLACK) };
+            label(s, 1, 24, "Find:", t.help_key.fg(), t.help_key.bg());
+            let a = if self.finding { t.input } else { t.info };
+            let (fg, bg) = (a.fg(), a.bg());
             let pos = self.filter.draw(s, 7, 24, 40, false, fg, bg);
             if self.finding {
                 cursor = Some(pos);
             }
         } else {
-            let keys = format!("S Sort ({})  Q Quick connect  I Import  X Export", dir.sort.name());
-            text(s, 1, 24, COLS - 2, &keys, GRAY, BLACK);
+            let keys = format!("S Sort ({})  Q Quick connect  I Import  X Export  O Settings", dir.sort.name());
+            text(s, 1, 24, COLS - 2, &keys, t.help.fg(), t.help.bg());
         }
 
         match &self.mode {
@@ -614,9 +622,9 @@ impl DialerUi {
                     PromptKind::Export => ("Export Directory", "Format follows extension: .lst .csv .json .toml"),
                 };
                 let (x, y, w) = (6, 9, 68);
-                frame(s, x, y, w, 6, title, WHITE, BLUE);
-                label(s, x + 2, y + 1, hint, GRAY, BLUE);
-                Some(field.draw(s, x + 2, y + 3, w - 4, false, WHITE, BLACK))
+                frame(s, x, y, w, 6, title, t.window.fg(), t.window.bg());
+                label(s, x + 2, y + 1, hint, t.window_text.fg(), t.window_text.bg());
+                Some(field.draw(s, x + 2, y + 3, w - 4, false, t.input.fg(), t.input.bg()))
             }
             Mode::ConfirmDelete => {
                 let name = view.get(self.selected).map(|&i| dir.entries[i].name.as_str()).unwrap_or("");
@@ -641,15 +649,18 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
     let (w, h) = (64, FIELDS.len() + 4);
     let (x, y) = ((COLS - w) / 2, (ROWS - h) / 2);
     let title = if form.index.is_some() { "Edit Entry" } else { "New Entry" };
-    frame(s, x, y, w, h, title, WHITE, BLUE);
+    let t = theme::current();
+    frame(s, x, y, w, h, title, t.window.fg(), t.window.bg());
     let mut cursor = (0, 0);
     let fx = x + 18;
     let fw = w - 20;
     for (i, name) in FIELDS.iter().enumerate() {
         let yy = y + 2 + i;
         let focused = i == form.focus;
-        text(s, x + 2, yy, 16, &format!("{name:>15}"), if focused { YELLOW } else { GRAY }, BLUE);
-        let (fg, bg) = if focused { (WHITE, BLACK) } else { (LIGHT_CYAN, BLUE) };
+        let name_attr = if focused { t.keys } else { t.field_name };
+        text(s, x + 2, yy, 16, &format!("{name:>15}"), name_attr.fg(), name_attr.bg());
+        let a = if focused { t.input } else { t.field_value };
+        let (fg, bg) = (a.fg(), a.bg());
         match i {
             F_PROTOCOL => {
                 let v = format!("\u{25C4} {:<7} \u{25BA}", form.protocol.name());
@@ -663,14 +674,14 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
             F_FONT => {
                 text(s, fx, yy, fw, &format!("\u{25C4} {:<16} \u{25BA}", font_name(form.font)), fg, bg);
                 if form.font != 0 {
-                    label(s, fx + 21, yy, "(Amiga)", DARK_GRAY, bg);
+                    label(s, fx + 21, yy, "(Amiga)", t.note.fg(), bg);
                 }
             }
             F_BAUD => {
                 let v = if form.baud == 0 { "Unlimited".to_string() } else { format!("{} bps", form.baud) };
                 text(s, fx, yy, fw, &format!("\u{25C4} {v:<10} \u{25BA}"), fg, bg);
                 if form.baud != 0 {
-                    label(s, fx + 15, yy, "(as over a modem)", DARK_GRAY, bg);
+                    label(s, fx + 15, yy, "(as over a modem)", t.note.fg(), bg);
                 }
             }
             F_AUTO_LOGIN => {
@@ -680,13 +691,13 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                     Protocol::Ssh | Protocol::Rlogin => "(the protocol logs in)".to_string(),
                     _ => format!("(answers Login/Password; or {HOTKEY}-L)"),
                 };
-                label(s, fx + 8, yy, &hint, DARK_GRAY, bg);
+                label(s, fx + 8, yy, &hint, t.note.fg(), bg);
             }
             F_CRT => {
                 let name = form.crt.map_or("default", CrtMode::name);
                 text(s, fx, yy, fw, &format!("\u{25C4} {name:<12} \u{25BA}"), fg, bg);
                 if form.crt.is_none() {
-                    label(s, fx + 17, yy, &format!("({HOTKEY}-P)"), DARK_GRAY, bg);
+                    label(s, fx + 17, yy, &format!("({HOTKEY}-P)"), t.note.fg(), bg);
                 }
             }
             _ => {
@@ -698,7 +709,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
         }
     }
     if let Some(err) = &form.error {
-        text(s, x + 2, y + h - 2, w - 4, err, LIGHT_RED, BLUE);
+        text(s, x + 2, y + h - 2, w - 4, err, t.error.fg(), t.error.bg());
     }
     cursor
 }
@@ -713,9 +724,10 @@ fn message_box(s: &mut Screen, title: &str, msg: &str) {
     let h = lines.len() + 4;
     let x = (COLS - w) / 2;
     let y = (ROWS - h) / 2;
-    frame(s, x, y, w, h, title, WHITE, BLUE);
+    let t = theme::current();
+    frame(s, x, y, w, h, title, t.window.fg(), t.window.bg());
     for (i, l) in lines.iter().enumerate() {
-        label(s, x + 3, y + 2 + i, l, WHITE, BLUE);
+        label(s, x + 3, y + 2 + i, l, t.window.fg(), t.window.bg());
     }
 }
 

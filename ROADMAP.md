@@ -64,6 +64,7 @@ The next things to do, in order.
 - [x] CTerm font selection and palette (OSC 4/104); Amiga fonts per entry
 - [x] Screen modes 80x43, 132x25, 132x37, 132x52
 - [x] Baud rate emulation
+- [x] Settings screen (Alt-O) with interface color schemes and a color editor; help (Alt-Z)
 
 ## Connections
 
@@ -98,7 +99,8 @@ The next things to do, in order.
 - [ ] Multiple directories / groups
 - [ ] Import more formats: NetRunner, mTelnet, Telnet BBS Guide lists, qodem
 - [ ] SAUCE record reading for captured/viewed files; built-in ANSI viewer
-- [ ] Configuration screen (default font, scaling, palette, keys)
+- [ ] More in the settings screen: default font and screen mode, scaling,
+      key bindings
 - [ ] Multiple simultaneous sessions (tabs)
 - [ ] Scripting / macros (e.g. Lua or Rhai) bound to keys
 - [ ] Optional curses/TUI front end built on `phosphor-core`

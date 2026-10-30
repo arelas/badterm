@@ -6,6 +6,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::crt::CrtMode;
+use crate::ui::theme::Theme;
 
 /// Which ANSI music to play (Alt-M).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,11 +51,20 @@ pub struct Settings {
     pub music: Music,
     /// Call a busy or unreachable BBS again, a few times.
     pub redial: bool,
+    /// The colors of Phosphor's own screens.
+    pub colors: Theme,
 }
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { crt: CrtMode::Off, nine_dot: false, aspect: false, music: Music::On, redial: true }
+        Settings {
+            crt: CrtMode::Off,
+            nine_dot: false,
+            aspect: false,
+            music: Music::On,
+            redial: true,
+            colors: Theme::default(),
+        }
     }
 }
 
@@ -85,7 +95,10 @@ mod tests {
 
     #[test]
     fn round_trip_and_defaults() {
-        let s = Settings { crt: CrtMode::Amber, nine_dot: true, aspect: true, music: Music::All, redial: false };
+        let mut colors = Theme::default();
+        colors.selected.fg = 14;
+        let s =
+            Settings { crt: CrtMode::Amber, nine_dot: true, aspect: true, music: Music::All, redial: false, colors };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
         assert!(text.contains("crt = \"amber\""), "{text}");

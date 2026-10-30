@@ -44,11 +44,13 @@ impl SavePrompt {
     /// Draw the prompt; returns the text cursor position.
     pub fn draw(&self, s: &mut Screen) -> (usize, usize) {
         let (x, y, w) = ((s.cols() - 70) / 2, 9, 70);
-        frame(s, x, y, w, 7, "Save Scrollback", WHITE, BLUE);
-        label(s, x + 2, y + 1, ".ans ANSI or .txt text: the scrollback and screen", GRAY, BLUE);
-        label(s, x + 2, y + 2, ".png: an image of what is on screen now", GRAY, BLUE);
-        let cursor = self.field.draw(s, x + 2, y + 4, w - 4, false, WHITE, BLACK);
-        label(s, x + 2, y + 5, "Enter save   Esc cancel", YELLOW, BLUE);
+        let t = theme::current();
+        let (dim_fg, dim_bg) = (t.window_text.fg(), t.window_text.bg());
+        frame(s, x, y, w, 7, "Save Scrollback", t.window.fg(), t.window.bg());
+        label(s, x + 2, y + 1, ".ans ANSI or .txt text: the scrollback and screen", dim_fg, dim_bg);
+        label(s, x + 2, y + 2, ".png: an image of what is on screen now", dim_fg, dim_bg);
+        let cursor = self.field.draw(s, x + 2, y + 4, w - 4, false, t.input.fg(), t.input.bg());
+        label(s, x + 2, y + 5, "Enter save   Esc cancel", t.keys.fg(), t.keys.bg());
         cursor
     }
 }

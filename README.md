@@ -178,6 +178,8 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-A` | 4:3 aspect, as on a CRT, or square pixels |
 | `Alt-W` | 9-dot or 8-dot character cells |
 | `Alt-M` | ANSI music: on, on including `ESC [ M`, off |
+| `Alt-O` | Settings, and the interface colors |
+| `Alt-Z` | Help: every key on one page |
 | `Alt-X` | Exit |
 
 `Alt-P`, `Alt-A`, `Alt-W` and `Alt-M` work anywhere, including in the dialing
@@ -186,6 +188,15 @@ can be 80x25, 80x43, 80x50, 132x25, 132x37 or 132x52 (43 lines or more in
 the 8x8 font), and its "Phosphor mode" can override `Alt-P` for that
 BBS. While connected to a BBS with its own phosphor mode, `Alt-P` changes
 that BBS's mode rather than the global one.
+
+`Alt-O` (or `O` in the dialing directory) opens the settings: phosphor
+mode, character cells, pixel shape, ANSI music, redialing, and the colors
+of Phosphor's own screens. Pick one of the color schemes (Classic blue,
+Midnight, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit
+colors", give each part of the interface (title bar, selected entry,
+windows, input fields, key hints, ...) its own foreground and background
+from a grid of the 16 x 8 combinations, as in QModem and Telix. Changes
+show and are saved straight away; in the grid, `Esc` undoes the last part.
 
 Downloads are saved to `Downloads/Phosphor`; `phosphor --paths` shows every
 location Phosphor uses.

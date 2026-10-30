@@ -16,10 +16,11 @@ pub fn draw_progress(s: &mut Screen, p: &Progress) {
         Direction::Download => "ZMODEM Download",
         Direction::Upload => "ZMODEM Upload",
     };
-    frame(s, x, y, W, h, title, WHITE, BLUE);
+    let t = theme::current();
+    frame(s, x, y, W, h, title, t.window.fg(), t.window.bg());
     let inner = W - 6;
     let name = if p.file_name.is_empty() { "waiting for the other side..." } else { p.file_name.as_str() };
-    text(s, x + 3, y + 2, inner, &format!("File: {name}"), WHITE, BLUE);
+    text(s, x + 3, y + 2, inner, &format!("File: {name}"), t.window.fg(), t.window.bg());
 
     let fraction = match p.file_size {
         Some(size) if size > 0 => (p.file_bytes as f64 / size as f64).min(1.0),
@@ -30,9 +31,9 @@ pub fn draw_progress(s: &mut Screen, p: &Progress) {
     let filled = (fraction * bar_w as f64).round() as usize;
     let mut bar = vec![0xB2; filled];
     bar.resize(bar_w, 0xB0);
-    s.draw_text(x + 3, y + 3, &bar, LIGHT_CYAN, BLUE);
+    s.draw_text(x + 3, y + 3, &bar, t.field_value.fg(), t.field_value.bg());
     if p.file_size.is_some() {
-        label(s, x + 3 + bar_w + 1, y + 3, &format!("{:>3}%", (fraction * 100.0) as u32), YELLOW, BLUE);
+        label(s, x + 3 + bar_w + 1, y + 3, &format!("{:>3}%", (fraction * 100.0) as u32), t.keys.fg(), t.keys.bg());
     }
 
     let rate = p.rate();
@@ -47,15 +48,15 @@ pub fn draw_progress(s: &mut Screen, p: &Progress) {
             line.push_str(&format!("   ETA {}:{:02}", eta / 60, eta % 60));
         }
     }
-    text(s, x + 3, y + 4, inner, &line, GRAY, BLUE);
+    text(s, x + 3, y + 4, inner, &line, t.window_text.fg(), t.window_text.bg());
 
     let mut files = format!("Files done: {}", p.files_done);
     if p.files_queued > 0 {
         files.push_str(&format!("   queued: {}", p.files_queued));
     }
-    text(s, x + 3, y + 5, inner, &files, GRAY, BLUE);
+    text(s, x + 3, y + 5, inner, &files, t.window_text.fg(), t.window_text.bg());
     let hint = "Esc cancels";
-    label(s, x + (W - hint.len()) / 2, y + 7, hint, YELLOW, BLUE);
+    label(s, x + (W - hint.len()) / 2, y + 7, hint, t.keys.fg(), t.keys.bg());
 }
 
 /// The "files to upload" prompt. `requested` is set when the BBS asked for
@@ -85,11 +86,13 @@ impl UploadPrompt {
     pub fn draw(&self, s: &mut Screen) -> (usize, usize) {
         let (x, y, w) = ((s.cols() - 70) / 2, 9, 70);
         let title = if self.requested { "The BBS is ready to receive" } else { "ZMODEM Upload" };
-        frame(s, x, y, w, 7, title, WHITE, BLUE);
-        label(s, x + 2, y + 1, "File(s) to send; separate several with ;", GRAY, BLUE);
-        label(s, x + 2, y + 2, "Tip: you can also drop files onto the window.", GRAY, BLUE);
-        let cursor = self.field.draw(s, x + 2, y + 4, w - 4, false, WHITE, BLACK);
-        label(s, x + 2, y + 5, "Enter send   Esc cancel", YELLOW, BLUE);
+        let t = theme::current();
+        let (dim_fg, dim_bg) = (t.window_text.fg(), t.window_text.bg());
+        frame(s, x, y, w, 7, title, t.window.fg(), t.window.bg());
+        label(s, x + 2, y + 1, "File(s) to send; separate several with ;", dim_fg, dim_bg);
+        label(s, x + 2, y + 2, "Tip: you can also drop files onto the window.", dim_fg, dim_bg);
+        let cursor = self.field.draw(s, x + 2, y + 4, w - 4, false, t.input.fg(), t.input.bg());
+        label(s, x + 2, y + 5, "Enter send   Esc cancel", t.keys.fg(), t.keys.bg());
         cursor
     }
 }
