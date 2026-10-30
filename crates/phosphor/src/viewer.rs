@@ -24,6 +24,8 @@ pub struct RenderOptions {
     pub font: u8,
     /// A monitor bezel to draw around the screen.
     pub bezel: Option<Bezel>,
+    /// How strong phosphor mode's scanlines are.
+    pub scanlines: crate::crt::Scanlines,
 }
 
 /// The tallest picture drawn from one file.
@@ -88,7 +90,13 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
         let (sw, sh) = (frame.screen.2.max(1) as f64, frame.screen.3.max(1) as f64);
         let pixel_aspect = sh / sw * nw as f64 / nh as f64;
         let mut out = vec![0; w * h];
-        r.blit_in(&mut out, w, h, frame.screen, &Display { scaling: Scaling::Fill, pixel_aspect, crt: opts.crt });
+        r.blit_in(
+            &mut out,
+            w,
+            h,
+            frame.screen,
+            &Display { scaling: Scaling::Fill, pixel_aspect, crt: opts.crt, scanlines: opts.scanlines },
+        );
         crate::bezel::composite(&mut out, &frame.pixels);
         (w, h, out)
     } else if opts.crt == CrtMode::Off && !opts.aspect {
@@ -98,7 +106,12 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
         let pixel_aspect = if opts.aspect { nw as f64 / 400.0 * 0.75 } else { 1.0 };
         let (w, h) = (nw * 2, (nh as f64 * 2.0 * pixel_aspect).round() as usize);
         let mut out = vec![0; w * h];
-        r.blit(&mut out, w, h, &Display { scaling: Scaling::Fill, pixel_aspect, crt: opts.crt });
+        r.blit(
+            &mut out,
+            w,
+            h,
+            &Display { scaling: Scaling::Fill, pixel_aspect, crt: opts.crt, scanlines: opts.scanlines },
+        );
         (w, h, out)
     };
     std::fs::write(output, crate::png::encode(&pixels, w, h))

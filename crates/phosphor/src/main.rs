@@ -53,6 +53,7 @@ Options:
     --screen        only the final 80x25 screen (for a captured session),
                     not the whole file
     --crt MODE      phosphor mode: color, green or amber
+    --scanlines S   their strength: off, light, medium or strong
     --nine-dot      9-dot characters
     --aspect        4:3, as on a CRT
     --font NAME     topaz, topaz-plus, microknight, microknight-plus,
@@ -113,6 +114,13 @@ fn parse_args() -> Result<Command, String> {
                     .find(|(_, n)| slug(n) == slug(&name))
                     .map(|&(id, _)| id)
                     .ok_or_else(|| format!("unknown font {name}"))?;
+            }
+            "--scanlines" => {
+                let want = args.next().unwrap_or_default().to_ascii_lowercase();
+                render.scanlines = crt::Scanlines::ALL
+                    .into_iter()
+                    .find(|s| s.name().eq_ignore_ascii_case(&want))
+                    .ok_or("--scanlines needs off, light, medium or strong")?;
             }
             "--crt" => {
                 render.crt = match args.next().as_deref() {

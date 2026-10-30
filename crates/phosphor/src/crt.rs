@@ -7,6 +7,8 @@
 //! computed once per window size and cached, so a frame costs one pass for
 //! the glow at native size, one scaling pass and one lookup per pixel.
 
+use serde::{Deserialize, Serialize};
+
 use crate::render::scale_into;
 
 pub use phosphor_core::dialer::CrtMode;
@@ -24,9 +26,39 @@ fn tint(mode: CrtMode) -> Option<(u32, u32, u32)> {
 const CURVE: f64 = 0.012;
 /// How dark the edges get.
 const VIGNETTE: f64 = 0.2;
-/// Darkest point between scanlines: light, so they texture the picture
-/// rather than stripe it.
-const SCANLINE_DEPTH: f64 = 0.25;
+/// How strong the scanlines are: the darkest point between them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Scanlines {
+    Off,
+    /// Enough to texture the picture rather than stripe it.
+    #[default]
+    Light,
+    Medium,
+    Strong,
+}
+
+impl Scanlines {
+    pub const ALL: [Scanlines; 4] = [Scanlines::Off, Scanlines::Light, Scanlines::Medium, Scanlines::Strong];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Scanlines::Off => "Off",
+            Scanlines::Light => "Light",
+            Scanlines::Medium => "Medium",
+            Scanlines::Strong => "Strong",
+        }
+    }
+
+    fn depth(self) -> f64 {
+        match self {
+            Scanlines::Off => 0.0,
+            Scanlines::Light => 0.25,
+            Scanlines::Medium => 0.4,
+            Scanlines::Strong => 0.6,
+        }
+    }
+}
 /// How much of the blurred image is added back as glow, in 256ths.
 const GLOW: u32 = 150;
 /// Brightness boost to make up for the darkening, in 256ths.
@@ -50,9 +82,11 @@ pub struct Crt {
 }
 
 impl Crt {
+    #[allow(clippy::too_many_arguments)]
     pub fn present(
         &mut self,
         mode: CrtMode,
+        scanlines: Scanlines,
         native: &[u32],
         nw: usize,
         nh: usize,
@@ -71,9 +105,9 @@ impl Crt {
         self.flat.resize(dw * dh, 0);
         scale_into(&self.lit, nw, nh, &mut self.flat, dw, (0, 0, dw, dh));
 
-        let key = (nw, nh, dw, dh, 0);
+        let key = (nw, nh, dw, dh, scanlines as usize);
         if key != self.key || self.map.len() != dw * dh {
-            self.build(nh, dw, dh);
+            self.build(nh, dw, dh, scanlines.depth());
             self.key = key;
         }
         for y in 0..dh {
@@ -104,13 +138,13 @@ impl Crt {
     }
 
     /// Precompute where each output pixel samples from and how bright it is.
-    fn build(&mut self, nh: usize, dw: usize, dh: usize) {
+    fn build(&mut self, nh: usize, dw: usize, dh: usize, depth: f64) {
         self.map.resize(dw * dh, 0);
         self.shade.resize(dw * dh, 0);
         // Scanlines need about two output pixels per frame pixel to read as
         // lines rather than as moiré: full depth from twice the size.
         let scale_y = dh as f64 / nh as f64;
-        let depth = ((scale_y - 1.2) / 0.8).clamp(0.0, 1.0) * SCANLINE_DEPTH;
+        let depth = ((scale_y - 1.2) / 0.8).clamp(0.0, 1.0) * depth;
         // Edges fade out over a couple of pixels, for a smooth curve.
         let fade_px = 2.0;
         for y in 0..dh {
@@ -217,14 +251,14 @@ mod tests {
         let (w, h) = (160, 100);
         let mut out = vec![0x123456; w * h];
         let mut crt = Crt::default();
-        crt.present(CrtMode::Color, &native, nw, nh, &mut out, w, (0, 0, w, h));
+        crt.present(CrtMode::Color, Scanlines::Light, &native, nw, nh, &mut out, w, (0, 0, w, h));
         // The dot's neighbourhood glows; the corners are past the curve.
         assert!(out[50 * w + 84] & 0xFF > 0, "glow");
         assert_eq!(out[0], 0);
         assert_eq!(out[w * h - 1], 0);
         // A second frame of the same size reuses the cached map.
         let map = crt.map.clone();
-        crt.present(CrtMode::Green, &native, nw, nh, &mut out, w, (0, 0, w, h));
+        crt.present(CrtMode::Green, Scanlines::Strong, &native, nw, nh, &mut out, w, (0, 0, w, h));
         assert_eq!(crt.map, map);
         let px = out[50 * w + 80];
         assert!(px >> 8 & 0xFF > px >> 16 & 0xFF, "green, not white: {px:06x}");

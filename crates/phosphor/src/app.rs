@@ -1650,12 +1650,14 @@ impl App {
                         // real one, whatever the pixel shape.
                         let (sw, sh) = (frame.screen.2.max(1) as f64, frame.screen.3.max(1) as f64);
                         let (nw, nh) = (self.renderer.native_width() as f64, self.renderer.native_height() as f64);
-                        let display = Display { scaling: Scaling::Fill, pixel_aspect: sh / sw * nw / nh, crt };
+                        let scanlines = self.settings.scanlines;
+                        let display =
+                            Display { scaling: Scaling::Fill, pixel_aspect: sh / sw * nw / nh, crt, scanlines };
                         self.view_rect = self.renderer.blit_in(&mut buf, ww, wh, frame.screen, &display);
                         bezel::composite(&mut buf, &frame.pixels);
                     }
                     None => {
-                        let display = Display { scaling, pixel_aspect, crt };
+                        let display = Display { scaling, pixel_aspect, crt, scanlines: self.settings.scanlines };
                         self.view_rect = self.renderer.blit(&mut buf, ww, wh, &display);
                     }
                 }

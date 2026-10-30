@@ -4,7 +4,7 @@
 
 use phosphor_core::screen::{Cell, Look, flags};
 
-use crate::crt::{Crt, CrtMode};
+use crate::crt::{Crt, CrtMode, Scanlines};
 use crate::selection::Selection;
 
 /// An 8-pixel-wide bitmap font with 256 glyphs, indexed by byte (CP437 for
@@ -95,11 +95,12 @@ pub struct Display {
     /// pixels, about 1.2 to show 640x400 at the 4:3 shape of a CRT.
     pub pixel_aspect: f64,
     pub crt: CrtMode,
+    pub scanlines: Scanlines,
 }
 
 impl Default for Display {
     fn default() -> Display {
-        Display { scaling: Scaling::Integer, pixel_aspect: 1.0, crt: CrtMode::Off }
+        Display { scaling: Scaling::Integer, pixel_aspect: 1.0, crt: CrtMode::Off, scanlines: Scanlines::Light }
     }
 }
 
@@ -260,7 +261,7 @@ impl Renderer {
         if display.crt == CrtMode::Off {
             scale_into(&self.native, nw, nh, out, width, (ox, oy, dw, dh));
         } else {
-            self.crt.present(display.crt, &self.native, nw, nh, out, width, (ox, oy, dw, dh));
+            self.crt.present(display.crt, display.scanlines, &self.native, nw, nh, out, width, (ox, oy, dw, dh));
         }
         (ox, oy, dw, dh)
     }
@@ -504,7 +505,8 @@ mod tests {
             (crate::crt::CrtMode::Green, "crt-green.png"),
             (crate::crt::CrtMode::Amber, "crt-amber.png"),
         ] {
-            let display = Display { scaling: Scaling::Fill, pixel_aspect: 720.0 / 400.0 * 0.75, crt: mode };
+            let display =
+                Display { scaling: Scaling::Fill, pixel_aspect: 720.0 / 400.0 * 0.75, crt: mode, ..Display::default() };
             write_png(&mut crt, &display, name);
         }
 
@@ -518,11 +520,7 @@ mod tests {
         let rows: Vec<&[Cell]> = (0..50).map(|y| t50.screen.row(y)).collect();
         let mut r50 = Renderer::new(Font::vga_8x8(), 80, 50);
         r50.draw(&Frame::plain(rows, None, true), true, true);
-        write_png(
-            &mut r50,
-            &Display { scaling: Scaling::Fill, pixel_aspect: 1.2, crt: crate::crt::CrtMode::Off },
-            "80x50.png",
-        );
+        write_png(&mut r50, &Display { scaling: Scaling::Fill, pixel_aspect: 1.2, ..Display::default() }, "80x50.png");
 
         // The settings menu, the color editor and help.
         let page = |r: &mut Renderer, s: &phosphor_core::Screen, name: &str| {

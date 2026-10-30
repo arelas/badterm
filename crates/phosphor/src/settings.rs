@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::crt::CrtMode;
+use crate::crt::{CrtMode, Scanlines};
 use crate::ui::theme::Theme;
 
 /// Which ANSI music to play (Alt-M).
@@ -43,6 +43,8 @@ impl Music {
 pub struct Settings {
     /// Phosphor mode: the CRT look (Alt-P).
     pub crt: CrtMode,
+    /// How strong phosphor mode's scanlines are.
+    pub scanlines: Scanlines,
     /// 9-pixel-wide character cells, as on a VGA (Alt-W).
     pub nine_dot: bool,
     /// Show the screen at the 4:3 shape of a CRT rather than with square
@@ -66,6 +68,7 @@ impl Default for Settings {
     fn default() -> Settings {
         Settings {
             crt: CrtMode::Off,
+            scanlines: Scanlines::Light,
             nine_dot: false,
             aspect: false,
             music: Music::On,
@@ -109,6 +112,7 @@ mod tests {
         colors.selected.fg = 14;
         let s = Settings {
             crt: CrtMode::Amber,
+            scanlines: Scanlines::Strong,
             nine_dot: true,
             aspect: true,
             music: Music::All,

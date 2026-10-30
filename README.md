@@ -218,7 +218,7 @@ turns them on with `CSI ?33h`, as before), On or Off; with On or Off, `Alt-I`
 changes that BBS's setting too.
 
 `Alt-O` (or `O` in the dialing directory) opens the settings: phosphor
-mode, character cells, pixel shape, ANSI music, redialing, and the colors
+mode and its scanlines (off, light, medium or strong), character cells, pixel shape, ANSI music, redialing, and the colors
 of Phosphor's own screens. Pick one of the color schemes (Classic blue,
 Midnight, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit
 colors", give each part of the interface (title bar, selected entry,
