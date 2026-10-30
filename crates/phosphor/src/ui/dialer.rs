@@ -155,8 +155,14 @@ enum Mode {
 }
 
 pub struct DialerUi {
+    /// Position of the selected entry in the listed view (see
+    /// [`Directory::view`]), not its index in the directory.
     selected: usize,
     top: usize,
+    /// Only entries matching this are listed.
+    filter: TextField,
+    /// Keys go to the filter (after `/`).
+    finding: bool,
     mode: Mode,
     /// Default directory offered for import/export paths.
     pub files_dir: PathBuf,
@@ -165,7 +171,15 @@ pub struct DialerUi {
 
 impl DialerUi {
     pub fn new(files_dir: PathBuf, secrets: Rc<dyn Store>) -> DialerUi {
-        DialerUi { selected: 0, top: 0, mode: Mode::List, files_dir, secrets }
+        DialerUi {
+            selected: 0,
+            top: 0,
+            filter: TextField::new("", 60),
+            finding: false,
+            mode: Mode::List,
+            files_dir,
+            secrets,
+        }
     }
 
     pub fn show_message(&mut self, msg: impl Into<String>) {
@@ -181,7 +195,8 @@ impl DialerUi {
 
     pub fn status_help(&self) -> &'static str {
         match self.mode {
-            Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  P Pin  Q Quick  I/X Imp/Exp  Esc Close",
+            Mode::List if self.finding => "Type to find  \u{2191}\u{2193} Select  Enter Dial  Esc Clear",
+            Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  P Pin  / Find  Esc Close",
             Mode::Edit(_) => "Enter Save  Esc Cancel  Tab/\u{2191}\u{2193} Field  Space/\u{2190}\u{2192} Change option",
             Mode::Prompt(..) => "Enter OK  Esc Cancel",
             Mode::ConfirmDelete => "Y Delete  N Keep",
@@ -191,8 +206,15 @@ impl DialerUi {
     }
 
     pub fn handle_key(&mut self, key: Key, mods: Mods, dir: &mut Directory) -> Action {
-        let n = dir.entries.len();
+        let view = dir.view(&self.filter.value);
+        let n = view.len();
         self.selected = self.selected.min(n.saturating_sub(1));
+        let current = view.get(self.selected).copied();
+        // The selected entry's index, valid when `any`.
+        let (any, i) = (current.is_some(), current.unwrap_or_default());
+        if self.finding && matches!(self.mode, Mode::List) {
+            return self.find_key(key, mods, dir, current);
+        }
         match &mut self.mode {
             Mode::List => match key {
                 Key::Up => self.selected = self.selected.saturating_sub(1),
@@ -201,25 +223,35 @@ impl DialerUi {
                 Key::PageDown if n > 0 => self.selected = (self.selected + LIST_ROWS).min(n - 1),
                 Key::Home => self.selected = 0,
                 Key::End => self.selected = n.saturating_sub(1),
-                Key::Enter if n > 0 => return Action::Connect(self.selected),
+                Key::Enter if any => return Action::Connect(i),
                 Key::Insert | Key::Char('a') | Key::Char('A') => {
                     let (form, _) = Form::new(None, Entry::default(), &*self.secrets);
                     self.mode = Mode::Edit(Box::new(form));
                 }
-                Key::Char('e') | Key::Char('E') | Key::F(2) if n > 0 => {
-                    let e = dir.entries[self.selected].clone();
-                    let (form, _) = Form::new(Some(self.selected), e, &*self.secrets);
+                Key::Char('e') | Key::Char('E') | Key::F(2) if any => {
+                    let e = dir.entries[i].clone();
+                    let (form, _) = Form::new(Some(i), e, &*self.secrets);
                     self.mode = Mode::Edit(Box::new(form));
                 }
-                Key::Char('p') | Key::Char('P') if n > 0 => {
-                    let e = &mut dir.entries[self.selected];
+                Key::Char('p') | Key::Char('P') if any => {
+                    let e = &mut dir.entries[i];
                     e.pinned = !e.pinned;
                     let id = (e.system_id(), e.name.clone());
                     dir.sort();
                     self.select(dir, &id);
                     return Action::Changed;
                 }
-                Key::Delete | Key::Char('d') | Key::Char('D') if n > 0 => self.mode = Mode::ConfirmDelete,
+                Key::Char('s') | Key::Char('S') => {
+                    let id = current.map(|i| (dir.entries[i].system_id(), dir.entries[i].name.clone()));
+                    dir.sort = dir.sort.next();
+                    if let Some(id) = id {
+                        self.select(dir, &id);
+                    }
+                    return Action::Changed;
+                }
+                Key::Char('/') | Key::F(3) => self.finding = true,
+                Key::Char('f') if mods.ctrl => self.finding = true,
+                Key::Delete | Key::Char('d') | Key::Char('D') if current.is_some() => self.mode = Mode::ConfirmDelete,
                 Key::Char('q') | Key::Char('Q') => {
                     self.mode = Mode::Prompt(PromptKind::QuickConnect, TextField::new("", 200));
                 }
@@ -231,13 +263,16 @@ impl DialerUi {
                     let p = self.files_dir.join("phosphor-export.lst");
                     self.mode = Mode::Prompt(PromptKind::Export, TextField::new(&p.to_string_lossy(), 400));
                 }
+                // Esc first clears a filter, then closes.
+                Key::Escape if !self.filter.value.is_empty() => self.clear_filter(dir, current),
                 Key::Escape => return Action::Close,
                 Key::Char(c) if c.is_alphanumeric() => {
                     // Jump to the next entry starting with the typed character.
                     let c = c.to_ascii_lowercase();
-                    let starts = |i: usize| dir.entries[i].name.to_lowercase().starts_with(c);
-                    if let Some(i) = (self.selected + 1..n).chain(0..self.selected + 1).find(|&i| starts(i)) {
-                        self.selected = i;
+                    let starts = |pos: usize| dir.entries[view[pos]].name.to_lowercase().starts_with(c);
+                    let sel = self.selected;
+                    if let Some(pos) = (sel + 1..n).chain(0..sel + 1).find(|&pos| starts(pos)) {
+                        self.selected = pos;
                     }
                 }
                 _ => {}
@@ -309,10 +344,11 @@ impl DialerUi {
                 }
             },
             Mode::ConfirmDelete => {
-                if let Key::Char('y' | 'Y') = key {
-                    let gone = dir.entries.remove(self.selected);
+                if let Key::Char('y' | 'Y') = key
+                    && let Some(i) = current
+                {
+                    let gone = dir.entries.remove(i);
                     secrets::forget(&gone, &*self.secrets);
-                    self.selected = self.selected.min(dir.entries.len().saturating_sub(1));
                     self.mode = Mode::List;
                     return Action::Changed;
                 }
@@ -329,9 +365,48 @@ impl DialerUi {
         Action::None
     }
 
+    /// Keys while typing a filter.
+    fn find_key(&mut self, key: Key, mods: Mods, dir: &Directory, current: Option<usize>) -> Action {
+        let n = dir.view(&self.filter.value).len();
+        match key {
+            Key::Escape => {
+                self.finding = false;
+                self.clear_filter(dir, current);
+            }
+            Key::Enter => {
+                self.finding = false;
+                if let Some(i) = current {
+                    return Action::Connect(i);
+                }
+            }
+            Key::Up => self.selected = self.selected.saturating_sub(1),
+            Key::Down if n > 0 => self.selected = (self.selected + 1).min(n - 1),
+            Key::PageUp => self.selected = self.selected.saturating_sub(LIST_ROWS),
+            Key::PageDown if n > 0 => self.selected = (self.selected + LIST_ROWS).min(n - 1),
+            _ => {
+                let before = self.filter.value.clone();
+                self.filter.handle_key(key, mods);
+                if self.filter.value != before {
+                    self.selected = 0;
+                }
+            }
+        }
+        Action::None
+    }
+
+    /// Drop the filter, keeping the selected entry selected.
+    fn clear_filter(&mut self, dir: &Directory, current: Option<usize>) {
+        self.filter = TextField::new("", 60);
+        if let Some(i) = current {
+            let e = &dir.entries[i];
+            self.select(dir, &(e.system_id(), e.name.clone()));
+        }
+    }
+
     /// Select the entry with this (system id, name), e.g. after re-sorting.
     fn select(&mut self, dir: &Directory, id: &(String, String)) {
-        let pos = dir.entries.iter().position(|x| x.system_id() == id.0 && x.name == id.1);
+        let view = dir.view(&self.filter.value);
+        let pos = view.iter().position(|&i| dir.entries[i].system_id() == id.0 && dir.entries[i].name == id.1);
         self.selected = pos.unwrap_or(0);
     }
 
@@ -371,7 +446,12 @@ impl DialerUi {
         s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', GRAY, BLACK));
         let title = format!(" Phosphor {} \u{2502} Dialing Directory", env!("CARGO_PKG_VERSION"));
         text(s, 0, 0, COLS, &title, WHITE, BLUE);
-        let count = format!("{} entries ", dir.entries.len());
+        let view = dir.view(&self.filter.value);
+        let count = if view.len() == dir.entries.len() {
+            format!("{} entries ", dir.entries.len())
+        } else {
+            format!("{} of {} entries ", view.len(), dir.entries.len())
+        };
         label(s, COLS - count.len(), 0, &count, LIGHT_CYAN, BLUE);
 
         frame(s, 0, 1, COLS, 21, "", LIGHT_CYAN, BLUE);
@@ -379,14 +459,16 @@ impl DialerUi {
         text(s, 1, 2, COLS - 2, &header, YELLOW, BLUE);
         divider(s, 0, 3, COLS, LIGHT_CYAN, BLUE);
 
-        let n = dir.entries.len();
+        let n = view.len();
         self.selected = self.selected.min(n.saturating_sub(1));
         if self.selected < self.top {
             self.top = self.selected;
         } else if self.selected >= self.top + LIST_ROWS {
             self.top = self.selected + 1 - LIST_ROWS;
         }
-        if n == 0 {
+        if n == 0 && !dir.entries.is_empty() {
+            text(s, 2, LIST_TOP + 1, COLS - 4, "Nothing matches. Esc clears the search.", GRAY, BLUE);
+        } else if n == 0 {
             text(
                 s,
                 2,
@@ -406,7 +488,9 @@ impl DialerUi {
                 BLUE,
             );
         }
-        for (row, (i, e)) in dir.entries.iter().enumerate().skip(self.top).take(LIST_ROWS).enumerate() {
+        for (row, (pos, e)) in
+            view.iter().map(|&i| &dir.entries[i]).enumerate().skip(self.top).take(LIST_ROWS).enumerate()
+        {
             // Pinned entries are marked with a diamond.
             let line = format!(
                 "{}{:<30} {:<30} {:<7} {:>5}",
@@ -416,7 +500,7 @@ impl DialerUi {
                 e.protocol.name(),
                 e.calls
             );
-            let (fg, bg) = if i == self.selected {
+            let (fg, bg) = if pos == self.selected {
                 (BLACK, CYAN)
             } else if e.protocol.supported() {
                 (WHITE, BLUE)
@@ -433,7 +517,7 @@ impl DialerUi {
             label(s, COLS - 1, LIST_TOP + LIST_ROWS - 1, "\u{25BC}", YELLOW, BLUE);
         }
 
-        if let Some(e) = dir.entries.get(self.selected) {
+        if let Some(e) = view.get(self.selected).map(|&i| &dir.entries[i]) {
             let last = e.last_connected.map(format_date).unwrap_or_else(|| "never".into());
             let mut info = format!(" Last called: {last}   Encoding: {}", e.encoding.name());
             if !e.comment.is_empty() {
@@ -453,8 +537,23 @@ impl DialerUi {
             }
         }
 
+        // The bottom line: the search, or the keys the status bar has no
+        // room for.
+        let mut cursor = None;
+        if self.finding || !self.filter.value.is_empty() {
+            label(s, 1, 24, "Find:", YELLOW, BLACK);
+            let (fg, bg) = if self.finding { (WHITE, BLUE) } else { (LIGHT_CYAN, BLACK) };
+            let pos = self.filter.draw(s, 7, 24, 40, false, fg, bg);
+            if self.finding {
+                cursor = Some(pos);
+            }
+        } else {
+            let keys = format!("S Sort ({})  Q Quick connect  I Import  X Export", dir.sort.name());
+            text(s, 1, 24, COLS - 2, &keys, GRAY, BLACK);
+        }
+
         match &self.mode {
-            Mode::List => None,
+            Mode::List => cursor,
             Mode::Edit(form) => Some(draw_form(s, form)),
             Mode::Prompt(kind, field) => {
                 let (title, hint) = match kind {
@@ -470,7 +569,7 @@ impl DialerUi {
                 Some(field.draw(s, x + 2, y + 3, w - 4, false, WHITE, BLACK))
             }
             Mode::ConfirmDelete => {
-                let name = dir.entries.get(self.selected).map(|e| e.name.as_str()).unwrap_or("");
+                let name = view.get(self.selected).map(|&i| dir.entries[i].name.as_str()).unwrap_or("");
                 let msg = format!("Remove \"{}\" from the directory? (Y/N)", truncate(name, 40));
                 message_box(s, "Confirm", &msg);
                 None
@@ -620,5 +719,44 @@ mod tests {
         key(&mut ui, &mut d, Key::Delete);
         key(&mut ui, &mut d, Key::Char('y'));
         assert!(store.map.borrow().is_empty());
+    }
+
+    fn typed(ui: &mut DialerUi, d: &mut Directory, s: &str) {
+        for c in s.chars() {
+            key(ui, d, Key::Char(c));
+        }
+    }
+
+    #[test]
+    fn find_filters_the_list() {
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
+        key(&mut ui, &mut d, Key::Char('/'));
+        assert!(ui.status_help().starts_with("Type to find"));
+        typed(&mut ui, &mut d, "BETA");
+        // Enter dials the (only) match: beta is entry 1.
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(1)));
+        // The filter stays, and list keys work on the filtered list.
+        assert!(matches!(key(&mut ui, &mut d, Key::Char('e')), Action::None));
+        let Mode::Edit(form) = &ui.mode else { panic!() };
+        assert_eq!(form.index, Some(1));
+        key(&mut ui, &mut d, Key::Escape);
+        // Esc clears the filter, keeping beta selected; a second Esc closes.
+        assert!(matches!(key(&mut ui, &mut d, Key::Escape), Action::None));
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(1)));
+        assert!(matches!(key(&mut ui, &mut d, Key::Escape), Action::Close));
+    }
+
+    #[test]
+    fn sort_order_cycles_and_keeps_the_selection() {
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
+        d.entries[1].calls = 9;
+        assert!(matches!(key(&mut ui, &mut d, Key::Char('s')), Action::Changed));
+        assert_eq!(d.sort, dialer::SortOrder::LastCalled);
+        assert!(matches!(key(&mut ui, &mut d, Key::Char('s')), Action::Changed));
+        assert_eq!(d.sort, dialer::SortOrder::Calls);
+        // Alpha stays selected though beta (more calls) now lists first.
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(0)));
+        key(&mut ui, &mut d, Key::Home);
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(1)));
     }
 }

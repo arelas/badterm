@@ -7,12 +7,10 @@ and mTelnet. Items are roughly in priority order within each section.
 
 The next things to do, in order.
 
-- [ ] Try each release on a real desktop on all three OSes: hotkeys
-      (Alt-D, Cmd-D on macOS, Alt-Enter), the login dialog, fullscreen
-      scaling, a ZMODEM download, and the keychain
-- [ ] Mouse selection and copy (as text or ANSI)
-- [ ] Search/filter in the directory; sort by name, last called, calls
-- [ ] Save scrollback to `.ans`/`.txt`; save screen as PNG
+- [ ] Try each release on a real desktop on all three OSes. Done on
+      0.1.4: calling Vortex, Alt-D while connected, Alt-Enter. Still to try:
+      Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
+      mouse copy, Alt-S, directory search and sort
 - [ ] Application icon and desktop integration
 - [ ] macOS `.app` bundle (the tarball is a bare binary, which macOS warns
       about and won't keep in the Dock), then signing and a `.dmg`
@@ -49,6 +47,9 @@ The next things to do, in order.
 - [x] Device Attributes (`CSI c`) reply, as a VT100
 - [x] Fullscreen (`Alt-Enter`) fills the screen with sharp fractional
       scaling; normal windows keep exact integer scaling
+- [x] Mouse selection and copy, as text or ANSI
+- [x] Directory search and sorting (name, last called, calls)
+- [x] Save scrollback to `.ans`/`.txt`; save the screen as PNG
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
 

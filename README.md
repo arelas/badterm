@@ -38,8 +38,13 @@ fonts and colors of a host terminal.
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
 - **Session capture** to `.ans` files (`Alt-C`)
+- **Copy with the mouse**: drag to select text and it is copied when you let
+  go; hold `Shift` as you let go to copy it with its colors, as ANSI
+- **Save the scrollback** (`Alt-S`) as an `.ans` file for ANSI viewers and
+  editors, or as plain `.txt`, or save the screen as a `.png`
 - **Dialing directory** with add/edit/delete, quick connect, call counts,
-  last-called dates and pinned favorites. It starts with
+  last-called dates, pinned favorites, search (`/`), and sorting by name,
+  last called or number of calls (`S`). It starts with
   [The Vortex BBS](telnet://vortexbbs.com), the project's home BBS.
 - **Passwords in the OS keychain** (Keychain on macOS, Credential Manager on
   Windows, the Secret Service on Linux) rather than the directory file. Where
@@ -91,6 +96,8 @@ hanging up.
 | `E` / `F2` | Edit the selected entry |
 | `Del` / `D` | Remove the selected entry |
 | `P` | Pin or unpin the entry (pinned entries are listed first) |
+| `/`, `F3`, `Ctrl-F` | Search by name, address or comment (`Enter` dials, `Esc` clears) |
+| `S` | Sort by name, last called, or number of calls |
 | `Q` | Quick connect to an address |
 | `I` / `X` | Import / export a directory file |
 | letter or digit | Jump to the next entry starting with it |
@@ -109,6 +116,8 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-I` | Toggle iCE colors / blinking |
 | `Alt-E` | Toggle CP437 / UTF-8 |
 | `Alt-C` | Start/stop capturing to a file |
+| `Alt-S` | Save the scrollback (`.ans`, `.txt`) or the screen (`.png`) |
+| drag with the mouse | Copy the selected text (`Shift` on release: as ANSI) |
 | `Alt-U` | Upload files with ZMODEM (or drop files on the window) |
 | `Alt-V`, `Shift-Ins` | Paste from the clipboard |
 | `Alt-Enter` | Toggle fullscreen (fills the screen, keeping the shape) |

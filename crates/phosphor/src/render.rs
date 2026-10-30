@@ -3,6 +3,8 @@
 
 use phosphor_core::screen::{Cell, flags};
 
+use crate::selection::Selection;
+
 /// An 8-pixel-wide bitmap font with 256 CP437 glyphs.
 pub struct Font {
     pub height: usize,
@@ -38,6 +40,8 @@ pub struct Frame<'a> {
     /// Cursor cell, if it should be shown.
     pub cursor: Option<(usize, usize)>,
     pub ice: bool,
+    /// Text selected with the mouse, drawn in inverse.
+    pub selection: Option<Selection>,
 }
 
 pub struct Renderer {
@@ -80,7 +84,10 @@ impl Renderer {
             let row = frame.rows.get(y).copied().unwrap_or(&[]);
             for x in 0..self.cols {
                 let cell = row.get(x).unwrap_or(&blank);
-                let (fg, bg, blinks) = cell.resolve(frame.ice);
+                let (mut fg, mut bg, blinks) = cell.resolve(frame.ice);
+                if frame.selection.is_some_and(|s| s.contains(x, y)) {
+                    std::mem::swap(&mut fg, &mut bg);
+                }
                 let hide = blinks && !blink_on;
                 let cursor_here = cursor_on && frame.cursor == Some((x, y));
                 for gy in 0..fh {
@@ -99,6 +106,11 @@ impl Renderer {
                 }
             }
         }
+    }
+
+    /// The frame drawn by the last [`Renderer::draw`], as 0RGB pixels.
+    pub fn pixels(&self) -> &[u32] {
+        &self.native
     }
 
     /// Scale the native frame into `out` (a `width` x `height` buffer),
@@ -221,7 +233,7 @@ mod tests {
 
         let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
         let rows: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
-        r.draw(&Frame { rows, cursor: Some(t.screen.cursor()), ice: true }, true, true);
+        r.draw(&Frame { rows, cursor: Some(t.screen.cursor()), ice: true, selection: None }, true, true);
         write_ppm(&r, &dir.join("terminal.ppm"));
 
         let mut d = Directory::default();
@@ -252,7 +264,7 @@ mod tests {
         };
         crate::ui::transfer::draw_progress(&mut over, &progress);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true }, true, true);
+        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
         write_ppm(&r, &dir.join("transfer.ppm"));
 
         let mut prompt = crate::ui::transfer::UploadPrompt::new(true);
@@ -260,25 +272,25 @@ mod tests {
         prompt.field.cursor = prompt.field.value.len();
         let cursor = prompt.draw(&mut over);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
-        r.draw(&Frame { rows, cursor: Some(cursor), ice: true }, true, true);
+        r.draw(&Frame { rows, cursor: Some(cursor), ice: true, selection: None }, true, true);
         write_ppm(&r, &dir.join("upload.ppm"));
 
         let mut ui = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
         let mut s = phosphor_core::Screen::new(80, 25, 0);
         ui.draw(&mut s, &d);
         let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true }, true, true);
+        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
         write_ppm(&r, &dir.join("dialer.ppm"));
 
         ui.confirm_hang_up("Example BBS", "another.example.com");
         ui.draw(&mut s, &d);
         let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true }, true, true);
+        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
         write_ppm(&r, &dir.join("hangup.ppm"));
 
         let idle = crate::app::idle_screen();
         let rows: Vec<&[Cell]> = (0..25).map(|y| idle.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true }, true, true);
+        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
         write_ppm(&r, &dir.join("idle.ppm"));
 
         for y in 0..25 {
@@ -292,8 +304,26 @@ mod tests {
         login.remember = true;
         let cursor = login.draw(&mut over);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
-        r.draw(&Frame { rows, cursor: Some(cursor), ice: true }, true, true);
+        r.draw(&Frame { rows, cursor: Some(cursor), ice: true, selection: None }, true, true);
         write_ppm(&r, &dir.join("login.ppm"));
+
+        // A mouse selection over the terminal, and the same screen as a PNG.
+        let rows: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
+        let selection = Some(crate::selection::Selection { anchor: (20, 0), head: (9, 4) });
+        r.draw(&Frame { rows, cursor: None, ice: true, selection }, true, true);
+        write_ppm(&r, &dir.join("selection.ppm"));
+        let png = crate::png::encode(r.pixels(), r.native_width(), r.native_height());
+        std::fs::write(dir.join("selection.png"), png).unwrap();
+
+        // Searching the directory.
+        let mut ui = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
+        for c in "/exa".chars() {
+            ui.handle_key(crate::input::Key::Char(c), crate::input::Mods::default(), &mut d);
+        }
+        ui.draw(&mut s, &d);
+        let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
+        write_ppm(&r, &dir.join("find.ppm"));
 
         // Fullscreen on a 1920x1080 monitor.
         let (w, h) = (1920, 1080);

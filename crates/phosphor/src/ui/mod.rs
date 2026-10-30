@@ -3,6 +3,7 @@
 
 pub mod dialer;
 pub mod login;
+pub mod save;
 pub mod transfer;
 
 use phosphor_core::cp437;

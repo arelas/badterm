@@ -218,8 +218,45 @@ impl Format {
     }
 }
 
+/// How the dialing directory is listed. Pinned entries always come first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortOrder {
+    #[default]
+    Name,
+    /// Most recently called first.
+    LastCalled,
+    /// Most called first.
+    Calls,
+}
+
+impl SortOrder {
+    pub fn name(self) -> &'static str {
+        match self {
+            SortOrder::Name => "name",
+            SortOrder::LastCalled => "last called",
+            SortOrder::Calls => "calls",
+        }
+    }
+
+    pub fn next(self) -> SortOrder {
+        match self {
+            SortOrder::Name => SortOrder::LastCalled,
+            SortOrder::LastCalled => SortOrder::Calls,
+            SortOrder::Calls => SortOrder::Name,
+        }
+    }
+
+    fn is_default(&self) -> bool {
+        *self == SortOrder::Name
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Directory {
+    /// How the list is shown.
+    #[serde(default, skip_serializing_if = "SortOrder::is_default")]
+    pub sort: SortOrder,
     /// Default entries already offered to this directory (by
     /// [`Entry::system_id`]), so one the user deleted does not come back.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -251,6 +288,33 @@ impl Directory {
     /// Pinned entries first, then by name.
     pub fn sort(&mut self) {
         self.entries.sort_by_key(|e| (!e.pinned, e.name.to_lowercase()));
+    }
+
+    /// Indices of the entries to list, in `self.sort` order, keeping those
+    /// whose name, address or comment contains `filter` (ignoring case).
+    pub fn view(&self, filter: &str) -> Vec<usize> {
+        let filter = filter.trim().to_lowercase();
+        let mut v: Vec<usize> = (0..self.entries.len())
+            .filter(|&i| {
+                let e = &self.entries[i];
+                filter.is_empty()
+                    || [&e.name, &e.host, &e.comment].iter().any(|f| f.to_lowercase().contains(&filter))
+                    || e.address().to_lowercase().contains(&filter)
+            })
+            .collect();
+        let name = |i: &usize| self.entries[*i].name.to_lowercase();
+        match self.sort {
+            SortOrder::Name => v.sort_by_key(|i| (!self.entries[*i].pinned, name(i))),
+            SortOrder::LastCalled => v.sort_by_key(|i| {
+                let e = &self.entries[*i];
+                (!e.pinned, std::cmp::Reverse(e.last_connected.unwrap_or(0)), name(i))
+            }),
+            SortOrder::Calls => v.sort_by_key(|i| {
+                let e = &self.entries[*i];
+                (!e.pinned, std::cmp::Reverse(e.calls), name(i))
+            }),
+        }
+        v
     }
 
     /// Add any default entries this directory has not been offered before.
@@ -575,7 +639,7 @@ mod tests {
 
     #[test]
     fn toml_and_json_round_trip() {
-        let d = Directory { entries: sample(), defaults_offered: vec!["telnet://x:23".into()] };
+        let d = Directory { entries: sample(), defaults_offered: vec!["telnet://x:23".into()], ..Directory::default() };
         let t = toml::to_string_pretty(&d).unwrap();
         assert_eq!(toml::from_str::<Directory>(&t).unwrap(), d);
         let j = serde_json::to_string(&d.entries).unwrap();
@@ -613,5 +677,31 @@ mod tests {
         assert!(!d.entries[0].pinned && !d.entries[0].keychain && d.entries[0].key_file.is_empty());
         let t = toml::to_string_pretty(&d).unwrap();
         assert!(!t.contains("pinned") && !t.contains("keychain") && !t.contains("key_file"), "{t}");
+    }
+
+    #[test]
+    fn view_sorts_and_filters() {
+        let mut d = Directory { entries: sample(), ..Directory::default() };
+        d.entries[0].calls = 1;
+        d.entries[1].calls = 5;
+        d.entries[0].last_connected = Some(200);
+        d.entries[1].last_connected = Some(100);
+        assert_eq!(d.view(""), [0, 1]);
+        d.sort = SortOrder::Calls;
+        assert_eq!(d.view(""), [1, 0]);
+        d.sort = SortOrder::LastCalled;
+        assert_eq!(d.view(""), [0, 1]);
+        // Pinned entries stay on top whatever the order.
+        d.entries[1].pinned = true;
+        assert_eq!(d.view(""), [1, 0]);
+
+        assert_eq!(d.view("ALPHA"), [0]);
+        assert_eq!(d.view("commas"), [0]);
+        assert_eq!(d.view(":2323"), [1]);
+        assert!(d.view("nothing like it").is_empty());
+
+        let t = toml::to_string_pretty(&d).unwrap();
+        assert!(t.contains("sort = \"last_called\""), "{t}");
+        assert_eq!(toml::from_str::<Directory>(&t).unwrap().sort, SortOrder::LastCalled);
     }
 }

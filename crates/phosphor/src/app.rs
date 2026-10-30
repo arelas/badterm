@@ -9,13 +9,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
 use phosphor_core::dialer::{self, Directory, Entry};
+use phosphor_core::export::{self, AnsiOptions};
 use phosphor_core::screen::{Cell, Screen};
 use phosphor_core::session::{NetEvent, Session, SessionConfig, SessionEvent, State};
 use phosphor_core::transfer::{Direction, Outcome};
 use phosphor_core::{Encoding, TermEvent, cp437};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
-use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Fullscreen, UserAttentionType, Window, WindowId};
@@ -23,8 +24,10 @@ use winit::window::{Fullscreen, UserAttentionType, Window, WindowId};
 use crate::input::{self, Key, Mods};
 use crate::render::{Font, Frame, Renderer, Scaling};
 use crate::secrets::{self, Keychain, Store};
+use crate::selection::Selection;
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
 use crate::ui::login::{LoginAction, LoginPrompt};
+use crate::ui::save::{SaveFormat, SavePrompt};
 use crate::ui::transfer::{self as transfer_ui, UploadPrompt};
 use crate::ui::{self, format_date};
 
@@ -119,6 +122,16 @@ pub struct App {
     /// The terminal with a dialog drawn over it.
     overlay: Screen,
     upload_prompt: Option<UploadPrompt>,
+    /// Alt-S: where to save the scrollback.
+    save_prompt: Option<SavePrompt>,
+    /// Terminal text selected with the mouse.
+    selection: Option<Selection>,
+    /// The left button is down, extending `selection`.
+    dragging: bool,
+    /// Mouse position in window pixels.
+    mouse: (f64, f64),
+    /// Where the last frame was drawn in the window: (x, y, w, h).
+    view_rect: (usize, usize, usize, usize),
     /// The SSH login's question, while one is waiting.
     login: Option<LoginPrompt>,
     /// A typed password to remember once the login succeeds.
@@ -175,6 +188,11 @@ impl App {
             status: Screen::new(COLS, 1, 0),
             overlay: Screen::new(COLS, ROWS, 0),
             upload_prompt: None,
+            save_prompt: None,
+            selection: None,
+            dragging: false,
+            mouse: (0.0, 0.0),
+            view_rect: (0, 0, 1, 1),
             login: None,
             remember: None,
             secrets,
@@ -285,6 +303,8 @@ impl App {
         self.session_index = None;
         self.scroll = 0;
         self.upload_prompt = None;
+        self.save_prompt = None;
+        self.selection = None;
         self.login = None;
         self.remember = None;
         self.transfer_direction = None;
@@ -300,6 +320,10 @@ impl App {
             return;
         };
         let connected = matches!(ev, NetEvent::Connected(_));
+        // New text moves what a selection was over.
+        if matches!(ev, NetEvent::Data(_)) && !self.dragging && self.scroll == 0 {
+            self.selection = None;
+        }
         session.handle(ev);
         // The question went away (the connection closed).
         if session.auth_prompt().is_none() {
@@ -408,10 +432,13 @@ impl App {
             return self.request_redraw();
         }
         let Some(key) = input::translate(event) else { return };
+        self.selection = None;
         if self.dialer_open {
             self.dialer_key(key, mods);
         } else if self.login.is_some() {
             self.login_key(key, mods);
+        } else if self.save_prompt.is_some() {
+            self.save_key(key, mods);
         } else if self.upload_prompt.is_some() {
             self.prompt_key(key, mods);
         } else if self.session.as_ref().is_some_and(|s| s.transfer().is_some()) {
@@ -499,6 +526,12 @@ impl App {
                 self.notify(msg);
             }
             KeyCode::KeyC => self.toggle_capture(),
+            KeyCode::KeyS => {
+                let now = dialer::now();
+                let path = self.paths.downloads.join(format!("{}-{}.ans", file_stem(&session.entry.name), stamp(now)));
+                self.upload_prompt = None;
+                self.save_prompt = Some(SavePrompt::new(&path));
+            }
             KeyCode::KeyV => self.paste(),
             // During an upload, the prompt adds files to the batch.
             KeyCode::KeyU
@@ -533,6 +566,123 @@ impl App {
         }
     }
 
+    fn save_key(&mut self, key: Key, mods: Mods) {
+        let Some(prompt) = self.save_prompt.as_mut() else { return };
+        match key {
+            Key::Escape => self.save_prompt = None,
+            Key::Enter => {
+                let path = prompt.path();
+                self.save_prompt = None;
+                let msg = match self.save(&path) {
+                    Ok(what) => format!("Saved {what} to {}", path.display()),
+                    Err(e) => format!("Save failed: {e:#}"),
+                };
+                self.notify(msg);
+            }
+            _ => {
+                prompt.field.handle_key(key, mods);
+            }
+        }
+    }
+
+    /// Write the scrollback (or, for a PNG, the screen) to `path`; returns
+    /// what was saved, for the notice.
+    fn save(&mut self, path: &std::path::Path) -> Result<String> {
+        let Some(session) = &self.session else { anyhow::bail!("not connected") };
+        let Some(format) = SaveFormat::from_path(path) else {
+            anyhow::bail!("use a file name ending in .ans, .txt or .png");
+        };
+        let sc = &session.term.screen;
+        let all: Vec<&[Cell]> =
+            (0..sc.scrollback_len()).map(|i| sc.scrollback_line(i)).chain((0..sc.rows()).map(|y| sc.row(y))).collect();
+        let (data, what) = match format {
+            SaveFormat::Ansi => {
+                let opts = AnsiOptions { ice: sc.ice_colors, unicode: false };
+                (export::ansi(&all, opts), format!("{} lines", all.len()))
+            }
+            SaveFormat::Text => (export::text(&all).into_bytes(), format!("{} lines", all.len())),
+            SaveFormat::Png => {
+                let mut r = Renderer::new(Font::vga_8x16(), COLS, ROWS);
+                let rows = terminal_rows(session, self.scroll);
+                r.draw(&Frame { rows, cursor: None, ice: sc.ice_colors, selection: None }, true, false);
+                (crate::png::encode(r.pixels(), r.native_width(), r.native_height()), "the screen".into())
+            }
+        };
+        if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        }
+        std::fs::write(path, data).with_context(|| format!("writing {}", path.display()))?;
+        Ok(what)
+    }
+
+    /// The terminal cell under the mouse, if the terminal is what is shown.
+    fn mouse_cell(&self) -> Option<(usize, usize)> {
+        let s = self.session.as_ref()?;
+        let overlay = self.login.is_some()
+            || self.save_prompt.is_some()
+            || self.upload_prompt.is_some()
+            || s.transfer().is_some();
+        if self.dialer_open || overlay {
+            return None;
+        }
+        let (ox, oy, w, h) = self.view_rect;
+        let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
+        let x = (mx.saturating_sub(ox) * COLS / w.max(1)).min(COLS - 1);
+        let y = (my.saturating_sub(oy) * GRID_ROWS / h.max(1)).min(ROWS - 1);
+        Some((x, y))
+    }
+
+    fn on_mouse_button(&mut self, button: MouseButton, state: ElementState) {
+        if button != MouseButton::Left {
+            return;
+        }
+        match state {
+            ElementState::Pressed => {
+                self.selection = self.mouse_cell().map(Selection::at);
+                self.dragging = self.selection.is_some();
+            }
+            ElementState::Released if self.dragging => {
+                self.dragging = false;
+                if let Some(sel) = self.selection.filter(|s| !s.is_empty()) {
+                    // Shift copies with colors, as ANSI.
+                    self.copy_selection(sel, self.mods.shift_key());
+                }
+            }
+            ElementState::Released => {}
+        }
+        self.request_redraw();
+    }
+
+    fn on_mouse_move(&mut self, x: f64, y: f64) {
+        self.mouse = (x, y);
+        if self.dragging
+            && let Some(cell) = self.mouse_cell()
+            && let Some(sel) = self.selection.as_mut()
+            && sel.head != cell
+        {
+            sel.head = cell;
+            self.request_redraw();
+        }
+    }
+
+    fn copy_selection(&mut self, sel: Selection, as_ansi: bool) {
+        let Some(session) = &self.session else { return };
+        let rows = terminal_rows(session, self.scroll);
+        let lines = sel.lines(&rows);
+        let text = if as_ansi {
+            let opts = AnsiOptions { ice: session.term.screen.ice_colors, unicode: true };
+            String::from_utf8_lossy(&export::ansi(&lines, opts)).into_owned()
+        } else {
+            export::text(&lines).trim_end_matches('\n').to_string()
+        };
+        let msg = match arboard::Clipboard::new().and_then(|mut c| c.set_text(text)) {
+            Ok(()) if as_ansi => "Copied as ANSI".to_string(),
+            Ok(()) => "Copied".to_string(),
+            Err(e) => format!("Copy failed: {e}"),
+        };
+        self.notify(msg);
+    }
+
     fn prompt_key(&mut self, key: Key, mods: Mods) {
         let Some(prompt) = self.upload_prompt.as_mut() else { return };
         match key {
@@ -563,9 +713,7 @@ impl App {
             session.stop_capture();
             return self.notify("Capture stopped");
         }
-        let now = dialer::now();
-        let name: String = session.entry.name.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect();
-        let path = self.paths.captures.join(format!("{name}-{}-{}.ans", format_date(now), now % 86_400));
+        let path = self.paths.captures.join(format!("{}-{}.ans", file_stem(&session.entry.name), stamp(dialer::now())));
         let msg = match session.start_capture(path.clone()) {
             Ok(()) => format!("Capturing to {}", path.display()),
             Err(e) => format!("Capture failed: {e:#}"),
@@ -619,6 +767,7 @@ impl App {
 
     fn on_wheel(&mut self, lines: isize) {
         if let Some(s) = self.session.as_ref().filter(|_| !self.dialer_open) {
+            self.selection = None;
             let max = s.term.screen.scrollback_len() as isize;
             self.scroll = (self.scroll as isize + lines).clamp(0, max) as usize;
             self.request_redraw();
@@ -698,7 +847,12 @@ impl App {
         // Dialogs over the terminal are drawn on a copy of its screen.
         let mut overlay_cursor = None;
         let overlay = match &self.session {
-            Some(session) if self.login.is_some() || self.upload_prompt.is_some() || session.transfer().is_some() => {
+            Some(session)
+                if self.login.is_some()
+                    || self.save_prompt.is_some()
+                    || self.upload_prompt.is_some()
+                    || session.transfer().is_some() =>
+            {
                 let sc = &session.term.screen;
                 for y in 0..ROWS.min(sc.rows()) {
                     for (x, cell) in sc.row(y).iter().enumerate() {
@@ -709,6 +863,8 @@ impl App {
                 }
                 if let Some(login) = &self.login {
                     overlay_cursor = Some(login.draw(&mut self.overlay));
+                } else if let Some(prompt) = &self.save_prompt {
+                    overlay_cursor = Some(prompt.draw(&mut self.overlay));
                 } else if let Some(prompt) = &self.upload_prompt {
                     overlay_cursor = Some(prompt.draw(&mut self.overlay));
                 } else if let Some(t) = session.transfer() {
@@ -723,28 +879,25 @@ impl App {
             _ if self.dialer_open => {
                 let mut rows: Vec<&[Cell]> = (0..dialer_ui::ROWS).map(|y| self.dialer_screen.row(y)).collect();
                 rows.push(self.status.row(0));
-                Frame { rows, cursor: dialer_cursor, ice: true }
+                Frame { rows, cursor: dialer_cursor, ice: true, selection: None }
             }
             Some(session) if overlay => {
                 let mut rows: Vec<&[Cell]> = (0..ROWS).map(|y| self.overlay.row(y)).collect();
                 rows.push(self.status.row(0));
-                Frame { rows, cursor: overlay_cursor, ice: session.term.screen.ice_colors }
+                Frame { rows, cursor: overlay_cursor, ice: session.term.screen.ice_colors, selection: None }
             }
             Some(session) => {
                 let sc = &session.term.screen;
-                let sb = sc.scrollback_len();
-                let off = self.scroll.min(sb);
-                let top = sb - off;
-                let mut rows: Vec<&[Cell]> =
-                    (top..top + ROWS).map(|i| if i < sb { sc.scrollback_line(i) } else { sc.row(i - sb) }).collect();
+                let mut rows = terminal_rows(session, self.scroll);
                 rows.push(self.status.row(0));
-                let cursor = (off == 0 && sc.cursor_visible && session.state == State::Connected).then(|| sc.cursor());
-                Frame { rows, cursor, ice: sc.ice_colors }
+                let live = self.scroll == 0 || sc.scrollback_len() == 0;
+                let cursor = (live && sc.cursor_visible && session.state == State::Connected).then(|| sc.cursor());
+                Frame { rows, cursor, ice: sc.ice_colors, selection: self.selection }
             }
             None => {
                 let mut rows: Vec<&[Cell]> = (0..ROWS).map(|y| self.idle_screen.row(y)).collect();
                 rows.push(self.status.row(0));
-                Frame { rows, cursor: None, ice: true }
+                Frame { rows, cursor: None, ice: true, selection: None }
             }
         };
         self.renderer.draw(&frame, (self.tick / 2).is_multiple_of(2), self.tick.is_multiple_of(2));
@@ -758,7 +911,7 @@ impl App {
                 // window keeps whole-number scaling.
                 let fill = gfx.window.fullscreen().is_some() || gfx.window.is_maximized();
                 let scaling = if fill { Scaling::Fill } else { Scaling::Integer };
-                self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize, scaling);
+                self.view_rect = self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize, scaling);
                 if let Err(e) = buf.present() {
                     log::error!("presenting frame: {e}");
                 }
@@ -805,6 +958,8 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 self.on_key(event_loop, &event)
             }
+            WindowEvent::CursorMoved { position, .. } => self.on_mouse_move(position.x, position.y),
+            WindowEvent::MouseInput { state, button, .. } => self.on_mouse_button(button, state),
             WindowEvent::MouseWheel { delta, .. } => {
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => (y * 3.0) as isize,
@@ -849,6 +1004,24 @@ impl ApplicationHandler<UserEvent> for App {
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_tick));
     }
+}
+
+/// The terminal rows on view, `scroll` lines back from the live screen.
+fn terminal_rows(session: &Session, scroll: usize) -> Vec<&[Cell]> {
+    let sc = &session.term.screen;
+    let sb = sc.scrollback_len();
+    let top = sb - scroll.min(sb);
+    (top..top + ROWS).map(|i| if i < sb { sc.scrollback_line(i) } else { sc.row(i - sb) }).collect()
+}
+
+/// A BBS name made safe for a file name.
+fn file_stem(name: &str) -> String {
+    name.chars().map(|c| if c.is_alphanumeric() { c } else { '_' }).collect()
+}
+
+/// A date and second-of-day stamp for file names.
+fn stamp(now: u64) -> String {
+    format!("{}-{}", format_date(now), now % 86_400)
 }
 
 fn truncate(s: &str, n: usize) -> String {
