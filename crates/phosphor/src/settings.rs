@@ -53,6 +53,8 @@ pub struct Settings {
     pub redial: bool,
     /// The colors of Phosphor's own screens.
     pub colors: Theme,
+    /// The monitor bezel drawn around the screen, by name; empty for none.
+    pub bezel: String,
     /// Ask the project's server for a newer version at each start. Off
     /// unless turned on, as it contacts the server.
     pub check_updates: bool,
@@ -67,6 +69,7 @@ impl Default for Settings {
             music: Music::On,
             redial: true,
             colors: Theme::default(),
+            bezel: String::new(),
             check_updates: false,
         }
     }
@@ -108,6 +111,7 @@ mod tests {
             music: Music::All,
             redial: false,
             colors,
+            bezel: "Beige".into(),
             check_updates: true,
         };
         let text = toml::to_string_pretty(&s).unwrap();

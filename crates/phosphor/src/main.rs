@@ -11,6 +11,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod bezel;
 mod console;
 mod crt;
 mod input;
@@ -53,6 +54,8 @@ Options:
     --aspect        4:3, as on a CRT
     --font NAME     topaz, topaz-plus, microknight, microknight-plus,
                     p0t-noodle or mosoul (Amiga art)
+    --bezel NAME    draw a monitor bezel around it (as in the settings,
+                    e.g. 'Beige, 1980s', or one of your own)
   -h, --help      Show this help
   -V, --version   Show the version";
 
@@ -91,6 +94,13 @@ fn parse_args() -> Result<Command, String> {
             "--screen" => render.screen_only = true,
             "--nine-dot" => render.nine_dot = true,
             "--aspect" => render.aspect = true,
+            "--bezel" => {
+                let name = args.next().ok_or("--bezel needs a bezel name")?;
+                let dir = app::Paths::new().bezels;
+                let bezel = bezel::Bezel::find(&name, &dir)
+                    .map_err(|e| format!("{e:#} (bezels: {})", bezel::names(&dir).join(", ")))?;
+                render.bezel = Some(bezel);
+            }
             "--font" => {
                 let name = args.next().ok_or("--font needs a font name")?;
                 let slug = |n: &str| n.to_ascii_lowercase().replace(' ', "-").replace('\'', "");
@@ -135,6 +145,8 @@ fn main() -> ExitCode {
             println!("Dialing directory: {}", paths.directory.display());
             println!("Captures:          {}", paths.captures.display());
             println!("Downloads:         {}", paths.downloads.display());
+            println!("Color themes:      {}", paths.themes.display());
+            println!("Monitor bezels:    {}", paths.bezels.display());
             println!("SSH known hosts:   {}", paths.known_hosts.display());
             Ok(())
         }

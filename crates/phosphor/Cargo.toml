@@ -20,6 +20,9 @@ keyring.workspace = true
 serde.workspace = true
 toml.workspace = true
 
+# User bezels are PNG images.
+png = "0.18.1"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 

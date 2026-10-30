@@ -21,6 +21,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Fullscreen, UserAttentionType, Window, WindowId};
 
+use crate::bezel::{self, Bezel};
 use crate::input::{self, Key, Mods};
 use crate::render::{Display, Font, Frame, Renderer, Scaling};
 use crate::secrets::{self, Keychain, Store};
@@ -31,6 +32,7 @@ use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
 use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::save::{SaveFormat, SavePrompt};
 use crate::ui::settings::{self as settings_ui, SettingsUi};
+use crate::ui::theme::{self, ThemeFile};
 use crate::ui::transfer::{self as transfer_ui, UploadPrompt};
 use crate::ui::{self, HOTKEY, format_date};
 
@@ -83,6 +85,10 @@ pub struct Paths {
     pub files: PathBuf,
     /// Where default SSH keys are looked for.
     pub ssh_keys: Option<PathBuf>,
+    /// Color themes (`.toml`), shared or saved from the settings.
+    pub themes: PathBuf,
+    /// The user's own monitor bezels (`.png`).
+    pub bezels: PathBuf,
 }
 
 impl Paths {
@@ -98,6 +104,8 @@ impl Paths {
         Paths {
             directory: config.join("dialer.toml"),
             settings: config.join("settings.toml"),
+            themes: config.join("themes"),
+            bezels: config.join("bezels"),
             captures: data.join("captures"),
             known_hosts: config.join("known_hosts"),
             downloads: files.join("Phosphor"),
@@ -152,6 +160,11 @@ pub struct App {
     help_open: bool,
     /// A newer version, if the update check found one.
     update: Option<String>,
+    /// The monitor bezel around the screen, and its drawing for the
+    /// window's size.
+    bezel: Option<Bezel>,
+    bezel_name: String,
+    bezel_frame: Option<((usize, usize), bezel::Rendered)>,
     /// Whether this run has checked for updates.
     update_checked: bool,
     /// Where the settings and help screens are drawn.
@@ -235,6 +248,9 @@ impl App {
             settings_open: false,
             help_open: false,
             update: None,
+            bezel: None,
+            bezel_name: String::new(),
+            bezel_frame: None,
             update_checked: false,
             page_screen: Screen::new(settings_ui::COLS, settings_ui::ROWS, 0),
             status: Screen::new(COLS, 1, 0),
@@ -542,7 +558,7 @@ impl App {
         if self.help_open {
             self.help_open = false;
         } else if self.settings_open {
-            self.settings_key(key);
+            self.settings_key(key, mods);
         } else if self.dialer_open {
             self.dialer_key(key, mods);
         } else if self.login.is_some() {
@@ -795,16 +811,71 @@ impl App {
     }
 
     fn open_settings(&mut self) {
-        self.settings_ui.open();
+        self.settings_ui.open(theme::user_themes(&self.paths.themes), bezel::names(&self.paths.bezels));
         self.settings_open = true;
         self.help_open = false;
     }
 
-    fn settings_key(&mut self, key: Key) {
-        match self.settings_ui.handle_key(key, &mut self.settings) {
+    fn settings_key(&mut self, key: Key, mods: Mods) {
+        match self.settings_ui.handle_key(key, mods, &mut self.settings) {
             settings_ui::Action::None => {}
             settings_ui::Action::Changed => self.apply_settings(),
             settings_ui::Action::Close => self.settings_open = false,
+            settings_ui::Action::Import(path) => {
+                let msg = match self.import_theme(&path) {
+                    Ok((name, dest)) => format!(
+                        "Imported \"{name}\" and switched to it. It is kept as {}, and is in the color scheme list.",
+                        dest.display()
+                    ),
+                    Err(e) => format!("Could not import the theme: {e:#}"),
+                };
+                self.settings_ui.show_message(msg);
+            }
+            settings_ui::Action::Export(name) => {
+                let file = ThemeFile { name: name.clone(), author: String::new(), colors: self.settings.colors };
+                let dest = self.paths.themes.join(theme::file_name(&name));
+                let msg = match file.save(&dest) {
+                    Ok(()) => format!(
+                        "Saved \"{name}\" as {}. Share that file: anyone can bring it in with Import a theme.",
+                        dest.display()
+                    ),
+                    Err(e) => format!("Could not save the theme: {e:#}"),
+                };
+                self.settings_ui.set_themes(theme::user_themes(&self.paths.themes));
+                self.settings_ui.show_message(msg);
+            }
+        }
+    }
+
+    /// Copy a theme file into the themes folder and use it.
+    fn import_theme(&mut self, path: &std::path::Path) -> Result<(String, PathBuf)> {
+        let path = ui::expand_home(&path.to_string_lossy());
+        let file = ThemeFile::load(&path)?;
+        if theme::SCHEMES.iter().any(|(n, _)| n.eq_ignore_ascii_case(&file.name)) {
+            anyhow::bail!("\"{}\" is the name of a built-in scheme", file.name);
+        }
+        let dest = self.paths.themes.join(theme::file_name(&file.name));
+        file.save(&dest)?;
+        self.settings.colors = file.colors;
+        self.settings_ui.set_themes(theme::user_themes(&self.paths.themes));
+        self.apply_settings();
+        Ok((file.name, dest))
+    }
+
+    /// Load the bezel the settings name, if it changed.
+    fn load_bezel(&mut self) {
+        if self.settings.bezel == self.bezel_name {
+            return;
+        }
+        self.bezel_name = self.settings.bezel.clone();
+        self.bezel_frame = None;
+        self.bezel = None;
+        if self.bezel_name.is_empty() {
+            return;
+        }
+        match Bezel::find(&self.bezel_name, &self.paths.bezels) {
+            Ok(b) => self.bezel = Some(b),
+            Err(e) => self.notify(format!("Bezel: {e:#}")),
         }
     }
 
@@ -831,6 +902,7 @@ impl App {
     /// Put changed settings into effect, and save them.
     fn apply_settings(&mut self) {
         self.check_for_updates();
+        self.load_bezel();
         ui::theme::set_current(self.settings.colors);
         self.idle_screen = idle_screen(self.update.as_deref());
         if self.settings.music == Music::Off {
@@ -1288,8 +1360,27 @@ impl App {
                 } else {
                     1.0
                 };
-                let display = Display { scaling, pixel_aspect, crt };
-                self.view_rect = self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize, &display);
+                let (ww, wh) = (w.get() as usize, h.get() as usize);
+                if let Some(b) = &self.bezel
+                    && self.bezel_frame.as_ref().is_none_or(|(size, _)| *size != (ww, wh))
+                {
+                    self.bezel_frame = Some(((ww, wh), b.render(ww, wh)));
+                }
+                match self.bezel_frame.as_ref().filter(|_| self.bezel.is_some()) {
+                    Some((_, frame)) => {
+                        // The picture fills the monitor's screen, as on a
+                        // real one, whatever the pixel shape.
+                        let (sw, sh) = (frame.screen.2.max(1) as f64, frame.screen.3.max(1) as f64);
+                        let (nw, nh) = (self.renderer.native_width() as f64, self.renderer.native_height() as f64);
+                        let display = Display { scaling: Scaling::Fill, pixel_aspect: sh / sw * nw / nh, crt };
+                        self.view_rect = self.renderer.blit_in(&mut buf, ww, wh, frame.screen, &display);
+                        bezel::composite(&mut buf, &frame.pixels);
+                    }
+                    None => {
+                        let display = Display { scaling, pixel_aspect, crt };
+                        self.view_rect = self.renderer.blit(&mut buf, ww, wh, &display);
+                    }
+                }
                 if let Err(e) = buf.present() {
                     log::error!("presenting frame: {e}");
                 }
@@ -1308,6 +1399,7 @@ impl ApplicationHandler<UserEvent> for App {
             log::error!("creating window: {e:#}");
             return event_loop.exit();
         }
+        self.load_bezel();
         if let Some(e) = self.startup.take() {
             self.dial_address(e);
         }

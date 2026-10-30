@@ -65,6 +65,7 @@ The next things to do, in order.
 - [x] Screen modes 80x43, 132x25, 132x37, 132x52
 - [x] Baud rate emulation
 - [x] Settings screen (Alt-O) with interface color schemes and a color editor; help (Alt-Z)
+- [x] Shareable color themes (import, save, a themes folder); monitor bezels, built in or PNG
 
 ## Connections
 

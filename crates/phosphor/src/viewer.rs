@@ -6,10 +6,11 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use phosphor_core::{Cell, Terminal};
 
+use crate::bezel::Bezel;
 use crate::crt::CrtMode;
 use crate::render::{Display, Font, Frame, Renderer, Scaling};
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Default)]
 pub struct RenderOptions {
     pub crt: CrtMode,
     pub nine_dot: bool,
@@ -19,6 +20,8 @@ pub struct RenderOptions {
     pub screen_only: bool,
     /// The font to start in (a CTerm font ID), e.g. Topaz for Amiga art.
     pub font: u8,
+    /// A monitor bezel to draw around the screen.
+    pub bezel: Option<Bezel>,
 }
 
 /// The tallest picture drawn from one file.
@@ -53,7 +56,17 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
     r.draw(&Frame { look, look_rows: used, ..Frame::plain(lines, None, ice) }, true, false);
 
     let (nw, nh) = (r.native_width(), r.native_height());
-    let (w, h, pixels) = if opts.crt == CrtMode::Off && !opts.aspect {
+    let (w, h, pixels) = if let Some(bezel) = &opts.bezel {
+        // The bezel, about as large as a 4:3 monitor at twice the size.
+        let (w, h) = (nw * 2 + nw / 2, nw * 2);
+        let frame = bezel.render(w, h);
+        let (sw, sh) = (frame.screen.2.max(1) as f64, frame.screen.3.max(1) as f64);
+        let pixel_aspect = sh / sw * nw as f64 / nh as f64;
+        let mut out = vec![0; w * h];
+        r.blit_in(&mut out, w, h, frame.screen, &Display { scaling: Scaling::Fill, pixel_aspect, crt: opts.crt });
+        crate::bezel::composite(&mut out, &frame.pixels);
+        (w, h, out)
+    } else if opts.crt == CrtMode::Off && !opts.aspect {
         (nw, nh, r.pixels().to_vec())
     } else {
         // Effects need room: twice the size, and taller for 4:3.
@@ -116,6 +129,9 @@ mod tests {
         assert_eq!(render_file(&ans, &png, RenderOptions::default()).unwrap(), (640, 30 * 16));
         let opts = RenderOptions { crt: CrtMode::Green, screen_only: true, ..RenderOptions::default() };
         assert_eq!(render_file(&ans, &png, opts).unwrap(), (1280, 800));
+        let bezel = Some(Bezel::find("Beige, 1980s", &dir).unwrap());
+        let opts = RenderOptions { screen_only: true, bezel, ..RenderOptions::default() };
+        assert_eq!(render_file(&ans, &png, opts).unwrap(), (1600, 1280));
         assert!(std::fs::read(&png).unwrap().starts_with(b"\x89PNG"));
         std::fs::remove_dir_all(&dir).ok();
     }

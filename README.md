@@ -199,6 +199,38 @@ windows, input fields, key hints, ...) its own foreground and background
 from a grid of the 16 x 8 combinations, as in QModem and Telix. Changes
 show and are saved straight away; in the grid, `Esc` undoes the last part.
 
+Color themes can be shared. "Save as a theme" writes the current colors to
+a file in the `themes` folder (`phosphor --paths` shows where), and "Import
+a theme" copies someone else's file there and switches to it. Every theme
+in the folder is in the color scheme list. A theme is a small TOML file,
+easy to edit by hand; parts it leaves out keep the default colors:
+
+```toml
+name = "Sunrise"
+author = "sysop"
+
+[colors]
+title_bar = { fg = "yellow", bg = "red" }
+selected = { fg = "black", bg = "brown" }
+window = { fg = "white", bg = "magenta" }
+```
+
+The colors are black, blue, green, cyan, red, magenta, brown, light gray,
+dark gray, light blue, light green, light cyan, light red, light magenta,
+yellow and white. The parts are `title_bar`, `border`, `headings`,
+`entries`, `selected`, `info`, `help`, `help_key`, `status`, `status_alt`,
+`window`, `window_title`, `window_text`, `field_name`, `field_value`,
+`input`, `keys`, `note` and `error`.
+
+"Monitor bezel" draws a monitor around the screen: a beige 1980s monitor,
+a platinum 1990s one, a charcoal late-1990s one, or a terminal (original
+designs, not any maker's). The picture then fills the monitor's 4:3 screen,
+as it did on the real thing; it looks best with phosphor mode on. For your
+own, put a PNG in the `bezels` folder, with the screen area see-through
+(transparent): Phosphor finds the screen from the transparent part in the
+middle and draws the terminal there. A photo of your own old monitor works
+well.
+
 "Check for updates" is off unless you turn it on. When it is on, Phosphor
 asks git.badcluster.dev for the newest release once each time it starts
 (one HTTPS request, with nothing in it but Phosphor's version), and if

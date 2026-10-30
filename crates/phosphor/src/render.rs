@@ -213,17 +213,32 @@ impl Renderer {
         height: usize,
         display: &Display,
     ) -> (usize, usize, usize, usize) {
+        self.blit_in(out, width, height, (0, 0, width, height), display)
+    }
+
+    /// [`Renderer::blit`] into the `area` (x, y, w, h) of `out`, such as a
+    /// bezel's screen; the rest of `out` is cleared to black.
+    pub fn blit_in(
+        &mut self,
+        out: &mut [u32],
+        width: usize,
+        height: usize,
+        area: (usize, usize, usize, usize),
+        display: &Display,
+    ) -> (usize, usize, usize, usize) {
+        let (ax, ay) = (area.0.min(width - 1), area.1.min(height - 1));
+        let (aw, ah) = (area.2.clamp(1, width - ax), area.3.clamp(1, height - ay));
         let (nw, nh) = (self.native_width(), self.native_height());
         let pa = display.pixel_aspect.max(0.1);
-        let fit = (width as f64 / nw as f64).min(height as f64 / (nh as f64 * pa));
+        let fit = (aw as f64 / nw as f64).min(ah as f64 / (nh as f64 * pa));
         let scale = match display.scaling {
             Scaling::Integer if fit >= 1.0 => fit.floor(),
             _ => fit,
         };
-        let dw = ((nw as f64 * scale).round() as usize).clamp(1, width);
-        let dh = ((nh as f64 * scale * pa).round() as usize).clamp(1, height);
-        let ox = (width - dw) / 2;
-        let oy = (height - dh) / 2;
+        let dw = ((nw as f64 * scale).round() as usize).clamp(1, aw);
+        let dh = ((nh as f64 * scale * pa).round() as usize).clamp(1, ah);
+        let ox = ax + (aw - dw) / 2;
+        let oy = ay + (ah - dh) / 2;
         out.fill(0);
         if display.crt == CrtMode::Off {
             scale_into(&self.native, nw, nh, out, width, (ox, oy, dw, dh));
@@ -500,7 +515,7 @@ mod tests {
         sui.draw(&mut ps, &settings, Some("green screen"), None);
         page(&mut r, &ps, "settings.ppm");
         for k in [Key::End, Key::Enter, Key::Down, Key::Down, Key::Down, Key::Down, Key::Enter, Key::Right] {
-            sui.handle_key(k, &mut settings);
+            sui.handle_key(k, crate::input::Mods::default(), &mut settings);
         }
         crate::ui::theme::set_current(settings.colors);
         sui.draw(&mut ps, &settings, None, None);

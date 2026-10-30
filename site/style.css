@@ -222,6 +222,15 @@ figcaption {
   gap: 20px;
 }
 
+.wide {
+  margin: 0;
+  max-width: 860px;
+}
+
+.wide img {
+  border-radius: 10px;
+}
+
 /* Text-mode screenshots: keep the pixels square and sharp. */
 .pixels {
   image-rendering: pixelated;
