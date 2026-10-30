@@ -38,6 +38,94 @@ impl Music {
     }
 }
 
+/// The shape the text area is shown at.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Aspect {
+    /// Square pixels: 640x400 is 16:10.
+    #[default]
+    Square,
+    /// As on a CRT.
+    #[serde(rename = "4:3")]
+    FourThree,
+    #[serde(rename = "16:10")]
+    SixteenTen,
+    #[serde(rename = "16:9")]
+    SixteenNine,
+}
+
+impl Aspect {
+    pub const ALL: [Aspect; 4] = [Aspect::Square, Aspect::FourThree, Aspect::SixteenTen, Aspect::SixteenNine];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Aspect::Square => "Square pixels",
+            Aspect::FourThree => "4:3, as on a CRT",
+            Aspect::SixteenTen => "16:10",
+            Aspect::SixteenNine => "16:9",
+        }
+    }
+
+    /// Width over height to force, or None for square pixels.
+    pub fn ratio(self) -> Option<f64> {
+        match self {
+            Aspect::Square => None,
+            Aspect::FourThree => Some(4.0 / 3.0),
+            Aspect::SixteenTen => Some(16.0 / 10.0),
+            Aspect::SixteenNine => Some(16.0 / 9.0),
+        }
+    }
+
+    pub fn next(self) -> Aspect {
+        let i = Aspect::ALL.iter().position(|&a| a == self).unwrap_or(0);
+        Aspect::ALL[(i + 1) % Aspect::ALL.len()]
+    }
+}
+
+/// Settings files from before the choice of shapes said `aspect = true`.
+fn aspect_or_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Aspect, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Either {
+        Old(bool),
+        New(Aspect),
+    }
+    Ok(match Either::deserialize(d)? {
+        Either::Old(true) => Aspect::FourThree,
+        Either::Old(false) => Aspect::Square,
+        Either::New(a) => a,
+    })
+}
+
+/// How the screen is fitted to the window.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScaleMode {
+    /// Whole-number steps in a window, as large as fits when full screen
+    /// or maximized.
+    #[default]
+    Auto,
+    /// Always whole-number steps, so every pixel is exact.
+    Integer,
+    /// As large as fits, keeping the shape.
+    Fit,
+    /// The whole window, whatever its shape.
+    Stretch,
+}
+
+impl ScaleMode {
+    pub const ALL: [ScaleMode; 4] = [ScaleMode::Auto, ScaleMode::Integer, ScaleMode::Fit, ScaleMode::Stretch];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ScaleMode::Auto => "Auto",
+            ScaleMode::Integer => "Whole numbers",
+            ScaleMode::Fit => "Fit, keep shape",
+            ScaleMode::Stretch => "Stretch to fill",
+        }
+    }
+}
+
 /// The folders the user has chosen, in [`Folders::NAMES`] order; `None`
 /// is Phosphor's default.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,9 +184,11 @@ pub struct Settings {
     pub curvature: Curvature,
     /// 9-pixel-wide character cells, as on a VGA (Alt-W).
     pub nine_dot: bool,
-    /// Show the screen at the 4:3 shape of a CRT rather than with square
-    /// pixels (Alt-A).
-    pub aspect: bool,
+    /// The shape the screen is shown at (Alt-A).
+    #[serde(deserialize_with = "aspect_or_bool")]
+    pub aspect: Aspect,
+    /// How the screen is scaled to the window.
+    pub scaling: ScaleMode,
     pub music: Music,
     /// Call a busy or unreachable BBS again, a few times.
     pub redial: bool,
@@ -122,7 +212,8 @@ impl Default for Settings {
             scanlines: Scanlines::Light,
             curvature: Curvature::Slight,
             nine_dot: false,
-            aspect: false,
+            aspect: Aspect::Square,
+            scaling: ScaleMode::Auto,
             music: Music::On,
             redial: true,
             colors: Theme::default(),
@@ -168,7 +259,8 @@ mod tests {
             scanlines: Scanlines::Strong,
             curvature: Curvature::Off,
             nine_dot: true,
-            aspect: true,
+            aspect: Aspect::SixteenNine,
+            scaling: ScaleMode::Stretch,
             music: Music::All,
             redial: false,
             colors,
@@ -181,5 +273,15 @@ mod tests {
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
         assert!(text.contains("crt = \"amber\""), "{text}");
         assert_eq!(toml::from_str::<Settings>("").unwrap(), Settings::default());
+    }
+
+    #[test]
+    fn old_aspect_setting_still_reads() {
+        let s: Settings = toml::from_str("aspect = true").unwrap();
+        assert_eq!(s.aspect, Aspect::FourThree);
+        let s: Settings = toml::from_str("aspect = false\nscaling = \"stretch\"").unwrap();
+        assert_eq!((s.aspect, s.scaling), (Aspect::Square, ScaleMode::Stretch));
+        let s: Settings = toml::from_str("aspect = \"16:9\"").unwrap();
+        assert_eq!(s.aspect, Aspect::SixteenNine);
     }
 }

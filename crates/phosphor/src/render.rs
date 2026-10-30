@@ -85,6 +85,8 @@ pub enum Scaling {
     /// stay sharp: only the seams between them, where a screen pixel
     /// straddles two frame pixels, are blended.
     Fill,
+    /// The whole area, whatever its shape.
+    Stretch,
 }
 
 /// How a frame is presented.
@@ -260,8 +262,13 @@ impl Renderer {
             Scaling::Integer if fit >= 1.0 => fit.floor(),
             _ => fit,
         };
-        let dw = ((nw as f64 * scale).round() as usize).clamp(1, aw);
-        let dh = ((nh as f64 * scale * pa).round() as usize).clamp(1, ah);
+        let (dw, dh) = match display.scaling {
+            Scaling::Stretch => (aw, ah),
+            _ => (
+                ((nw as f64 * scale).round() as usize).clamp(1, aw),
+                ((nh as f64 * scale * pa).round() as usize).clamp(1, ah),
+            ),
+        };
         let ox = ax + (aw - dw) / 2;
         let oy = ay + (ah - dh) / 2;
         out.fill(0);
@@ -677,6 +684,9 @@ mod tests {
         assert_eq!(r.blit(&mut out, w, h, &fill), (96, 0, 1728, 1080));
         // 4:3: pixels 1.2 times as tall, so 640x400 shows as 1440x1080.
         assert_eq!(r.blit(&mut out, w, h, &Display { pixel_aspect: 1.2, ..fill }), (240, 0, 1440, 1080));
+        // Stretch: the whole window, whatever the shape.
+        let stretch = Display { scaling: Scaling::Stretch, ..Display::default() };
+        assert_eq!(r.blit(&mut out, w, h, &stretch), (0, 0, w, h));
         // 9-dot cells: 720 wide.
         r.set_layout(Font::vga_8x16(), 9, 80, 25);
         assert_eq!(r.native_width(), 720);

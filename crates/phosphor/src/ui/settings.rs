@@ -10,7 +10,7 @@ use super::theme::{self, Attr, SCHEMES, Theme};
 use super::*;
 use crate::crt::{CrtMode, Curvature, Scanlines};
 use crate::input::{Key, Mods};
-use crate::settings::{Music, Settings};
+use crate::settings::{Aspect, Music, ScaleMode, Settings};
 
 pub const COLS: usize = 80;
 pub const ROWS: usize = 25;
@@ -28,11 +28,11 @@ pub enum Action {
     Export(String),
 }
 
-const ITEMS: [&str; 19] = [
+const ITEMS: [&str; 20] = [
     "Phosphor mode",
     "Scanlines",
     "Character cells",
-    "Pixel shape",
+    "Aspect ratio",
     "Monitor bezel",
     "ANSI music",
     "Redial busy BBSes",
@@ -48,6 +48,7 @@ const ITEMS: [&str; 19] = [
     "Uploads start in",
     "ANSI art starts in",
     "Curvature",
+    "Scaling",
 ];
 const I_CRT: usize = 0;
 const I_SCANLINES: usize = 1;
@@ -65,12 +66,13 @@ const I_EXPORT: usize = 12;
 /// The folders, in `Folders::NAMES` order.
 const I_FOLDER: usize = 13;
 const I_CURVATURE: usize = 18;
+const I_SCALING: usize = 19;
 /// Items that open something rather than having a value.
 const ACTIONS: [usize; 4] = [I_MACROS, I_COLORS, I_IMPORT, I_EXPORT];
 
 /// The tabs, and the items on each.
 const TABS: [(&str, &[usize]); 4] = [
-    ("Display", &[I_CRT, I_SCANLINES, I_CURVATURE, I_NINE_DOT, I_ASPECT, I_BEZEL]),
+    ("Display", &[I_CRT, I_SCANLINES, I_CURVATURE, I_NINE_DOT, I_ASPECT, I_SCALING, I_BEZEL]),
     ("General", &[I_MUSIC, I_REDIAL, I_UPDATES, I_MACROS]),
     ("Folders", &[I_FOLDER, I_FOLDER + 1, I_FOLDER + 2, I_FOLDER + 3, I_FOLDER + 4]),
     ("Colors", &[I_SCHEME, I_COLORS, I_IMPORT, I_EXPORT]),
@@ -333,7 +335,16 @@ impl SettingsUi {
                 s.curvature = all[step(i, all.len())];
             }
             I_NINE_DOT => s.nine_dot = !s.nine_dot,
-            I_ASPECT => s.aspect = !s.aspect,
+            I_ASPECT => {
+                let all = Aspect::ALL;
+                let i = all.iter().position(|&a| a == s.aspect).unwrap_or(0);
+                s.aspect = all[step(i, all.len())];
+            }
+            I_SCALING => {
+                let all = ScaleMode::ALL;
+                let i = all.iter().position(|&m| m == s.scaling).unwrap_or(0);
+                s.scaling = all[step(i, all.len())];
+            }
             I_BEZEL => {
                 // "None", then each bezel.
                 let i = self.bezels.iter().position(|b| *b == s.bezel).map_or(0, |i| i + 1);
@@ -495,6 +506,13 @@ impl SettingsUi {
             (I_CRT, Some(own), _) => format!("This BBS has its own phosphor mode: {own}"),
             (I_SCANLINES, ..) => "In phosphor mode; they show from twice the size up".to_string(),
             (I_CURVATURE, ..) => "How much phosphor mode's glass bulges".to_string(),
+            (I_ASPECT, ..) => "The text area's shape; Alt-A cycles through them".to_string(),
+            (I_SCALING, ..) => match settings.scaling {
+                ScaleMode::Auto => "Whole numbers in a window, fit when full screen".to_string(),
+                ScaleMode::Integer => "Every pixel exact; a border fills the rest".to_string(),
+                ScaleMode::Fit => "As large as fits, keeping the shape".to_string(),
+                ScaleMode::Stretch => "Fills the window; the shape follows it".to_string(),
+            },
             (I_BEZEL, ..) => "Your own: a PNG with a see-through screen, in bezels/".to_string(),
             (I_SCHEME | I_IMPORT | I_EXPORT, ..) => {
                 "Themes are kept in the themes folder (phosphor --paths)".to_string()
@@ -512,7 +530,8 @@ impl SettingsUi {
             I_SCANLINES => s.scanlines.name().into(),
             I_CURVATURE => s.curvature.name().into(),
             I_NINE_DOT => if s.nine_dot { "9 dots, as on a VGA" } else { "8 dots" }.into(),
-            I_ASPECT => if s.aspect { "4:3, as on a CRT" } else { "Square" }.into(),
+            I_ASPECT => s.aspect.name().into(),
+            I_SCALING => s.scaling.name().into(),
             I_BEZEL if s.bezel.is_empty() => "None".into(),
             I_BEZEL => s.bezel.clone(),
             I_MUSIC => match s.music {

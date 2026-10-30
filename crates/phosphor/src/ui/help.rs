@@ -54,7 +54,7 @@ const RIGHT: [Group; 2] = [
         keys: &[
             ("@-O", "Settings and colors"),
             ("@-P", "Phosphor mode (CRT look)"),
-            ("@-A", "4:3 or square pixels"),
+            ("@-A", "Aspect ratio"),
             ("@-W", "9-dot or 8-dot characters"),
             ("@-Enter", "Full screen"),
             ("@-I", "iCE colors or blinking"),

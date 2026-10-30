@@ -26,7 +26,7 @@ use crate::input::{self, Key, Mods};
 use crate::render::{Display, Font, Frame, Renderer, Scaling};
 use crate::secrets::{self, Keychain, Store};
 use crate::selection::Selection;
-use crate::settings::{Folders, Music, Settings};
+use crate::settings::{Folders, Music, ScaleMode, Settings};
 use crate::sound::Player;
 use crate::ui::art::{self as art_ui, ArtAction, ArtView};
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
@@ -735,8 +735,8 @@ impl App {
                 return true;
             }
             KeyCode::KeyA => {
-                self.settings.aspect = !self.settings.aspect;
-                let msg = if self.settings.aspect { "4:3 aspect, as on a CRT" } else { "Square pixels" };
+                self.settings.aspect = self.settings.aspect.next();
+                let msg = format!("Shape: {}", self.settings.aspect.name());
                 self.settings_changed(msg);
                 return true;
             }
@@ -1651,16 +1651,23 @@ impl App {
         }
         match gfx.surface.buffer_mut() {
             Ok(mut buf) => {
-                // Fullscreen and maximized windows fill the screen; a normal
-                // window keeps whole-number scaling.
+                // Auto: fullscreen and maximized windows fill the screen; a
+                // normal window keeps whole-number scaling.
                 let fill = gfx.window.fullscreen().is_some() || gfx.window.is_maximized();
-                let scaling = if fill { Scaling::Fill } else { Scaling::Integer };
-                // 4:3 for the text area: 640x400 (or 720x400) on a CRT.
-                let pixel_aspect = if self.settings.aspect {
-                    let text_h = (self.renderer.native_height() * text_rows / (text_rows + 1)) as f64;
-                    self.renderer.native_width() as f64 / text_h * 0.75
-                } else {
-                    1.0
+                let scaling = match self.settings.scaling {
+                    ScaleMode::Auto if fill => Scaling::Fill,
+                    ScaleMode::Auto | ScaleMode::Integer => Scaling::Integer,
+                    ScaleMode::Fit => Scaling::Fill,
+                    ScaleMode::Stretch => Scaling::Stretch,
+                };
+                // A forced shape for the text area (4:3: 640x400, or
+                // 720x400, as on a CRT); the status bar comes along.
+                let pixel_aspect = match self.settings.aspect.ratio() {
+                    Some(ratio) => {
+                        let text_h = (self.renderer.native_height() * text_rows / (text_rows + 1)) as f64;
+                        self.renderer.native_width() as f64 / text_h / ratio
+                    }
+                    None => 1.0,
                 };
                 let (ww, wh) = (w.get() as usize, h.get() as usize);
                 if let Some(b) = &self.bezel

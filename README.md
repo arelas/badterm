@@ -200,7 +200,7 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-V`, `Shift-Ins` | Paste from the clipboard |
 | `Alt-Enter` | Toggle fullscreen (fills the screen, keeping the shape) |
 | `Alt-P` | Phosphor mode: off, color CRT, green screen, amber screen |
-| `Alt-A` | 4:3 aspect, as on a CRT, or square pixels |
+| `Alt-A` | Aspect ratio: square pixels, 4:3 as on a CRT, 16:10, 16:9 |
 | `Alt-W` | 9-dot or 8-dot character cells |
 | `Alt-M` | ANSI music: on, on including `ESC [ M`, off |
 | `Alt-O` | Settings, and the interface colors |
@@ -223,7 +223,9 @@ tabs (`Tab` and `Shift-Tab`, or `PgUp`/`PgDn`, move between them).
 the upload and ANSI-art pickers start (`Enter` to change, `Del` for the
 default). The others: phosphor
 mode, its scanlines (off, light, medium or strong) and the curve of its
-glass (off for a flat screen, slight, medium or strong), character cells, pixel shape, ANSI music, redialing, and the colors
+glass (off for a flat screen, slight, medium or strong), the aspect ratio,
+scaling (auto: whole numbers in a window and as large as fits in full
+screen; or always whole numbers, fit keeping the shape, or stretch to fill), character cells, pixel shape, ANSI music, redialing, and the colors
 of Phosphor's own screens. Pick one of the color schemes (Classic blue,
 Midnight, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit
 colors", give each part of the interface (title bar, selected entry,
