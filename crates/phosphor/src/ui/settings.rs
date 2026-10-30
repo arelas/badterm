@@ -28,7 +28,7 @@ pub enum Action {
     Export(String),
 }
 
-const ITEMS: [&str; 20] = [
+const ITEMS: [&str; 21] = [
     "Phosphor mode",
     "Scanlines",
     "Character cells",
@@ -49,6 +49,7 @@ const ITEMS: [&str; 20] = [
     "ANSI art starts in",
     "Curvature",
     "Scaling",
+    "Splash screen",
 ];
 const I_CRT: usize = 0;
 const I_SCANLINES: usize = 1;
@@ -67,13 +68,14 @@ const I_EXPORT: usize = 12;
 const I_FOLDER: usize = 13;
 const I_CURVATURE: usize = 18;
 const I_SCALING: usize = 19;
+const I_SPLASH: usize = 20;
 /// Items that open something rather than having a value.
 const ACTIONS: [usize; 4] = [I_MACROS, I_COLORS, I_IMPORT, I_EXPORT];
 
 /// The tabs, and the items on each.
 const TABS: [(&str, &[usize]); 4] = [
     ("Display", &[I_CRT, I_SCANLINES, I_CURVATURE, I_NINE_DOT, I_ASPECT, I_SCALING, I_BEZEL]),
-    ("General", &[I_MUSIC, I_REDIAL, I_UPDATES, I_MACROS]),
+    ("General", &[I_SPLASH, I_MUSIC, I_REDIAL, I_UPDATES, I_MACROS]),
     ("Folders", &[I_FOLDER, I_FOLDER + 1, I_FOLDER + 2, I_FOLDER + 3, I_FOLDER + 4]),
     ("Colors", &[I_SCHEME, I_COLORS, I_IMPORT, I_EXPORT]),
 ];
@@ -357,6 +359,7 @@ impl SettingsUi {
                 s.music = all[step(i, all.len())];
             }
             I_REDIAL => s.redial = !s.redial,
+            I_SPLASH => s.splash = !s.splash,
             I_UPDATES => s.check_updates = !s.check_updates,
             I_SCHEME => {
                 // The built-in schemes, then the user's themes; from custom
@@ -541,6 +544,7 @@ impl SettingsUi {
             }
             .into(),
             I_REDIAL => if s.redial { "On" } else { "Off" }.into(),
+            I_SPLASH => if s.splash { "On, 2 seconds" } else { "Off" }.into(),
             I_UPDATES => if s.check_updates { "On, at each start" } else { "Off" }.into(),
             I_SCHEME => self.scheme_name(&s.colors).unwrap_or("Custom").into(),
             _ => String::new(),

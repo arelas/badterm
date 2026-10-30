@@ -8,7 +8,7 @@ use phosphor_core::screen::{Cell, Color, Screen};
 use super::*;
 
 /// How long it shows (any key closes it sooner).
-pub const TIME: Duration = Duration::from_secs(1);
+pub const TIME: Duration = Duration::from_secs(2);
 
 pub const COLS: usize = 80;
 pub const ROWS: usize = 25;

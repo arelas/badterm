@@ -1717,7 +1717,9 @@ impl ApplicationHandler<UserEvent> for App {
             return event_loop.exit();
         }
         self.load_bezel();
-        self.splash_until = Some(Instant::now() + ui::splash::TIME);
+        if self.settings.splash {
+            self.splash_until = Some(Instant::now() + ui::splash::TIME);
+        }
         if let Some(path) = self.view_at_start.take() {
             self.view_art(&path);
         }

@@ -200,6 +200,8 @@ pub struct Settings {
     pub macros: Vec<String>,
     /// Where files go and where pickers start; unset ones are the defaults.
     pub folders: Folders,
+    /// Show the splash screen at start.
+    pub splash: bool,
     /// Ask the project's server for a newer version at each start. Off
     /// unless turned on, as it contacts the server.
     pub check_updates: bool,
@@ -220,6 +222,7 @@ impl Default for Settings {
             bezel: String::new(),
             macros: vec![String::new(); crate::macros::COUNT],
             folders: Folders::default(),
+            splash: true,
             check_updates: false,
         }
     }
@@ -267,6 +270,7 @@ mod tests {
             bezel: "Beige".into(),
             macros: vec!["{user}^M".into(); 10],
             folders: Folders { downloads: Some("/tmp/dl".into()), ..Folders::default() },
+            splash: false,
             check_updates: true,
         };
         let text = toml::to_string_pretty(&s).unwrap();

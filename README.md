@@ -133,7 +133,8 @@ supported, and they and ALSA (for ANSI music) are loaded at run time.
 
 ## Usage
 
-Phosphor opens with its splash screen for a second (any key skips it),
+Phosphor opens with its splash screen for two seconds (any key skips it;
+Settings, General turns it off),
 then a start-up banner with the version, as terminal programs did.
 
 ```

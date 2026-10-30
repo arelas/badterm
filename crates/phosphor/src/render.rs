@@ -589,7 +589,7 @@ mod tests {
         let mut ms = crate::settings::Settings::default();
         ms.macros[0] = "{user}^M~{password}^M".into();
         ms.macros[2] = "/x^M".into();
-        for k in [Key::Tab, Key::Down, Key::Down, Key::Down, Key::Enter] {
+        for k in [Key::Tab, Key::Down, Key::Down, Key::Down, Key::Down, Key::Enter] {
             mui.handle_key(k, crate::input::Mods::default(), &mut ms);
         }
         crate::ui::theme::set_current(Default::default());
