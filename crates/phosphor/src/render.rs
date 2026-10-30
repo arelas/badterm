@@ -413,7 +413,7 @@ mod tests {
         r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("hangup.ppm"));
 
-        let idle = crate::app::idle_screen();
+        let idle = crate::app::idle_screen(Some("9.9.9"));
         let rows: Vec<&[Cell]> = (0..25).map(|y| idle.row(y)).collect();
         r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("idle.ppm"));
@@ -497,13 +497,13 @@ mod tests {
         let mut settings = crate::settings::Settings::default();
         let mut sui = crate::ui::settings::SettingsUi::default();
         let mut ps = phosphor_core::Screen::new(80, 25, 0);
-        sui.draw(&mut ps, &settings, Some("green screen"));
+        sui.draw(&mut ps, &settings, Some("green screen"), None);
         page(&mut r, &ps, "settings.ppm");
         for k in [Key::End, Key::Enter, Key::Down, Key::Down, Key::Down, Key::Down, Key::Enter, Key::Right] {
             sui.handle_key(k, &mut settings);
         }
         crate::ui::theme::set_current(settings.colors);
-        sui.draw(&mut ps, &settings, None);
+        sui.draw(&mut ps, &settings, None, None);
         page(&mut r, &ps, "colors.ppm");
         crate::ui::theme::set_current(crate::ui::theme::SCHEMES[2].1);
         crate::ui::help::draw(&mut ps);

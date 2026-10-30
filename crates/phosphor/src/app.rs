@@ -42,6 +42,8 @@ const SCROLLBACK_LINES: usize = 10_000;
 /// Cursor blink half-period; text blinks at half this rate.
 const TICK: Duration = Duration::from_millis(267);
 const NOTICE_TIME: Duration = Duration::from_secs(4);
+/// The news of a newer version stays a while longer.
+const UPDATE_NOTICE_TIME: Duration = Duration::from_secs(20);
 /// Between redials of a busy or unreachable BBS.
 const REDIAL_DELAY: Duration = Duration::from_secs(15);
 const MAX_REDIALS: u32 = 10;
@@ -55,6 +57,8 @@ pub enum UserEvent {
     /// runs; macOS sends these to the running app.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     OpenUrl(String),
+    /// The update check found this newer version.
+    UpdateAvailable(String),
 }
 
 /// A busy call waiting to be dialed again.
@@ -146,6 +150,10 @@ pub struct App {
     settings_open: bool,
     /// The help screen (Alt-Z), over everything else while open.
     help_open: bool,
+    /// A newer version, if the update check found one.
+    update: Option<String>,
+    /// Whether this run has checked for updates.
+    update_checked: bool,
     /// Where the settings and help screens are drawn.
     page_screen: Screen,
     status: Screen,
@@ -222,10 +230,12 @@ impl App {
             dialer_screen: Screen::new(dialer_ui::COLS, dialer_ui::ROWS, 0),
             dialer_open,
             pending_dial: None,
-            idle_screen: idle_screen(),
+            idle_screen: idle_screen(None),
             settings_ui: SettingsUi::default(),
             settings_open: false,
             help_open: false,
+            update: None,
+            update_checked: false,
             page_screen: Screen::new(settings_ui::COLS, settings_ui::ROWS, 0),
             status: Screen::new(COLS, 1, 0),
             overlay: Screen::new(COLS, ROWS, 0),
@@ -798,10 +808,31 @@ impl App {
         }
     }
 
+    /// Ask in the background for a newer version, once per run, if the
+    /// user has turned the check on. Failures are only logged.
+    fn check_for_updates(&mut self) {
+        if !self.settings.check_updates || self.update_checked {
+            return;
+        }
+        self.update_checked = true;
+        let proxy = self.proxy.clone();
+        std::thread::spawn(move || {
+            let current = env!("CARGO_PKG_VERSION");
+            match phosphor_core::update::latest(current) {
+                Ok(r) if phosphor_core::update::is_newer(&r.version, current) => {
+                    let _ = proxy.send_event(UserEvent::UpdateAvailable(r.version));
+                }
+                Ok(_) => log::info!("Phosphor is up to date"),
+                Err(e) => log::warn!("checking for updates: {e:#}"),
+            }
+        });
+    }
+
     /// Put changed settings into effect, and save them.
     fn apply_settings(&mut self) {
+        self.check_for_updates();
         ui::theme::set_current(self.settings.colors);
-        self.idle_screen = idle_screen();
+        self.idle_screen = idle_screen(self.update.as_deref());
         if self.settings.music == Music::Off {
             self.player.stop();
         }
@@ -1155,7 +1186,7 @@ impl App {
             ui::help::draw(&mut self.page_screen);
         } else if self.settings_open {
             let own = self.own_crt_mode().map(|m| m.name());
-            self.settings_ui.draw(&mut self.page_screen, &self.settings, own);
+            self.settings_ui.draw(&mut self.page_screen, &self.settings, own, self.update.as_deref());
         }
         let crt = self.crt_mode();
         let Some(gfx) = self.gfx.as_mut() else { return };
@@ -1280,11 +1311,19 @@ impl ApplicationHandler<UserEvent> for App {
         if let Some(e) = self.startup.take() {
             self.dial_address(e);
         }
+        self.check_for_updates();
     }
 
     fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Net(id, ev) => self.on_net(id, ev),
+            UserEvent::UpdateAvailable(version) => {
+                let msg = format!("Phosphor {version} is out: {}", phosphor_core::update::DOWNLOAD_PAGE);
+                self.notice = Some((msg, Instant::now() + UPDATE_NOTICE_TIME));
+                self.update = Some(version);
+                self.idle_screen = idle_screen(self.update.as_deref());
+                self.request_redraw();
+            }
             UserEvent::OpenUrl(url) => match Entry::from_address(&url) {
                 // Before the window exists: the link that launched the app.
                 Some(e) if self.gfx.is_none() => self.startup = Some(e),
@@ -1399,7 +1438,7 @@ fn truncate(s: &str, n: usize) -> String {
 
 /// The screen shown with no session and the dialer closed: blank, with a
 /// hint in the middle (the status bar repeats it).
-pub(crate) fn idle_screen() -> Screen {
+pub(crate) fn idle_screen(update: Option<&str>) -> Screen {
     let t = ui::theme::current();
     let mut s = Screen::new(COLS, ROWS, 0);
     s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', t.help.fg(), t.help.bg()));
@@ -1408,6 +1447,10 @@ pub(crate) fn idle_screen() -> Screen {
     for (i, (text, a)) in lines.iter().enumerate() {
         let x = (COLS - text.chars().count()) / 2;
         ui::label(&mut s, x, ROWS / 2 - 1 + i * 2, text, a.fg(), a.bg());
+    }
+    if let Some(v) = update {
+        let text = format!("Phosphor {v} is out: {}", phosphor_core::update::DOWNLOAD_PAGE);
+        ui::label(&mut s, (COLS - text.chars().count()) / 2, ROWS / 2 + 4, &text, t.help_key.fg(), t.help_key.bg());
     }
     s
 }

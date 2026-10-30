@@ -22,12 +22,13 @@ pub enum Action {
     Close,
 }
 
-const ITEMS: [&str; 7] = [
+const ITEMS: [&str; 8] = [
     "Phosphor mode",
     "Character cells",
     "Pixel shape",
     "ANSI music",
     "Redial busy BBSes",
+    "Check for updates",
     "Color scheme",
     "Edit colors...",
 ];
@@ -36,8 +37,9 @@ const I_NINE_DOT: usize = 1;
 const I_ASPECT: usize = 2;
 const I_MUSIC: usize = 3;
 const I_REDIAL: usize = 4;
-const I_SCHEME: usize = 5;
-const I_COLORS: usize = 6;
+const I_UPDATES: usize = 5;
+const I_SCHEME: usize = 6;
+const I_COLORS: usize = 7;
 
 /// Rows of the color grid: the eight background colors (bright ones blink
 /// on a real VGA, so the interface leaves them out, as Telix did).
@@ -132,13 +134,21 @@ impl SettingsUi {
 
     /// Draw the screen; returns the text cursor, if any (never: there are
     /// no text fields).
-    pub fn draw(&self, s: &mut Screen, settings: &Settings, own_crt: Option<&str>) -> Option<(usize, usize)> {
+    /// `own_crt`: the connected BBS's own phosphor mode; `update`: a newer
+    /// version, if a check found one.
+    pub fn draw(
+        &self,
+        s: &mut Screen,
+        settings: &Settings,
+        own_crt: Option<&str>,
+        update: Option<&str>,
+    ) -> Option<(usize, usize)> {
         let t = theme::current();
         s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', t.help.fg(), t.help.bg()));
         let title = format!(" Phosphor {} \u{2502} Settings", env!("CARGO_PKG_VERSION"));
         text(s, 0, 0, COLS, &title, t.title_bar.fg(), t.title_bar.bg());
         match self.mode {
-            Mode::Menu => self.draw_menu(s, settings, own_crt),
+            Mode::Menu => self.draw_menu(s, settings, own_crt, update),
             Mode::Parts | Mode::Grid { .. } => self.draw_colors(s, settings),
         }
         let help = match self.mode {
@@ -150,7 +160,7 @@ impl SettingsUi {
         None
     }
 
-    fn draw_menu(&self, s: &mut Screen, settings: &Settings, own_crt: Option<&str>) {
+    fn draw_menu(&self, s: &mut Screen, settings: &Settings, own_crt: Option<&str>, update: Option<&str>) {
         let t = theme::current();
         let (w, h) = (60, ITEMS.len() + 6);
         let (x, y) = ((COLS - w) / 2, 4);
@@ -167,10 +177,13 @@ impl SettingsUi {
             let v = format!("\u{25C4} {:<22} \u{25BA}", value(i, settings));
             text(s, x + 23, yy, 26, &v, a.fg(), a.bg());
         }
-        if let Some(own) = own_crt {
-            let note = format!("This BBS has its own phosphor mode: {own}");
-            label(s, x + 2, y + h - 2, &note, t.note.fg(), t.note.bg());
-        }
+        let note = match (self.item, own_crt, update) {
+            (I_UPDATES, _, Some(v)) => format!("Phosphor {v} is out: {}", phosphor_core::update::DOWNLOAD_PAGE),
+            (I_UPDATES, _, None) => "When on, asks git.badcluster.dev for the newest version".to_string(),
+            (I_CRT, Some(own), _) => format!("This BBS has its own phosphor mode: {own}"),
+            _ => String::new(),
+        };
+        label(s, x + 2, y + h - 2, &note, t.note.fg(), t.note.bg());
     }
 
     fn draw_colors(&self, s: &mut Screen, settings: &Settings) {
@@ -234,6 +247,7 @@ fn value(item: usize, s: &Settings) -> String {
         }
         .into(),
         I_REDIAL => if s.redial { "On" } else { "Off" }.into(),
+        I_UPDATES => if s.check_updates { "On, at each start" } else { "Off" }.into(),
         I_SCHEME => s.colors.scheme_name().unwrap_or("Custom").into(),
         _ => String::new(),
     }
@@ -261,6 +275,7 @@ fn change(item: usize, back: bool, s: &mut Settings) {
             }
         }
         I_REDIAL => s.redial = !s.redial,
+        I_UPDATES => s.check_updates = !s.check_updates,
         I_SCHEME => {
             // From a custom set, the first step goes to the first scheme.
             let n = SCHEMES.len();
@@ -313,13 +328,13 @@ mod tests {
         assert_eq!(s.colors.border.bg, (before.bg + 7) % 8);
         assert_eq!(s.colors.scheme_name(), None);
         let mut screen = Screen::new(COLS, ROWS, 0);
-        ui.draw(&mut screen, &s, None);
+        ui.draw(&mut screen, &s, None, None);
         // Esc puts it back; then Esc leaves the editor, and the screen.
         ui.handle_key(Key::Escape, &mut s);
         assert_eq!(s.colors.border, before);
         ui.handle_key(Key::Escape, &mut s);
         assert_eq!(ui.handle_key(Key::Escape, &mut s), Action::Close);
-        ui.draw(&mut screen, &s, Some("amber screen"));
+        ui.draw(&mut screen, &s, Some("amber screen"), Some("9.9.9"));
         theme::set_current(Theme::default());
     }
 }

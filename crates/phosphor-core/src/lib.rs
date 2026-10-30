@@ -16,6 +16,7 @@ pub mod telnet;
 pub mod tls;
 pub mod transfer;
 pub mod transport;
+pub mod update;
 
 pub use ansi::{Encoding, TermEvent, Terminal};
 pub use dialer::{Directory, Entry, Protocol};

@@ -53,6 +53,9 @@ pub struct Settings {
     pub redial: bool,
     /// The colors of Phosphor's own screens.
     pub colors: Theme,
+    /// Ask the project's server for a newer version at each start. Off
+    /// unless turned on, as it contacts the server.
+    pub check_updates: bool,
 }
 
 impl Default for Settings {
@@ -64,6 +67,7 @@ impl Default for Settings {
             music: Music::On,
             redial: true,
             colors: Theme::default(),
+            check_updates: false,
         }
     }
 }
@@ -97,8 +101,15 @@ mod tests {
     fn round_trip_and_defaults() {
         let mut colors = Theme::default();
         colors.selected.fg = 14;
-        let s =
-            Settings { crt: CrtMode::Amber, nine_dot: true, aspect: true, music: Music::All, redial: false, colors };
+        let s = Settings {
+            crt: CrtMode::Amber,
+            nine_dot: true,
+            aspect: true,
+            music: Music::All,
+            redial: false,
+            colors,
+            check_updates: true,
+        };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
         assert!(text.contains("crt = \"amber\""), "{text}");

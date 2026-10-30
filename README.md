@@ -198,6 +198,12 @@ windows, input fields, key hints, ...) its own foreground and background
 from a grid of the 16 x 8 combinations, as in QModem and Telix. Changes
 show and are saved straight away; in the grid, `Esc` undoes the last part.
 
+"Check for updates" is off unless you turn it on. When it is on, Phosphor
+asks git.badcluster.dev for the newest release once each time it starts
+(one HTTPS request, with nothing in it but Phosphor's version), and if
+there is a newer one says so on the status bar and the start screen, with
+a link to the website. It never downloads or installs anything itself.
+
 Downloads are saved to `Downloads/Phosphor`; `phosphor --paths` shows every
 location Phosphor uses.
 
