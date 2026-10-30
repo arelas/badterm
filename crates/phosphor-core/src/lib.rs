@@ -10,6 +10,7 @@ pub mod dialer;
 pub mod export;
 pub mod music;
 pub mod palette;
+pub mod sauce;
 pub mod screen;
 pub mod session;
 pub mod telnet;

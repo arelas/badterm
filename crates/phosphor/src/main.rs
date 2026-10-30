@@ -34,11 +34,12 @@ use phosphor_core::dialer::{self, Directory, Entry};
 use winit::event_loop::EventLoop;
 
 const USAGE: &str = "\
-Usage: phosphor [OPTIONS] [ADDRESS]
+Usage: phosphor [OPTIONS] [ADDRESS | FILE]
 
 Connect to ADDRESS (host, host:port, telnet://host:port, raw://host:port or
 ssh://user@host:port). With no address, Phosphor starts unconnected; Alt-D
-(Cmd-D on macOS) opens the dialing directory.
+(Cmd-D on macOS) opens the dialing directory. A FILE (ANSI art) opens in
+the viewer.
 
 Options:
   --import FILE   Add the entries in FILE to the dialing directory and exit
@@ -62,7 +63,8 @@ Options:
   -V, --version   Show the version";
 
 enum Command {
-    Run(Option<Entry>),
+    /// Start, calling an address or showing a file.
+    Run(Option<Entry>, Option<PathBuf>),
     Import(PathBuf),
     Export(PathBuf),
     Paths,
@@ -71,7 +73,7 @@ enum Command {
 
 fn parse_args() -> Result<Command, String> {
     let mut args = std::env::args().skip(1);
-    let mut cmd = Command::Run(None);
+    let mut cmd = Command::Run(None, None);
     // The --render options may come before or after it.
     let mut render = viewer::RenderOptions::default();
     let mut render_files = None;
@@ -122,7 +124,12 @@ fn parse_args() -> Result<Command, String> {
                 }
             }
             a if a.starts_with('-') => return Err(format!("unknown option {a}")),
-            a => cmd = Command::Run(Some(Entry::from_address(a).ok_or_else(|| format!("not a valid address: {a}"))?)),
+            // An art file to view, or an address to call.
+            a if std::path::Path::new(a).is_file() => cmd = Command::Run(None, Some(PathBuf::from(a))),
+            a => {
+                let entry = Entry::from_address(a).ok_or_else(|| format!("not a valid address: {a}"))?;
+                cmd = Command::Run(Some(entry), None);
+            }
         }
     }
     Ok(match render_files {
@@ -161,7 +168,7 @@ fn main() -> ExitCode {
         Command::Render(input, output, opts) => {
             viewer::render_file(&input, &output, opts).map(|(w, h)| println!("Wrote {} ({w}x{h})", output.display()))
         }
-        Command::Run(startup) => run(paths, startup),
+        Command::Run(startup, view) => run(paths, startup, view),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -172,7 +179,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(paths: app::Paths, startup: Option<Entry>) -> anyhow::Result<()> {
+fn run(paths: app::Paths, startup: Option<Entry>, view: Option<PathBuf>) -> anyhow::Result<()> {
     let event_loop = EventLoop::<app::UserEvent>::with_user_event().build()?;
     #[cfg(target_os = "macos")]
     {
@@ -182,7 +189,7 @@ fn run(paths: app::Paths, startup: Option<Entry>) -> anyhow::Result<()> {
             let _ = proxy.send_event(app::UserEvent::OpenUrl(url));
         });
     }
-    let mut app = app::App::new(event_loop.create_proxy(), paths, startup);
+    let mut app = app::App::new(event_loop.create_proxy(), paths, startup, view);
     event_loop.run_app(&mut app)?;
     Ok(())
 }

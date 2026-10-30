@@ -1,9 +1,11 @@
-//! `phosphor --render`: draw an ANSI file to a PNG, as Phosphor would show
-//! it. Used for the website's screenshots, and handy for art.
+//! ANSI art files: loaded with their SAUCE details, for the viewer (Alt-F)
+//! and for `phosphor --render`, which draws one to a PNG as Phosphor would
+//! show it (the website's screenshots come from it).
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use phosphor_core::sauce::{self, Sauce};
 use phosphor_core::{Cell, Terminal};
 
 use crate::bezel::Bezel;
@@ -27,30 +29,53 @@ pub struct RenderOptions {
 /// The tallest picture drawn from one file.
 const MAX_ROWS: usize = 2000;
 
-/// Render `input` to `output`; returns the size of the image.
-pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(usize, usize)> {
-    let data = std::fs::read(input).with_context(|| format!("reading {}", input.display()))?;
-    let (content, sauce_ice) = split_sauce(&data);
-    let ice = sauce_ice || content.windows(5).any(|w| w == b"\x1b[?33");
+/// A piece of art, played into a terminal as tall as it needs.
+pub struct Art {
+    pub term: Terminal,
+    /// The rows it uses (at least a screen's worth).
+    pub rows: usize,
+    pub sauce: Option<Sauce>,
+}
 
-    let rows = if opts.screen_only { 25 } else { MAX_ROWS };
-    let mut term = Terminal::new(80, rows, 0);
+/// Play `data` into a terminal: as wide as SAUCE says (80 otherwise), in
+/// its font (unless `font` picks one) and with iCE colors if SAUCE or the
+/// art asks. `screen_only` keeps just the last 80x25 screen, as of a
+/// captured BBS session.
+pub fn load(data: &[u8], font: u8, screen_only: bool) -> Art {
+    let (content, sauce) = sauce::split(data);
+    let ice = sauce.as_ref().is_some_and(|s| s.ice) || content.windows(5).any(|w| w == b"\x1b[?33");
+    let cols = match sauce.as_ref().map(|s| s.width) {
+        Some(w @ 40..=255) if !screen_only => w as usize,
+        _ => 80,
+    };
+    let font = if font != 0 { font } else { sauce.as_ref().map_or(0, Sauce::cterm_font) };
+    let rows = if screen_only { 25 } else { MAX_ROWS };
+    let mut term = Terminal::new(cols, rows, 0);
     term.screen.ice_colors = ice;
-    term.screen.base_font = opts.font;
-    term.screen.look.fonts[0] = opts.font;
+    term.screen.base_ice = ice;
+    term.screen.base_font = font;
+    term.screen.look.fonts[0] = font;
     term.feed(content);
-    let ice = term.screen.ice_colors;
-    let used = if opts.screen_only {
+    let used = if screen_only {
         25
     } else {
         let last = (0..rows).rev().find(|&y| term.screen.row(y).iter().any(|c| !c.is_blank()));
         last.map_or(25, |y| (y + 1).max(25))
     };
+    Art { term, rows: used, sauce }
+}
+
+/// Render `input` to `output`; returns the size of the image.
+pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(usize, usize)> {
+    let data = std::fs::read(input).with_context(|| format!("reading {}", input.display()))?;
+    let Art { term, rows: used, .. } = load(&data, opts.font, opts.screen_only);
+    let ice = term.screen.ice_colors;
+    let cols = term.screen.cols();
 
     let lines: Vec<&[Cell]> = (0..used).map(|y| term.screen.row(y)).collect();
     let cell_w = if opts.nine_dot { 9 } else { 8 };
-    let mut r = Renderer::new(Font::vga_8x16(), 80, used);
-    r.set_layout(Font::vga_8x16(), cell_w, 80, used);
+    let mut r = Renderer::new(Font::vga_8x16(), cols, used);
+    r.set_layout(Font::vga_8x16(), cell_w, cols, used);
     // The art's own palette and fonts (CTerm sequences), if it sets any.
     let look = &term.screen.look;
     r.draw(&Frame { look, look_rows: used, ..Frame::plain(lines, None, ice) }, true, false);
@@ -81,41 +106,27 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
     Ok((w, h))
 }
 
-/// The art without its SAUCE record (and the Ctrl-Z before it), and
-/// whether SAUCE asks for iCE colors.
-fn split_sauce(data: &[u8]) -> (&[u8], bool) {
-    let mut ice = false;
-    let mut end = data.len();
-    if data.len() >= 128 && data[data.len() - 128..].starts_with(b"SAUCE00") {
-        let record = &data[data.len() - 128..];
-        // TFlags bit 0: "non-blink mode", that is, iCE colors.
-        ice = record[105] & 1 != 0;
-        end = data.len() - 128;
-    }
-    // Ctrl-Z marks the end of the art in files with SAUCE or comments.
-    if let Some(z) = data[..end].iter().position(|&b| b == 0x1A) {
-        end = z;
-    }
-    (&data[..end], ice)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn sauce_is_split_off() {
+    fn sauce_sets_width_font_and_ice() {
         let mut file = b"\x1b[1;31mART\x1b[0m".to_vec();
-        let art_len = file.len();
         file.push(0x1A);
-        let mut sauce = vec![b' '; 128];
-        sauce[..7].copy_from_slice(b"SAUCE00");
-        sauce[105] = 1;
-        file.extend(&sauce);
-        let (art, ice) = split_sauce(&file);
-        assert_eq!(art.len(), art_len);
-        assert!(ice);
-        assert_eq!(split_sauce(b"plain"), (&b"plain"[..], false));
+        let mut r = vec![0u8; 128];
+        r[..7].copy_from_slice(b"SAUCE00");
+        r[94] = 1;
+        r[96..98].copy_from_slice(&132u16.to_le_bytes());
+        r[105] = 1;
+        r[106..120].copy_from_slice(b"Amiga Topaz 2+");
+        file.extend(r);
+        let art = load(&file, 0, false);
+        assert_eq!(art.term.screen.cols(), 132);
+        assert!(art.term.screen.ice_colors);
+        assert_eq!(art.term.screen.look.fonts[0], 40);
+        assert_eq!(art.rows, 25);
+        assert_eq!(load(&file, 42, false).term.screen.look.fonts[0], 42);
     }
 
     #[test]

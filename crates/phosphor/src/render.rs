@@ -541,6 +541,29 @@ mod tests {
         page(&mut r, &ps, "help.ppm");
         crate::ui::theme::set_current(Default::default());
 
+        // The ANSI viewer, with its SAUCE box.
+        let art_path = dir.join("viewer-test.ans");
+        let mut art = ans.clone();
+        art.push(0x1A);
+        let mut rec = vec![0u8; 128];
+        rec[..7].copy_from_slice(b"SAUCE00");
+        rec[7..19].copy_from_slice(b"Phosphor art");
+        rec[42..48].copy_from_slice(b"arelas");
+        rec[82..90].copy_from_slice(b"20261030");
+        rec[94] = 1;
+        rec[96..98].copy_from_slice(&80u16.to_le_bytes());
+        rec[105] = 1;
+        rec[106..113].copy_from_slice(b"IBM VGA");
+        art.extend(rec);
+        std::fs::write(&art_path, &art).unwrap();
+        let mut view = crate::ui::art::ArtView::open(&art_path, 0).unwrap();
+        view.handle_key(Key::Char('i'));
+        let rows = view.rows();
+        let look = &view.art.term.screen.look;
+        r.set_layout(Font::vga_8x16(), 8, 80, 25);
+        r.draw(&Frame { look, look_rows: 25, ..Frame::plain(rows, None, true) }, true, true);
+        write_ppm(&mut r, &dir.join("viewer.ppm"));
+
         // 132x37, with a dialog centered over it.
         let mut t132 = Terminal::new(132, 37, 0);
         t132.feed(&ans);

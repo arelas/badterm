@@ -35,6 +35,7 @@ const LEFT: [Group; 3] = [
             ("", "(ZMODEM starts by itself)"),
             ("@-C", "Capture session to a file"),
             ("@-S", "Save scrollback or screen"),
+            ("@-F", "View ANSI art"),
         ],
     },
     Group {

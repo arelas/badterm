@@ -1,6 +1,7 @@
 //! Built-in text-mode user interface, drawn with CP437 glyphs into a
 //! [`Screen`] so it renders exactly like BBS content.
 
+pub mod art;
 pub mod dialer;
 pub mod files;
 pub mod help;

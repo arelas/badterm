@@ -28,7 +28,9 @@ use crate::secrets::{self, Keychain, Store};
 use crate::selection::Selection;
 use crate::settings::{Music, Settings};
 use crate::sound::Player;
+use crate::ui::art::{self as art_ui, ArtAction, ArtView};
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
+use crate::ui::files::{FilePicker, PickerAction};
 use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::save::{SaveFormat, SavePrompt};
 use crate::ui::settings::{self as settings_ui, SettingsUi};
@@ -160,6 +162,12 @@ pub struct App {
     help_open: bool,
     /// A newer version, if the update check found one.
     update: Option<String>,
+    /// The ANSI viewer (Alt-F): choosing a file, then the art.
+    art_picker: Option<FilePicker>,
+    art: Option<ArtView>,
+    art_dir: PathBuf,
+    /// A file to view at start (given on the command line).
+    view_at_start: Option<PathBuf>,
     /// The monitor bezel around the screen, and its drawing for the
     /// window's size.
     bezel: Option<Bezel>,
@@ -222,7 +230,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(proxy: EventLoopProxy<UserEvent>, paths: Paths, startup: Option<Entry>) -> App {
+    pub fn new(proxy: EventLoopProxy<UserEvent>, paths: Paths, startup: Option<Entry>, view: Option<PathBuf>) -> App {
         let (mut directory, mut load_error) = load_directory(&paths.directory);
         directory.sort();
         // New default entries (the first time, the whole starter directory).
@@ -258,6 +266,10 @@ impl App {
             settings_open: false,
             help_open: false,
             update: None,
+            art_picker: None,
+            art: None,
+            art_dir: PathBuf::new(),
+            view_at_start: view,
             bezel: None,
             bezel_name: String::new(),
             bezel_frame: None,
@@ -588,6 +600,14 @@ impl App {
             self.help_open = false;
         } else if self.settings_open {
             self.settings_key(key, mods);
+        } else if self.art_picker.is_some() {
+            self.art_picker_key(key, mods);
+        } else if let Some(v) = self.art.as_mut() {
+            match v.handle_key(key) {
+                ArtAction::None => {}
+                ArtAction::Close => self.art = None,
+                ArtAction::Open => self.open_art_picker(),
+            }
         } else if self.dialer_open {
             self.dialer_key(key, mods);
         } else if self.login.is_some() {
@@ -718,6 +738,16 @@ impl App {
                 self.help_open = false;
                 return true;
             }
+            // The ANSI viewer, from anywhere.
+            KeyCode::KeyF => {
+                if self.art.is_some() || self.art_picker.is_some() {
+                    self.art = None;
+                    self.art_picker = None;
+                } else {
+                    self.open_art_picker();
+                }
+                return true;
+            }
             KeyCode::KeyO => {
                 if self.settings_open {
                     self.settings_open = false;
@@ -735,7 +765,7 @@ impl App {
         }
         // Session hotkeys act on what is on screen, so they are swallowed
         // while the dialer (or settings, or help) covers the session.
-        if self.dialer_open || self.settings_open || self.help_open {
+        if self.dialer_open || self.settings_open || self.help_open || self.art.is_some() || self.art_picker.is_some() {
             return true;
         }
         if let Some(i) = macro_index(code) {
@@ -858,6 +888,47 @@ impl App {
 
     fn crt_mode(&self) -> CrtMode {
         self.own_crt_mode().unwrap_or(self.settings.crt)
+    }
+
+    fn open_art_picker(&mut self) {
+        if self.art_dir.as_os_str().is_empty() {
+            self.art_dir = if self.paths.downloads.is_dir() {
+                self.paths.downloads.clone()
+            } else {
+                std::env::home_dir().unwrap_or_else(|| PathBuf::from("."))
+            };
+        }
+        self.art_picker = Some(FilePicker::new(self.art_dir.clone(), false, art_ui::EXTENSIONS));
+        self.help_open = false;
+        self.settings_open = false;
+    }
+
+    fn art_picker_key(&mut self, key: Key, mods: Mods) {
+        let Some(picker) = self.art_picker.as_mut() else { return };
+        if key == Key::Escape {
+            self.art_picker = None;
+            return;
+        }
+        if let PickerAction::Chosen(paths) = picker.handle_key(key, mods) {
+            self.art_dir = picker.dir().to_path_buf();
+            self.art_picker = None;
+            if let Some(path) = paths.first() {
+                self.view_art(path);
+            }
+        }
+    }
+
+    /// Show a file in the ANSI viewer.
+    fn view_art(&mut self, path: &std::path::Path) {
+        match ArtView::open(path, 0) {
+            Ok(v) => {
+                if let Some(dir) = path.parent() {
+                    self.art_dir = dir.to_path_buf();
+                }
+                self.art = Some(v);
+            }
+            Err(e) => self.notify(format!("{e:#}")),
+        }
     }
 
     fn open_settings(&mut self) {
@@ -983,6 +1054,11 @@ impl App {
     /// The width of what is on screen: the session's (80 or 132 columns),
     /// or 80 for the dialer and the idle screen.
     fn view_cols(&self) -> usize {
+        if let Some(v) =
+            self.art.as_ref().filter(|_| !self.help_open && !self.settings_open && self.art_picker.is_none())
+        {
+            return v.cols();
+        }
         match &self.session {
             Some(s) if !self.dialer_open && !self.settings_open && !self.help_open => s.term.screen.cols(),
             _ => COLS,
@@ -1266,6 +1342,10 @@ impl App {
     }
 
     fn on_wheel(&mut self, lines: isize) {
+        if let Some(v) = self.art.as_mut().filter(|_| self.art_picker.is_none()) {
+            v.scroll(lines);
+            return self.request_redraw();
+        }
         if let Some(s) = self.session.as_ref().filter(|_| !self.dialer_open) {
             self.selection = None;
             let max = s.term.screen.scrollback_len() as isize;
@@ -1283,6 +1363,14 @@ impl App {
         }
         let s = &mut self.status;
         s.fill_rect(0, 0, cols, 1, Cell::new(b' ', fg, bg));
+        if let Some(v) =
+            self.art.as_ref().filter(|_| !self.help_open && !self.settings_open && self.art_picker.is_none())
+        {
+            return ui::text(s, 0, 0, cols, &v.status(), fg, bg);
+        }
+        if self.art_picker.is_some() && !self.help_open && !self.settings_open {
+            return ui::text(s, 0, 0, cols, " View ANSI Art \u{2502} Esc returns", fg, bg);
+        }
         if self.help_open || self.settings_open {
             let line = if self.help_open {
                 " Help \u{2502} Any key returns"
@@ -1369,11 +1457,14 @@ impl App {
         self.draw_status();
         let dialer_cursor =
             if self.dialer_open { self.dialer.draw(&mut self.dialer_screen, &self.directory) } else { None };
+        let mut page_cursor = None;
         if self.help_open {
             ui::help::draw(&mut self.page_screen);
         } else if self.settings_open {
             let own = self.own_crt_mode().map(|m| m.name());
-            self.settings_ui.draw(&mut self.page_screen, &self.settings, own, self.update.as_deref());
+            page_cursor = self.settings_ui.draw(&mut self.page_screen, &self.settings, own, self.update.as_deref());
+        } else if let Some(picker) = self.art_picker.as_mut() {
+            page_cursor = art_ui::draw_picker(&mut self.page_screen, picker);
         }
         let crt = self.crt_mode();
         let Some(gfx) = self.gfx.as_mut() else { return };
@@ -1421,10 +1512,17 @@ impl App {
         };
 
         let frame = match &self.session {
-            _ if self.help_open || self.settings_open => {
+            _ if self.help_open || self.settings_open || self.art_picker.is_some() => {
                 let mut rows: Vec<&[Cell]> = (0..settings_ui::ROWS).map(|y| self.page_screen.row(y)).collect();
                 rows.push(self.status.row(0));
-                Frame::plain(rows, None, true)
+                Frame::plain(rows, page_cursor, true)
+            }
+            _ if self.art.is_some() => {
+                let v = self.art.as_ref().expect("checked");
+                let mut rows = v.rows();
+                rows.push(self.status.row(0));
+                let sc = &v.art.term.screen;
+                Frame { look: &sc.look, look_rows: art_ui::ROWS, ..Frame::plain(rows, None, sc.ice_colors) }
             }
             _ if self.dialer_open => {
                 let mut rows: Vec<&[Cell]> = (0..dialer_ui::ROWS).map(|y| self.dialer_screen.row(y)).collect();
@@ -1518,6 +1616,9 @@ impl ApplicationHandler<UserEvent> for App {
             return event_loop.exit();
         }
         self.load_bezel();
+        if let Some(path) = self.view_at_start.take() {
+            self.view_art(&path);
+        }
         if let Some(e) = self.startup.take() {
             self.dial_address(e);
         }
@@ -1566,6 +1667,15 @@ impl ApplicationHandler<UserEvent> for App {
                     MouseScrollDelta::PixelDelta(p) => (p.y / 16.0) as isize,
                 };
                 self.on_wheel(lines);
+            }
+            // Art dropped while not in a call opens the viewer.
+            WindowEvent::DroppedFile(path)
+                if self.session.as_ref().is_none_or(|s| s.state != State::Connected)
+                    && !self.dialer_open
+                    && is_art(&path) =>
+            {
+                self.view_art(&path);
+                self.request_redraw();
             }
             WindowEvent::DroppedFile(path) if self.session.is_none() || self.dialer_open => {
                 // Dropping a directory file onto the dialer (or the idle
@@ -1650,6 +1760,11 @@ fn stamp(now: u64) -> String {
 
 fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
+}
+
+fn is_art(path: &std::path::Path) -> bool {
+    let name = path.to_string_lossy().to_ascii_lowercase();
+    art_ui::EXTENSIONS.iter().any(|x| name.ends_with(x))
 }
 
 /// Which keyboard macro a hotkey sends: Alt-1 is the first, Alt-0 the tenth.

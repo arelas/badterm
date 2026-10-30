@@ -50,6 +50,9 @@ fonts and colors of a host terminal.
   several files; XMODEM asks what to save a download as.
 - **A file picker** for uploads: browse folders, mark several files with
   `Space`, or press `Tab` to type a path
+- **An ANSI viewer** (`Alt-F`, `phosphor file.ans`, or drop a file on the
+  window when not in a call): scroll through art in its own width, font and
+  colors, with its SAUCE title, artist, group, date and comments (`I`)
 - **CP437 and UTF-8** sessions, switchable per entry or live with `Alt-E`
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
@@ -190,6 +193,7 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-W` | 9-dot or 8-dot character cells |
 | `Alt-M` | ANSI music: on, on including `ESC [ M`, off |
 | `Alt-O` | Settings, and the interface colors |
+| `Alt-F` | View ANSI art: a file picker, then the art with its SAUCE details |
 | `Alt-Z` | Help: every key on one page |
 | `Alt-X` | Exit |
 

@@ -66,6 +66,9 @@ The next things to do, in order.
 - [x] Baud rate emulation
 - [x] Settings screen (Alt-O) with interface color schemes and a color editor; help (Alt-Z)
 - [x] Shareable color themes (import, save, a themes folder); monitor bezels, built in or PNG
+- [x] XMODEM (checksum, CRC, 1K) and YMODEM (batch, G); a file picker for uploads
+- [x] Keyboard macros (Alt-1 to Alt-0); EtherTerm, MagiTerm and Telnet BBS Guide imports
+- [x] ANSI viewer with SAUCE (Alt-F, or a file on the command line)
 
 ## Connections
 
@@ -88,9 +91,6 @@ The next things to do, in order.
 ## File transfer
 
 - [ ] ZMODEM crash recovery (resume partial downloads)
-- [ ] File picker dialog for uploads
-- [ ] XMODEM / XMODEM-1K / XMODEM-CRC
-- [ ] YMODEM / YMODEM-G
 - [ ] Kermit
 - [ ] Per-entry upload/download directories
 
@@ -98,12 +98,11 @@ The next things to do, in order.
 
 - [ ] More per-entry settings: capture/log files, hide status line
 - [ ] Multiple directories / groups
-- [ ] Import more formats: NetRunner, mTelnet, Telnet BBS Guide lists, qodem
-- [ ] SAUCE record reading for captured/viewed files; built-in ANSI viewer
+- [ ] Import more formats: NetRunner and mTelnet (no documented format; need sample files), qodem
 - [ ] More in the settings screen: default font and screen mode, scaling,
       key bindings
 - [ ] Multiple simultaneous sessions (tabs)
-- [ ] Scripting / macros (e.g. Lua or Rhai) bound to keys
+- [ ] Scripting (e.g. Lua or Rhai); per-entry macros
 - [ ] Optional curses/TUI front end built on `phosphor-core`
 
 ## Packaging
