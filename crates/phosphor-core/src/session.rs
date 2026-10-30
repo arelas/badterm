@@ -6,10 +6,10 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 
 use crate::ansi::{TermEvent, Terminal};
-use crate::dialer::{Entry, Protocol};
+use crate::dialer::Entry;
 use crate::telnet::Telnet;
 use crate::transfer::{self, Download, Outcome, TrailerFilter, Transfer, Upload};
 pub use crate::transport::{AuthPrompt, ConnectOptions, NetEvent, PromptKind, Writer, spawn_connection};
@@ -77,15 +77,11 @@ pub struct Session {
 }
 
 impl Session {
-    pub fn new(entry: Entry, cols: usize, rows: usize, config: SessionConfig) -> Result<Session> {
-        if !entry.protocol.supported() {
-            bail!("{} connections are not supported yet", entry.protocol);
-        }
+    pub fn new(entry: Entry, cols: usize, rows: usize, config: SessionConfig) -> Session {
         let mut term = Terminal::new(cols, rows, config.scrollback);
         term.encoding = entry.encoding;
-        let telnet =
-            (entry.protocol == Protocol::Telnet).then(|| Telnet::new(&entry.term_type, cols as u16, rows as u16));
-        Ok(Session {
+        let telnet = entry.protocol.is_telnet().then(|| Telnet::new(&entry.term_type, cols as u16, rows as u16));
+        Session {
             entry,
             term,
             state: State::Connecting,
@@ -102,7 +98,7 @@ impl Session {
             started: Instant::now(),
             connected_at: None,
             events: Vec::new(),
-        })
+        }
     }
 
     /// Start connecting in the background; events arrive through `sink` and

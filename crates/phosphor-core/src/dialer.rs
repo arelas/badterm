@@ -16,6 +16,9 @@ use crate::ansi::Encoding;
 pub enum Protocol {
     #[default]
     Telnet,
+    /// Telnet over TLS.
+    #[serde(rename = "telnets")]
+    TelnetS,
     /// Plain TCP with no telnet processing.
     Raw,
     Ssh,
@@ -23,33 +26,38 @@ pub enum Protocol {
 }
 
 impl Protocol {
-    pub const ALL: [Protocol; 4] = [Protocol::Telnet, Protocol::Raw, Protocol::Ssh, Protocol::Rlogin];
+    pub const ALL: [Protocol; 5] =
+        [Protocol::Telnet, Protocol::TelnetS, Protocol::Raw, Protocol::Ssh, Protocol::Rlogin];
 
     pub fn default_port(self) -> u16 {
         match self {
             Protocol::Telnet | Protocol::Raw => 23,
+            Protocol::TelnetS => 992,
             Protocol::Ssh => 22,
             Protocol::Rlogin => 513,
         }
     }
 
+    /// SyncTERM's names for them, too.
     pub fn name(self) -> &'static str {
         match self {
             Protocol::Telnet => "Telnet",
+            Protocol::TelnetS => "TelnetS",
             Protocol::Raw => "Raw",
             Protocol::Ssh => "SSH",
             Protocol::Rlogin => "RLogin",
         }
     }
 
-    /// Whether this build can actually connect with the protocol.
-    pub fn supported(self) -> bool {
-        matches!(self, Protocol::Telnet | Protocol::Raw | Protocol::Ssh)
+    /// Whether the connection speaks the telnet protocol.
+    pub fn is_telnet(self) -> bool {
+        matches!(self, Protocol::Telnet | Protocol::TelnetS)
     }
 
     fn from_name(s: &str) -> Option<Protocol> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "telnet" | "telnets" => Some(Protocol::Telnet),
+            "telnet" => Some(Protocol::Telnet),
+            "telnets" => Some(Protocol::TelnetS),
             "raw" => Some(Protocol::Raw),
             "ssh" | "sshna" => Some(Protocol::Ssh),
             "rlogin" | "rloginreversed" => Some(Protocol::Rlogin),

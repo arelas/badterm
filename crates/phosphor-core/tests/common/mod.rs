@@ -29,7 +29,7 @@ pub fn config(name: &str) -> SessionConfig {
 
 /// Connect a session and return it with the channel its events arrive on.
 pub fn dial(entry: Entry, cfg: SessionConfig) -> (Session, mpsc::Receiver<NetEvent>) {
-    let session = Session::new(entry, 80, 25, cfg).unwrap();
+    let session = Session::new(entry, 80, 25, cfg);
     let (tx, rx) = mpsc::channel();
     session.connect(move |ev| {
         let _ = tx.send(ev);

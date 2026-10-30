@@ -1,13 +1,14 @@
 # Phosphor
 
-A cross-platform ANSI-BBS telnet and SSH client written in Rust, in the tradition of
+A cross-platform ANSI-BBS client (telnet, SSH and RLogin) written in Rust, in the tradition of
 SyncTERM, NetRunner and mTelnet. Runs natively on Windows, macOS and Linux.
 
 Phosphor draws its own text-mode screen using real CP437 bitmap fonts, so ANSI
 art renders pixel-for-pixel as it did on a VGA card. It doesn't depend on the
 fonts and colors of a host terminal.
 
-> **Status:** early development (0.1). Telnet, SSH and raw TCP connections,
+> **Status:** early development (0.1). Telnet, telnet over TLS, SSH, RLogin
+> and raw TCP connections,
 > ZMODEM file transfers, ANSI-BBS emulation, iCE colors, scrollback, capture and
 > the dialing directory with import/export work. See [ROADMAP.md](ROADMAP.md)
 > for what's planned.
@@ -22,7 +23,9 @@ fonts and colors of a host terminal.
   `CSI ?33h`), real blinking text when iCE is off, xterm 256-color, and 24-bit
   color (SGR `38;2` and the CTerm/PabloDraw `CSI 1;r;g;b t` form)
 - **Telnet** with BINARY, ECHO, SGA, TERMINAL-TYPE and NAWS negotiation;
-  **raw TCP** for systems that don't speak telnet
+  **telnet over TLS** ("TelnetS", port 992); **RLogin**, which logs straight
+  in with the entry's user name and password; **raw TCP** for systems that
+  don't speak telnet
 - **SSH** (pure Rust, no OpenSSL): "none" auth for BBSes that run their own
   login, public keys (a key file set in the entry, your SSH agent, or
   `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`), keyboard-interactive and
@@ -105,7 +108,8 @@ supported, and they and ALSA (for ANSI music) are loaded at run time.
 ```
 phosphor                         start, not connected (Alt-D opens the dialing directory)
 phosphor bbs.example.org         connect directly (also host:port,
-                                 telnet://host:port, raw://host:port,
+                                 telnet://host:port, telnets://host:port,
+                                 rlogin://user@host, raw://host:port,
                                  ssh://user@host:port)
 phosphor --import syncterm.lst   add entries from a SyncTERM/CSV/JSON/TOML file
 phosphor --export bbses.csv      write the directory (format from extension)
@@ -186,6 +190,17 @@ like `new` or `guest` and then run their own login. Phosphor logs in with:
 3. keyboard-interactive or password, using the entry's password if there is
    one and asking otherwise (or when it is refused). The login dialog can
    remember the password for next time (`Tab`).
+
+Telnet over TLS checks the BBS's certificate against the usual certificate
+authorities. Many BBSes use self-signed certificates, so one that fails
+that check is trusted on first use and pinned in `tls_known_hosts` (beside
+`known_hosts`), and a later, different certificate is refused; so is a
+self-signed certificate from a BBS whose certificate an authority signed
+before.
+
+RLogin sends the entry's password as the "client user name" and its user
+name as the "server user name", as SyncTERM does, which is how Synchronet
+and other BBSes log RLogin callers in.
 
 Passwords you enter in the directory, remember from the login dialog, or
 import with a SyncTERM list are moved into the OS keychain when the

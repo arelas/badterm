@@ -289,16 +289,8 @@ impl App {
             ssh_key_dir: self.paths.ssh_keys.clone(),
         };
         let rows = if dialer::SCREEN_ROWS.contains(&entry.rows) { entry.rows as usize } else { ROWS };
-        let session = match Session::new(entry, COLS, rows, config) {
-            Ok(mut s) => {
-                s.term.music_on_csi_m = self.settings.music == Music::All;
-                s
-            }
-            Err(e) => {
-                self.dialer_open = true;
-                return self.dialer.show_message(format!("{e:#}"));
-            }
-        };
+        let mut session = Session::new(entry, COLS, rows, config);
+        session.term.music_on_csi_m = self.settings.music == Music::All;
         self.dialer_open = false;
         self.session_id += 1;
         let id = self.session_id;

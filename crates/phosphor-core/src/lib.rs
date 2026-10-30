@@ -12,6 +12,7 @@ pub mod palette;
 pub mod screen;
 pub mod session;
 pub mod telnet;
+pub mod tls;
 pub mod transfer;
 pub mod transport;
 

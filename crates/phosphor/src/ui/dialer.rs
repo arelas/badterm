@@ -529,13 +529,7 @@ impl DialerUi {
                 e.protocol.name(),
                 e.calls
             );
-            let (fg, bg) = if pos == self.selected {
-                (BLACK, CYAN)
-            } else if e.protocol.supported() {
-                (WHITE, BLUE)
-            } else {
-                (GRAY, BLUE)
-            };
+            let (fg, bg) = if pos == self.selected { (BLACK, CYAN) } else { (WHITE, BLUE) };
             text(s, 1, LIST_TOP + row, COLS - 2, &line, fg, bg);
         }
         // Scroll indicators.
@@ -553,17 +547,6 @@ impl DialerUi {
                 info.push_str(&format!("   {}", e.comment));
             }
             text(s, 0, 22, COLS, &info, LIGHT_CYAN, BLACK);
-            if !e.protocol.supported() {
-                text(
-                    s,
-                    0,
-                    23,
-                    COLS,
-                    &format!(" {} is not supported yet; this entry is kept for when it is.", e.protocol),
-                    DARK_GRAY,
-                    BLACK,
-                );
-            }
         }
 
         // The bottom line: the search, or the keys the status bar has no
@@ -631,9 +614,6 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
             F_PROTOCOL => {
                 let v = format!("\u{25C4} {:<7} \u{25BA}", form.protocol.name());
                 text(s, fx, yy, fw, &v, fg, bg);
-                if !form.protocol.supported() {
-                    label(s, fx + 13, yy, "(not yet supported)", DARK_GRAY, bg);
-                }
             }
             F_ENCODING => text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg),
             F_ROWS => text(s, fx, yy, fw, &format!("\u{25C4} 80x{:<4} \u{25BA}", form.rows), fg, bg),

@@ -2,7 +2,9 @@
 //! and reports [`NetEvent`]s through a callback; the caller writes through
 //! the [`Writer`] handed over in [`NetEvent::Connected`].
 //!
-//! - Telnet and raw connections use a plain TCP socket.
+//! - Telnet, raw and RLogin connections use a plain TCP socket; RLogin
+//!   first sends its login record (see [`rlogin_handshake`]).
+//! - Telnet over TLS: see [`crate::tls`].
 //! - SSH runs the `russh` client on a single-threaded Tokio runtime, opening
 //!   one interactive shell channel with a PTY. Host keys are trusted on first
 //!   use and pinned in Phosphor's own `known_hosts` file; a changed key
@@ -31,7 +33,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::dialer::{Entry, Protocol};
 
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Rounds of keyboard-interactive prompts answered before giving up.
 const MAX_KBD_INTERACTIVE_ROUNDS: usize = 5;
 /// Times the user is asked for a password (or passphrase) before giving up.
@@ -112,24 +114,26 @@ pub struct ConnectOptions {
     pub ssh_key_dir: Option<PathBuf>,
 }
 
-enum SshCmd {
+/// What a [`Writer`] asks a connection task (SSH or TLS) to do.
+pub(crate) enum Cmd {
     Data(Vec<u8>),
     Close,
 }
 
 /// The sending side of a connection.
-pub struct Writer(WriterKind);
+pub struct Writer(pub(crate) WriterKind);
 
-enum WriterKind {
+pub(crate) enum WriterKind {
     Tcp(TcpStream),
-    Ssh(mpsc::UnboundedSender<SshCmd>),
+    /// To a task that owns the connection (SSH, TLS).
+    Channel(mpsc::UnboundedSender<Cmd>),
 }
 
 impl fmt::Debug for Writer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self.0 {
             WriterKind::Tcp(_) => "Writer(TCP)",
-            WriterKind::Ssh(_) => "Writer(SSH)",
+            WriterKind::Channel(_) => "Writer(channel)",
         })
     }
 }
@@ -138,9 +142,9 @@ impl Writer {
     pub fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
         match &mut self.0 {
             WriterKind::Tcp(s) => s.write_all(data),
-            WriterKind::Ssh(tx) => tx
-                .send(SshCmd::Data(data.to_vec()))
-                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "SSH connection closed")),
+            WriterKind::Channel(tx) => tx
+                .send(Cmd::Data(data.to_vec()))
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "connection closed")),
         }
     }
 
@@ -150,8 +154,8 @@ impl Writer {
             WriterKind::Tcp(s) => {
                 let _ = s.shutdown(Shutdown::Both);
             }
-            WriterKind::Ssh(tx) => {
-                let _ = tx.send(SshCmd::Close);
+            WriterKind::Channel(tx) => {
+                let _ = tx.send(Cmd::Close);
             }
         }
     }
@@ -166,7 +170,11 @@ where
     F: Fn(NetEvent) + Send + 'static,
 {
     match entry.protocol {
-        Protocol::Telnet | Protocol::Raw => spawn_tcp(entry.host.clone(), entry.port, sink),
+        Protocol::Telnet | Protocol::Raw => spawn_tcp(entry.host.clone(), entry.port, None, sink),
+        Protocol::Rlogin => spawn_tcp(entry.host.clone(), entry.port, Some(rlogin_handshake(entry)), sink),
+        Protocol::TelnetS => {
+            crate::tls::spawn_tls(entry.host.clone(), entry.port, tls_pins_path(&opts.known_hosts), sink)
+        }
         Protocol::Ssh => {
             let params = SshParams {
                 host: entry.host.clone(),
@@ -183,11 +191,31 @@ where
             };
             spawn_ssh(params, sink);
         }
-        Protocol::Rlogin => sink(NetEvent::Closed(Some("RLogin connections are not supported yet".into()))),
     }
 }
 
-fn spawn_tcp<F>(host: String, port: u16, sink: F)
+/// Where TLS certificates are pinned: beside SSH's `known_hosts`.
+pub fn tls_pins_path(known_hosts: &Path) -> PathBuf {
+    known_hosts.with_file_name("tls_known_hosts")
+}
+
+/// RLogin's opening record (RFC 1282): client user name, server user name
+/// and terminal type/speed, each ending in a NUL, after a NUL. As SyncTERM
+/// does, BBSes get the password as the client user name and the user name
+/// as the server user name, so they can log the caller straight in.
+pub fn rlogin_handshake(entry: &Entry) -> Vec<u8> {
+    let term = if entry.term_type.is_empty() { "ansi-bbs".to_string() } else { entry.term_type.to_ascii_lowercase() };
+    let mut out = vec![0];
+    for field in [entry.password.as_str(), entry.username.as_str(), &format!("{term}/115200")] {
+        out.extend_from_slice(field.as_bytes());
+        out.push(0);
+    }
+    out
+}
+
+/// A TCP connection, sending `handshake` first (RLogin), in which case the
+/// server's one-byte NUL reply is not passed on.
+fn spawn_tcp<F>(host: String, port: u16, handshake: Option<Vec<u8>>, sink: F)
 where
     F: Fn(NetEvent) + Send + 'static,
 {
@@ -196,6 +224,13 @@ where
             Ok(s) => s,
             Err(e) => return sink(NetEvent::Closed(Some(format!("{e:#}")))),
         };
+        let mut expect_ack = false;
+        if let Some(h) = &handshake {
+            if let Err(e) = stream.write_all(h) {
+                return sink(NetEvent::Closed(Some(format!("sending the RLogin login: {e}"))));
+            }
+            expect_ack = true;
+        }
         match stream.try_clone() {
             Ok(w) => sink(NetEvent::Connected(Writer(WriterKind::Tcp(w)))),
             Err(e) => return sink(NetEvent::Closed(Some(e.to_string()))),
@@ -204,7 +239,16 @@ where
         loop {
             match stream.read(&mut buf) {
                 Ok(0) => return sink(NetEvent::Closed(None)),
-                Ok(n) => sink(NetEvent::Data(buf[..n].to_vec())),
+                Ok(n) => {
+                    let mut data = &buf[..n];
+                    if expect_ack {
+                        expect_ack = false;
+                        data = data.strip_prefix(&[0]).unwrap_or(data);
+                    }
+                    if !data.is_empty() {
+                        sink(NetEvent::Data(data.to_vec()));
+                    }
+                }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(e) => return sink(NetEvent::Closed(Some(e.to_string()))),
             }
@@ -247,10 +291,16 @@ struct SshParams {
 /// A thread-safe wrapper around the caller's sink, so it can be shared with
 /// the SSH handler.
 #[derive(Clone)]
-struct Emitter(Arc<dyn Fn(NetEvent) + Send + Sync>);
+pub(crate) struct Emitter(Arc<dyn Fn(NetEvent) + Send + Sync>);
 
 impl Emitter {
-    fn emit(&self, ev: NetEvent) {
+    /// Wrap a sink that is only `Send`, for sharing between tasks.
+    pub(crate) fn new<F: Fn(NetEvent) + Send + 'static>(sink: F) -> Emitter {
+        let sink = Mutex::new(sink);
+        Emitter(Arc::new(move |ev| (sink.lock().unwrap_or_else(|e| e.into_inner()))(ev)))
+    }
+
+    pub(crate) fn emit(&self, ev: NetEvent) {
         (self.0)(ev)
     }
 }
@@ -260,8 +310,7 @@ where
     F: Fn(NetEvent) + Send + 'static,
 {
     thread::spawn(move || {
-        let sink = Mutex::new(sink);
-        let emitter = Emitter(Arc::new(move |ev| (sink.lock().unwrap())(ev)));
+        let emitter = Emitter::new(sink);
         let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
             Ok(rt) => rt,
             Err(e) => return emitter.emit(NetEvent::Closed(Some(format!("starting SSH runtime: {e}")))),
@@ -358,7 +407,7 @@ async fn run_ssh(p: SshParams, emitter: Emitter) -> Result<()> {
     channel.request_shell(false).await.context("starting the shell")?;
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    emitter.emit(NetEvent::Connected(Writer(WriterKind::Ssh(tx))));
+    emitter.emit(NetEvent::Connected(Writer(WriterKind::Channel(tx))));
 
     let (mut read, write) = channel.split();
     loop {
@@ -370,8 +419,8 @@ async fn run_ssh(p: SshParams, emitter: Emitter) -> Result<()> {
                 Some(_) => {}
             },
             cmd = rx.recv() => match cmd {
-                Some(SshCmd::Data(d)) => write.data(&d[..]).await.context("sending data")?,
-                Some(SshCmd::Close) | None => break,
+                Some(Cmd::Data(d)) => write.data(&d[..]).await.context("sending data")?,
+                Some(Cmd::Close) | None => break,
             },
         }
     }
