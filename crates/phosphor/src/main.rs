@@ -21,6 +21,7 @@ mod selection;
 mod settings;
 mod sound;
 mod ui;
+mod viewer;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -42,6 +43,12 @@ Options:
                   follows the extension (.lst, .csv, .json or .toml)
   --paths         Print where the directory, captures and downloads are
                   stored and exit
+  --render IN OUT Draw the ANSI file IN to the PNG image OUT and exit. With:
+    --screen        only the final 80x25 screen (for a captured session),
+                    not the whole file
+    --crt MODE      phosphor mode: color, green or amber
+    --nine-dot      9-dot characters
+    --aspect        4:3, as on a CRT
   -h, --help      Show this help
   -V, --version   Show the version";
 
@@ -50,11 +57,15 @@ enum Command {
     Import(PathBuf),
     Export(PathBuf),
     Paths,
+    Render(PathBuf, PathBuf, viewer::RenderOptions),
 }
 
 fn parse_args() -> Result<Command, String> {
     let mut args = std::env::args().skip(1);
     let mut cmd = Command::Run(None);
+    // The --render options may come before or after it.
+    let mut render = viewer::RenderOptions::default();
+    let mut render_files = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => {
@@ -68,11 +79,31 @@ fn parse_args() -> Result<Command, String> {
             "--import" => cmd = Command::Import(args.next().ok_or("--import needs a file")?.into()),
             "--export" => cmd = Command::Export(args.next().ok_or("--export needs a file")?.into()),
             "--paths" => cmd = Command::Paths,
+            "--render" => {
+                let input = args.next().ok_or("--render needs an input and an output file")?;
+                let output = args.next().ok_or("--render needs an output file")?;
+                render_files = Some((input.into(), output.into()));
+            }
+            "--screen" => render.screen_only = true,
+            "--nine-dot" => render.nine_dot = true,
+            "--aspect" => render.aspect = true,
+            "--crt" => {
+                render.crt = match args.next().as_deref() {
+                    Some("off") => crt::CrtMode::Off,
+                    Some("color") => crt::CrtMode::Color,
+                    Some("green") => crt::CrtMode::Green,
+                    Some("amber") => crt::CrtMode::Amber,
+                    _ => return Err("--crt needs off, color, green or amber".into()),
+                }
+            }
             a if a.starts_with('-') => return Err(format!("unknown option {a}")),
             a => cmd = Command::Run(Some(Entry::from_address(a).ok_or_else(|| format!("not a valid address: {a}"))?)),
         }
     }
-    Ok(cmd)
+    Ok(match render_files {
+        Some((input, output)) => Command::Render(input, output, render),
+        None => cmd,
+    })
 }
 
 fn main() -> ExitCode {
@@ -100,6 +131,9 @@ fn main() -> ExitCode {
         Command::Export(file) => Directory::load(&paths.directory)
             .and_then(|d| dialer::export(&file, &d.entries).map(|()| d.entries.len()))
             .map(|n| println!("Exported {n} entries to {}", file.display())),
+        Command::Render(input, output, opts) => {
+            viewer::render_file(&input, &output, opts).map(|(w, h)| println!("Wrote {} ({w}x{h})", output.display()))
+        }
         Command::Run(startup) => run(paths, startup),
     };
     match result {

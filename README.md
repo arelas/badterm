@@ -102,6 +102,10 @@ phosphor bbs.example.org         connect directly (also host:port,
 phosphor --import syncterm.lst   add entries from a SyncTERM/CSV/JSON/TOML file
 phosphor --export bbses.csv      write the directory (format from extension)
 phosphor --paths                 show where data is stored
+phosphor --render art.ans out.png
+                                 draw an ANSI file to a PNG (add --screen for
+                                 just the last 80x25 screen, --crt color|green|
+                                 amber, --nine-dot, --aspect)
 ```
 
 On Windows, Phosphor is a GUI program, so `cmd` doesn't wait for it and its
@@ -180,6 +184,10 @@ directory is saved. Exported directories don't include them.
 Keys are sent the way ANSI-BBS software expects: arrows as `ESC [ A..D`,
 `Home`/`End` as `ESC [ H` / `ESC [ K`, `PgUp`/`PgDn` as `ESC [ V` / `ESC [ U`,
 `Ins` as `ESC [ @` and `Del` as DEL.
+
+## Website
+
+`site/` holds the project's static web page; see [site/README.md](site/README.md).
 
 ## Project layout
 

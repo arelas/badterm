@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phosphor — BBS client</title>
+  <meta name="description" content="Phosphor is a free ANSI-BBS client for Windows, macOS and Linux: telnet and SSH, ZMODEM, iCE colors, pixel-exact VGA fonts and a CRT phosphor mode.">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap hero-grid">
+      <div class="hero-text">
+        <img class="logo" src="img/icon.png" width="96" height="96" alt="">
+        <h1>Phosphor</h1>
+        <p class="tagline">The ANSI-BBS client for Windows, macOS and Linux, with the glow of a real CRT.</p>
+        <p class="lede">Telnet and SSH, ZMODEM file transfers, iCE colors and pixel-exact VGA fonts, so BBS art looks the way it did in 1994. Free software under the GPL.</p>
+        <div class="actions">
+          <a class="button primary" href="#download">Download</a>
+          <a class="button" href="telnet://vortexbbs.com">Call The Vortex BBS</a>
+        </div>
+        <p class="status">Early development: version 0.1.</p>
+      </div>
+      <figure class="screen">
+        <img src="img/vortex-color.jpg" width="960" height="720" alt="The Vortex BBS welcome screen in Phosphor, with the CRT glow and scanlines of phosphor mode">
+        <figcaption>The Vortex BBS in phosphor mode.</figcaption>
+      </figure>
+    </div>
+  </header>
+
+  <main>
+    <section class="wrap">
+      <h2>Everything a BBS needs</h2>
+      <div class="features">
+        <article>
+          <h3>Pixel-exact ANSI</h3>
+          <p>Phosphor draws its own screen with the IBM VGA fonts, 8 or 9 dots wide, at 80x25 or 80x50. iCE colors, blinking, xterm 256-color and 24-bit color, all rendered the way BBS software expects.</p>
+        </article>
+        <article>
+          <h3>Phosphor mode</h3>
+          <p>Press Alt-P for the look of a CRT: glowing text, scanlines and curved glass, in color or as a green or amber monochrome monitor. Alt-A shows the screen at 4:3.</p>
+        </article>
+        <article>
+          <h3>Telnet and SSH</h3>
+          <p>Telnet with the options BBSes use, raw TCP, and SSH with keys, your SSH agent or a password. Passwords can be kept in your system's keychain.</p>
+        </article>
+        <article>
+          <h3>ZMODEM</h3>
+          <p>Downloads start by themselves when the BBS sends a file. Upload with Alt-U or by dropping files on the window. Batches, progress and cancel included.</p>
+        </article>
+        <article>
+          <h3>A real dialing directory</h3>
+          <p>Search, sort, pin favorites, and import or export SyncTERM lists, CSV, JSON or TOML. The Vortex BBS comes pre-loaded.</p>
+        </article>
+        <article>
+          <h3>Keep what you see</h3>
+          <p>10,000 lines of scrollback, including screens the BBS cleared. Copy with the mouse as text or ANSI, capture sessions, or save the screen as .ans, .txt or .png.</p>
+        </article>
+        <article>
+          <h3>ANSI music</h3>
+          <p>BBS tunes play through your speakers as a PC speaker would play them.</p>
+        </article>
+        <article>
+          <h3>Free software</h3>
+          <p>Written in Rust and licensed under the GNU GPL, version 3 or later. No accounts, no telemetry.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="wrap">
+      <h2>Pick your phosphor</h2>
+      <div class="gallery">
+        <figure><img src="img/vortex-off.png" width="960" height="720" alt="The Vortex BBS with phosphor mode off: crisp pixels at 4:3" loading="lazy"><figcaption>Off: crisp pixels</figcaption></figure>
+        <figure><img src="img/vortex-green.jpg" width="960" height="720" alt="The Vortex BBS on a green-screen monitor" loading="lazy"><figcaption>Green screen</figcaption></figure>
+        <figure><img src="img/vortex-amber.jpg" width="960" height="720" alt="The Vortex BBS on an amber monitor" loading="lazy"><figcaption>Amber screen</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="wrap">
+      <h2>Built in text mode</h2>
+      <p class="section-lede">The dialing directory and dialogs are drawn with the same CP437 characters as the BBSes themselves.</p>
+      <div class="gallery">
+        <figure><img class="pixels" src="img/dialer.png" width="1280" height="800" alt="The dialing directory, with The Vortex BBS pinned at the top" loading="lazy"><figcaption>The dialing directory</figcaption></figure>
+        <figure><img class="pixels" src="img/find.png" width="1280" height="800" alt="Searching the dialing directory" loading="lazy"><figcaption>Search as you type</figcaption></figure>
+        <figure><img class="pixels" src="img/login.png" width="1280" height="800" alt="The SSH login dialog, offering to remember the password in the keychain" loading="lazy"><figcaption>SSH login</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="wrap" id="download">
+      <h2>Download</h2>
+      <div class="downloads">
+        <article>
+          <h3>Windows</h3>
+          <p>A zip with <code>phosphor.exe</code>. Unzip it and run it; nothing to install.</p>
+          <a class="button primary" href="https://git.badcluster.dev/arelas/phosphor/releases">Windows (x64)</a>
+        </article>
+        <article>
+          <h3>macOS</h3>
+          <p>A disk image: drag Phosphor to Applications. The first time, Control-click it and choose Open, as it isn't notarized yet.</p>
+          <a class="button primary" href="https://git.badcluster.dev/arelas/phosphor/releases">macOS (Apple silicon)</a>
+        </article>
+        <article>
+          <h3>Linux</h3>
+          <p>An AppImage that runs on most distributions (<code>chmod +x</code> it), or a tarball with the bare program.</p>
+          <a class="button primary" href="https://git.badcluster.dev/arelas/phosphor/releases">Linux (x64)</a>
+        </article>
+      </div>
+      <p class="note">All downloads are on the releases page, with SHA-256 checksums. Or build it yourself: <code>cargo build --release</code>.</p>
+    </section>
+
+    <section class="wrap vortex">
+      <h2>Phosphor's home BBS</h2>
+      <p>The Vortex BBS is where Phosphor lives. Call in, say hello, and tell us what to build next.</p>
+      <p class="address"><a href="telnet://vortexbbs.com">telnet://vortexbbs.com</a></p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <p>Phosphor is free software, licensed under the GNU General Public License, version 3 or later. <a href="https://git.badcluster.dev/arelas/phosphor">Source code</a>.</p>
+      <p>The VGA fonts come from DOSBox (GPL-2.0-or-later).</p>
+    </div>
+  </footer>
+</body>
+</html>

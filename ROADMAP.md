@@ -11,8 +11,8 @@ The next things to do, in order.
       0.1.4: calling Vortex, Alt-D while connected, Alt-Enter. Still to try:
       Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
       mouse copy, Alt-S, directory search and sort
-- [ ] Marketing site: what Phosphor is, screenshots, downloads for each OS,
-      and a link to The Vortex BBS
+- [ ] Publish the website (`site/`): choose hosting, and make the
+      downloads public (the repository is private)
 
 ## Done (0.1)
 
@@ -50,6 +50,9 @@ The next things to do, in order.
 - [x] 9-dot VGA cells, 4:3 aspect correction, 80x50 per entry (8x8 font)
 - [x] ANSI music (`CSI N`, `CSI |`, optionally `CSI M`; BASIC PLAY syntax,
       square-wave synthesis; ALSA loaded at run time, cpal on macOS/Windows)
+- [x] Website (`site/`): features, phosphor-mode screenshots, downloads,
+      The Vortex BBS
+- [x] `phosphor --render`: ANSI file to PNG, with SAUCE iCE detection
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
 
