@@ -18,7 +18,8 @@ name: CI
 # downloads and compiled dependencies are reused.
 #
 # A `v*` tag matching the Cargo.toml version also publishes a Forgejo
-# prerelease with all three platform packages, once every build passes.
+# prerelease with every platform package (Linux tarball and AppImage,
+# Windows zip, macOS disk image), once every build passes.
 #
 # Persistent workspaces also mean target/ survives between runs. Cargo's
 # freshness check is mtime-based, so before the release build each job
@@ -88,19 +89,25 @@ jobs:
           cargo build --release --locked
 
       # Named after the ref: the version tag for releases, the branch otherwise.
+      # A tarball (with the desktop file and icon, for installing by hand) and
+      # an AppImage. build-appimage.sh pins and checksums the tools it fetches.
       - name: Package
         run: |
           set -e
           name="phosphor-${GITHUB_REF_NAME}-linux-x64"
           rm -rf dist && mkdir -p "dist/$name"
-          cp target/release/phosphor README.md LICENSE "dist/$name/"
+          cp target/release/phosphor README.md LICENSE packaging/linux/phosphor.desktop "dist/$name/"
+          cp crates/phosphor/assets/icon/phosphor-256.png "dist/$name/phosphor.png"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
+          packaging/linux/build-appimage.sh target/release/phosphor "${GITHUB_REF_NAME#v}" "dist/$name.AppImage"
 
       - name: Upload package
         uses: https://git.badcluster.dev/actions/upload-artifact@v3
         with:
           name: phosphor-linux-x64
-          path: dist/*.tar.gz
+          path: |
+            dist/*.tar.gz
+            dist/*.AppImage
           if-no-files-found: error
 
   windows:
@@ -215,20 +222,20 @@ jobs:
           cargo clean --release -p phosphor -p phosphor-core
           cargo build --release --locked
 
-      # Architecture from the runner itself rather than assumed.
+      # Phosphor.app in a disk image. Architecture from the runner itself
+      # rather than assumed.
       - name: Package
         run: |
           set -e
-          name="phosphor-${GITHUB_REF_NAME}-macos-$(uname -m)"
-          rm -rf dist && mkdir -p "dist/$name"
-          cp target/release/phosphor README.md LICENSE "dist/$name/"
-          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -rf dist && mkdir -p dist
+          packaging/macos/build-dmg.sh target/release/phosphor "${GITHUB_REF_NAME#v}" \
+            "dist/phosphor-${GITHUB_REF_NAME}-macos-$(uname -m).dmg"
 
       - name: Upload package
         uses: https://git.badcluster.dev/actions/upload-artifact@v3
         with:
           name: phosphor-macos
-          path: dist/*.tar.gz
+          path: dist/*.dmg
           if-no-files-found: error
 
   release:
@@ -266,7 +273,7 @@ jobs:
         run: |
           ls -la dist/release
           fail=0
-          for pattern in "*-linux-x64.tar.gz" "*-windows-x64.zip" "*-macos-*.tar.gz"; do
+          for pattern in "*-linux-x64.tar.gz" "*-linux-x64.AppImage" "*-windows-x64.zip" "*-macos-*.dmg"; do
             n=$(ls dist/release/$pattern 2>/dev/null | wc -l)
             if [ "$n" -eq 0 ]; then echo "MISSING ASSET: $pattern"; fail=1;
             else echo "ok: $pattern -> $(ls dist/release/$pattern)"; fi

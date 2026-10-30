@@ -29,7 +29,8 @@ const USAGE: &str = "\
 Usage: phosphor [OPTIONS] [ADDRESS]
 
 Connect to ADDRESS (host, host:port, telnet://host:port, raw://host:port or
-ssh://user@host:port), or open the dialing directory if no address is given.
+ssh://user@host:port). With no address, Phosphor starts unconnected; Alt-D
+(Cmd-D on macOS) opens the dialing directory.
 
 Options:
   --import FILE   Add the entries in FILE to the dialing directory and exit

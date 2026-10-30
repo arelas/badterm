@@ -215,7 +215,16 @@ impl App {
         let attrs = Window::default_attributes()
             .with_title("Phosphor")
             .with_inner_size(PhysicalSize::new(nw * 2, nh * 2))
-            .with_min_inner_size(PhysicalSize::new(nw, nh));
+            .with_min_inner_size(PhysicalSize::new(nw, nh))
+            .with_window_icon(window_icon());
+        // The Wayland app ID and X11 class, which desktops match to
+        // phosphor.desktop for the launcher icon.
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let attrs = {
+            use winit::platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11};
+            let attrs = WindowAttributesExtWayland::with_name(attrs, "phosphor", "phosphor");
+            WindowAttributesExtX11::with_name(attrs, "phosphor", "phosphor")
+        };
         let window = Rc::new(event_loop.create_window(attrs)?);
         let context = softbuffer::Context::new(window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
         let surface = softbuffer::Surface::new(&context, window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -1004,6 +1013,13 @@ impl ApplicationHandler<UserEvent> for App {
         }
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_tick));
     }
+}
+
+/// The icon for the title bar and taskbar (Windows and X11; macOS takes the
+/// app bundle's icon, Wayland the desktop file's).
+fn window_icon() -> Option<winit::window::Icon> {
+    let rgba = include_bytes!("../assets/icon/phosphor-64.rgba");
+    winit::window::Icon::from_rgba(rgba.to_vec(), 64, 64).map_err(|e| log::warn!("window icon: {e}")).ok()
 }
 
 /// The terminal rows on view, `scroll` lines back from the live screen.

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Phosphor
+GenericName=BBS Client
+Comment=ANSI-BBS telnet and SSH client
+Exec=phosphor %u
+Icon=phosphor
+Terminal=false
+Categories=Network;TerminalEmulator;
+Keywords=BBS;telnet;ANSI;SSH;ZMODEM;
+StartupWMClass=phosphor

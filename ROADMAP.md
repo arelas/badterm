@@ -11,10 +11,6 @@ The next things to do, in order.
       0.1.4: calling Vortex, Alt-D while connected, Alt-Enter. Still to try:
       Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
       mouse copy, Alt-S, directory search and sort
-- [ ] Application icon and desktop integration
-- [ ] macOS `.app` bundle (the tarball is a bare binary, which macOS warns
-      about and won't keep in the Dock), then signing and a `.dmg`
-- [ ] Linux desktop launcher and AppImage
 - [ ] 9-pixel-wide VGA cells and 4:3 aspect correction
 - [ ] 80x50 screen mode, then the other modes below
 - [ ] ANSI music (`CSI M` / `CSI N` music strings, PC speaker synthesis)
@@ -50,6 +46,8 @@ The next things to do, in order.
 - [x] Mouse selection and copy, as text or ANSI
 - [x] Directory search and sorting (name, last called, calls)
 - [x] Save scrollback to `.ans`/`.txt`; save the screen as PNG
+- [x] Application icon (window, Windows .exe, macOS bundle, Linux desktop file)
+- [x] Packages: macOS `.app` in a `.dmg` (signed ad hoc), Linux AppImage
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
 
@@ -101,4 +99,5 @@ The next things to do, in order.
 
 ## Packaging
 
+- [ ] macOS Developer ID signing and notarization
 - [ ] Windows MSI installer; Linux `.deb` and Flatpak

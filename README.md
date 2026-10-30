@@ -55,6 +55,20 @@ fonts and colors of a host terminal.
   is exact; fullscreen (`Alt-Enter`) and maximized windows fill the screen,
   keeping the shape and keeping the pixels sharp.
 
+## Installing
+
+Downloads are on the [releases page](https://git.badcluster.dev/arelas/phosphor/releases).
+
+- **Windows**: unzip `phosphor-…-windows-x64.zip` and run `phosphor.exe`.
+- **macOS**: open `phosphor-…-macos-arm64.dmg` and drag Phosphor to
+  Applications. Phosphor isn't signed with an Apple Developer ID yet, so the
+  first time, Control-click it and choose Open.
+- **Linux**: `phosphor-…-linux-x64.AppImage` runs on most distributions:
+  `chmod +x` it and run it. The tarball has the bare program, plus
+  `phosphor.desktop` and `phosphor.png` for adding it to your menus by hand
+  (copy them to `~/.local/share/applications/` and
+  `~/.local/share/icons/hicolor/256x256/apps/`).
+
 ## Building
 
 Install Rust (stable, 1.89 or newer) from <https://rustup.rs>, then:
