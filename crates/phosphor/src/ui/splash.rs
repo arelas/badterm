@@ -45,7 +45,7 @@ pub fn draw(s: &mut Screen) {
     let lines: [(String, Color); 4] = [
         (format!("Version {}", env!("CARGO_PKG_VERSION")), Color::Pc(14)),
         ("The ANSI-BBS client, with the glow of a real CRT".into(), Color::Pc(11)),
-        ("Free software under the GNU GPL, version 3 or later".into(), Color::Pc(7)),
+        ("Copyright (C) 2026 Bad Cluster.  Free software under the GNU GPL v3+".into(), Color::Pc(7)),
         ("badcluster.dev/phosphor".into(), Color::Pc(10)),
     ];
     for (i, (text, fg)) in lines.iter().enumerate() {

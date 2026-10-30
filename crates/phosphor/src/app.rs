@@ -1905,7 +1905,7 @@ pub(crate) fn idle_screen(update: Option<&str>) -> Screen {
     );
     let lines = [
         (version, t.info),
-        ("Copyright (C) 2026 The Phosphor contributors".to_string(), t.help),
+        ("Copyright (C) 2026 Bad Cluster".to_string(), t.help),
         ("Free software under the GNU GPL, version 3 or later; no warranty.".to_string(), t.help),
         (phosphor_core::update::DOWNLOAD_PAGE.to_string(), t.help),
         (String::new(), t.help),

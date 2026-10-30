@@ -7,8 +7,8 @@ version: ${VERSION}
 release: "1"
 section: net
 priority: optional
-maintainer: The Phosphor contributors <noreply@badcluster.dev>
-vendor: The Phosphor contributors
+maintainer: Bad Cluster <noreply@badcluster.dev>
+vendor: Bad Cluster
 homepage: https://badcluster.dev/phosphor/
 license: GPL-3.0-or-later
 description: |-

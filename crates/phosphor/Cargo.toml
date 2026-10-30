@@ -3,6 +3,7 @@ name = "phosphor"
 description = "A cross-platform ANSI-BBS telnet client"
 version.workspace = true
 edition.workspace = true
+authors.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true

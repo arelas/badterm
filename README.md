@@ -355,6 +355,8 @@ PHOSPHOR_SNAPSHOT_DIR=/tmp/shots cargo test -p phosphor snapshot -- --ignored
 
 ## License
 
+Copyright (C) 2026 Bad Cluster.
+
 Phosphor is free software, licensed under the GNU General Public License,
 version 3 or (at your option) any later version. See [LICENSE](LICENSE).
 

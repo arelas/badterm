@@ -1,5 +1,5 @@
 // Phosphor - a cross-platform ANSI-BBS telnet client.
-// Copyright (C) 2026 The Phosphor contributors
+// Copyright (C) 2026 Bad Cluster
 //
 // This program is free software: you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free

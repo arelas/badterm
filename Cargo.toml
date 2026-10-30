@@ -6,6 +6,7 @@ members = ["crates/phosphor-core", "crates/phosphor"]
 version = "0.1.13"
 edition = "2024"
 license = "GPL-3.0-or-later"
+authors = ["Bad Cluster"]
 repository = "https://git.badcluster.dev/arelas/phosphor"
 rust-version = "1.89"
 

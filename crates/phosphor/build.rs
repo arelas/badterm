@@ -17,7 +17,8 @@ fn windows_resources() {
     res.set_icon("assets/icon/phosphor.ico");
     res.set("ProductName", "Phosphor");
     res.set("FileDescription", "Phosphor BBS client");
-    res.set("LegalCopyright", "GPL-3.0-or-later");
+    res.set("LegalCopyright", "Copyright (C) 2026 Bad Cluster. GPL-3.0-or-later.");
+    res.set("CompanyName", "Bad Cluster");
     if let Err(e) = res.compile() {
         panic!("embedding Windows resources: {e}");
     }
