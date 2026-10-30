@@ -11,8 +11,6 @@ The next things to do, in order.
       0.1.4: calling Vortex, Alt-D while connected, Alt-Enter. Still to try:
       Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
       mouse copy, Alt-S, directory search and sort
-- [ ] 9-pixel-wide VGA cells and 4:3 aspect correction
-- [ ] 80x50 screen mode, then the other modes below
 - [ ] ANSI music (`CSI M` / `CSI N` music strings, PC speaker synthesis)
 - [ ] Marketing site: what Phosphor is, screenshots, downloads for each OS,
       and a link to The Vortex BBS
@@ -48,6 +46,9 @@ The next things to do, in order.
 - [x] Save scrollback to `.ans`/`.txt`; save the screen as PNG
 - [x] Application icon (window, Windows .exe, macOS bundle, Linux desktop file)
 - [x] Packages: macOS `.app` in a `.dmg` (signed ad hoc), Linux AppImage
+- [x] Phosphor mode: CRT glow, scanlines, curvature and vignette; color,
+      green or amber
+- [x] 9-dot VGA cells, 4:3 aspect correction, 80x50 per entry (8x8 font)
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
 

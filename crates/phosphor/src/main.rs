@@ -12,11 +12,13 @@
 
 mod app;
 mod console;
+mod crt;
 mod input;
 mod png;
 mod render;
 mod secrets;
 mod selection;
+mod settings;
 mod ui;
 
 use std::path::PathBuf;

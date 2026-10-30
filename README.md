@@ -51,6 +51,13 @@ fonts and colors of a host terminal.
   no keychain is available, they stay in the file.
 - **Import/export** of SyncTERM `.lst`, CSV, JSON and TOML directories. Use
   the dialer, the command line, or drag a file onto the window.
+- **Phosphor mode** (`Alt-P`): the look of a CRT, with glowing text,
+  scanlines and curved glass, in color or as a green or amber monochrome
+  monitor
+- **VGA-accurate display options**: 9-dot character cells, where the
+  line-drawing characters join up as they did on a VGA (`Alt-W`), and the
+  4:3 shape of a CRT instead of square pixels (`Alt-A`). An entry can use
+  80x50 with the 8x8 font.
 - Clipboard paste. A normal window scales by whole numbers so every pixel
   is exact; fullscreen (`Alt-Enter`) and maximized windows fill the screen,
   keeping the shape and keeping the pixels sharp.
@@ -135,7 +142,14 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-U` | Upload files with ZMODEM (or drop files on the window) |
 | `Alt-V`, `Shift-Ins` | Paste from the clipboard |
 | `Alt-Enter` | Toggle fullscreen (fills the screen, keeping the shape) |
+| `Alt-P` | Phosphor mode: off, color CRT, green screen, amber screen |
+| `Alt-A` | 4:3 aspect, as on a CRT, or square pixels |
+| `Alt-W` | 9-dot or 8-dot character cells |
 | `Alt-X` | Exit |
+
+`Alt-P`, `Alt-A` and `Alt-W` work anywhere, including in the dialing
+directory, and are remembered in `settings.toml`. An entry's "Screen mode"
+can be 80x25 or 80x50.
 
 Downloads are saved to `Downloads/Phosphor`; `phosphor --paths` shows every
 location Phosphor uses.
@@ -195,5 +209,5 @@ PHOSPHOR_SNAPSHOT_DIR=/tmp/shots cargo test -p phosphor snapshot -- --ignored
 Phosphor is free software, licensed under the GNU General Public License,
 version 3 or (at your option) any later version. See [LICENSE](LICENSE).
 
-The bundled VGA font comes from DOSBox (GPL-2.0-or-later). See
+The bundled VGA fonts come from DOSBox (GPL-2.0-or-later). See
 [crates/phosphor/assets/fonts/README.md](crates/phosphor/assets/fonts/README.md).

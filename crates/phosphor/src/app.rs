@@ -22,9 +22,10 @@ use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Fullscreen, UserAttentionType, Window, WindowId};
 
 use crate::input::{self, Key, Mods};
-use crate::render::{Font, Frame, Renderer, Scaling};
+use crate::render::{Display, Font, Frame, Renderer, Scaling};
 use crate::secrets::{self, Keychain, Store};
 use crate::selection::Selection;
+use crate::settings::Settings;
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
 use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::save::{SaveFormat, SavePrompt};
@@ -48,6 +49,8 @@ pub enum UserEvent {
 
 pub struct Paths {
     pub directory: PathBuf,
+    /// Display preferences.
+    pub settings: PathBuf,
     pub captures: PathBuf,
     /// Pinned SSH host keys.
     pub known_hosts: PathBuf,
@@ -71,6 +74,7 @@ impl Paths {
             .unwrap_or_else(|| PathBuf::from("."));
         Paths {
             directory: config.join("dialer.toml"),
+            settings: config.join("settings.toml"),
             captures: data.join("captures"),
             known_hosts: config.join("known_hosts"),
             downloads: files.join("Phosphor"),
@@ -130,6 +134,7 @@ pub struct App {
     dragging: bool,
     /// Mouse position in window pixels.
     mouse: (f64, f64),
+    settings: Settings,
     /// Where the last frame was drawn in the window: (x, y, w, h).
     view_rect: (usize, usize, usize, usize),
     /// The SSH login's question, while one is waiting.
@@ -166,6 +171,7 @@ impl App {
         {
             load_error = Some(format!("Could not save the dialing directory: {e:#}"));
         }
+        let settings = Settings::load(&paths.settings);
         let secrets: Rc<dyn Store> = Rc::new(Keychain);
         let mut dialer = DialerUi::new(paths.files.clone(), secrets.clone());
         // The app starts on the idle screen; the dialer opens only to show a
@@ -193,6 +199,7 @@ impl App {
             dragging: false,
             mouse: (0.0, 0.0),
             view_rect: (0, 0, 1, 1),
+            settings,
             login: None,
             remember: None,
             secrets,
@@ -274,7 +281,8 @@ impl App {
             ssh_agent: true,
             ssh_key_dir: self.paths.ssh_keys.clone(),
         };
-        let session = match Session::new(entry, COLS, ROWS, config) {
+        let rows = if dialer::SCREEN_ROWS.contains(&entry.rows) { entry.rows as usize } else { ROWS };
+        let session = match Session::new(entry, COLS, rows, config) {
             Ok(s) => s,
             Err(e) => {
                 self.dialer_open = true;
@@ -501,6 +509,25 @@ impl App {
                 event_loop.exit();
                 return true;
             }
+            // Display settings, from anywhere.
+            KeyCode::KeyP => {
+                self.settings.crt = self.settings.crt.next();
+                let msg = format!("Phosphor mode: {}", self.settings.crt.name());
+                self.settings_changed(msg);
+                return true;
+            }
+            KeyCode::KeyA => {
+                self.settings.aspect = !self.settings.aspect;
+                let msg = if self.settings.aspect { "4:3 aspect, as on a CRT" } else { "Square pixels" };
+                self.settings_changed(msg);
+                return true;
+            }
+            KeyCode::KeyW => {
+                self.settings.nine_dot = !self.settings.nine_dot;
+                let msg = if self.settings.nine_dot { "9-dot characters, as on a VGA" } else { "8-dot characters" };
+                self.settings_changed(msg);
+                return true;
+            }
             // The dialing directory, from anywhere; the session (if any)
             // stays connected behind it.
             KeyCode::KeyD => {
@@ -518,7 +545,10 @@ impl App {
         let Some(session) = self.session.as_mut() else { return false };
         match code {
             KeyCode::KeyH => self.hang_up(),
-            KeyCode::KeyB => self.scroll = self.scroll.max(1).max(ROWS.min(session.term.screen.scrollback_len())),
+            KeyCode::KeyB => {
+                let page = session.term.screen.rows();
+                self.scroll = self.scroll.max(1).max(page.min(session.term.screen.scrollback_len()));
+            }
             KeyCode::KeyI => {
                 let s = &mut session.term.screen;
                 s.ice_colors = !s.ice_colors;
@@ -575,6 +605,22 @@ impl App {
         }
     }
 
+    fn settings_changed(&mut self, msg: impl Into<String>) {
+        if let Err(e) = self.settings.save(&self.paths.settings) {
+            log::warn!("saving settings: {e:#}");
+        }
+        self.notify(msg);
+    }
+
+    /// The font for a screen this many rows high: 8x8 for 50 lines.
+    fn font_for(rows: usize) -> Font {
+        if rows > 25 { Font::vga_8x8() } else { Font::vga_8x16() }
+    }
+
+    fn cell_width(&self) -> usize {
+        if self.settings.nine_dot { 9 } else { 8 }
+    }
+
     fn save_key(&mut self, key: Key, mods: Mods) {
         let Some(prompt) = self.save_prompt.as_mut() else { return };
         match key {
@@ -612,6 +658,7 @@ impl App {
             SaveFormat::Text => (export::text(&all).into_bytes(), format!("{} lines", all.len())),
             SaveFormat::Png => {
                 let mut r = Renderer::new(Font::vga_8x16(), COLS, ROWS);
+                r.set_layout(Self::font_for(sc.rows()), self.cell_width(), COLS, sc.rows());
                 let rows = terminal_rows(session, self.scroll);
                 r.draw(&Frame { rows, cursor: None, ice: sc.ice_colors, selection: None }, true, false);
                 (crate::png::encode(r.pixels(), r.native_width(), r.native_height()), "the screen".into())
@@ -636,8 +683,9 @@ impl App {
         }
         let (ox, oy, w, h) = self.view_rect;
         let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
-        let x = (mx.saturating_sub(ox) * COLS / w.max(1)).min(COLS - 1);
-        let y = (my.saturating_sub(oy) * GRID_ROWS / h.max(1)).min(ROWS - 1);
+        let (cols, rows) = (self.renderer.cols(), self.renderer.rows());
+        let x = (mx.saturating_sub(ox) * cols / w.max(1)).min(cols - 1);
+        let y = (my.saturating_sub(oy) * rows / h.max(1)).min(s.term.screen.rows() - 1);
         Some((x, y))
     }
 
@@ -753,8 +801,8 @@ impl App {
             self.scroll = match key {
                 Key::Up => self.scroll + 1,
                 Key::Down => self.scroll - 1,
-                Key::PageUp => self.scroll + ROWS,
-                Key::PageDown => self.scroll.saturating_sub(ROWS),
+                Key::PageUp => self.scroll + session.term.screen.rows(),
+                Key::PageDown => self.scroll.saturating_sub(session.term.screen.rows()),
                 Key::Home => max,
                 _ => 0,
             }
@@ -762,7 +810,7 @@ impl App {
             return;
         }
         match key {
-            Key::PageUp if mods.shift => self.scroll = ROWS.min(max),
+            Key::PageUp if mods.shift => self.scroll = session.term.screen.rows().min(max),
             _ if session.state == State::Closed => {}
             Key::Insert if mods.shift => self.paste(),
             _ => {
@@ -855,6 +903,11 @@ impl App {
 
         // Dialogs over the terminal are drawn on a copy of its screen.
         let mut overlay_cursor = None;
+        if let Some(session) = &self.session
+            && self.overlay.rows() != session.term.screen.rows()
+        {
+            self.overlay = Screen::new(COLS, session.term.screen.rows(), 0);
+        }
         let overlay = match &self.session {
             Some(session)
                 if self.login.is_some()
@@ -863,7 +916,7 @@ impl App {
                     || session.transfer().is_some() =>
             {
                 let sc = &session.term.screen;
-                for y in 0..ROWS.min(sc.rows()) {
+                for y in 0..sc.rows() {
                     for (x, cell) in sc.row(y).iter().enumerate() {
                         if let Some(c) = self.overlay.cell_mut(x, y) {
                             *c = *cell;
@@ -891,7 +944,7 @@ impl App {
                 Frame { rows, cursor: dialer_cursor, ice: true, selection: None }
             }
             Some(session) if overlay => {
-                let mut rows: Vec<&[Cell]> = (0..ROWS).map(|y| self.overlay.row(y)).collect();
+                let mut rows: Vec<&[Cell]> = (0..self.overlay.rows()).map(|y| self.overlay.row(y)).collect();
                 rows.push(self.status.row(0));
                 Frame { rows, cursor: overlay_cursor, ice: session.term.screen.ice_colors, selection: None }
             }
@@ -909,6 +962,11 @@ impl App {
                 Frame { rows, cursor: None, ice: true, selection: None }
             }
         };
+        // The terminal's own height (and font) unless the dialer or the idle
+        // screen is showing; one more row for the status bar.
+        let text_rows = frame.rows.len() - 1;
+        let cell_w = if self.settings.nine_dot { 9 } else { 8 };
+        self.renderer.set_layout(Self::font_for(text_rows), cell_w, COLS, text_rows + 1);
         self.renderer.draw(&frame, (self.tick / 2).is_multiple_of(2), self.tick.is_multiple_of(2));
 
         if let Err(e) = gfx.surface.resize(w, h) {
@@ -920,7 +978,15 @@ impl App {
                 // window keeps whole-number scaling.
                 let fill = gfx.window.fullscreen().is_some() || gfx.window.is_maximized();
                 let scaling = if fill { Scaling::Fill } else { Scaling::Integer };
-                self.view_rect = self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize, scaling);
+                // 4:3 for the text area: 640x400 (or 720x400) on a CRT.
+                let pixel_aspect = if self.settings.aspect {
+                    let text_h = (self.renderer.native_height() * text_rows / (text_rows + 1)) as f64;
+                    self.renderer.native_width() as f64 / text_h * 0.75
+                } else {
+                    1.0
+                };
+                let display = Display { scaling, pixel_aspect, crt: self.settings.crt };
+                self.view_rect = self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize, &display);
                 if let Err(e) = buf.present() {
                     log::error!("presenting frame: {e}");
                 }
@@ -1027,7 +1093,7 @@ fn terminal_rows(session: &Session, scroll: usize) -> Vec<&[Cell]> {
     let sc = &session.term.screen;
     let sb = sc.scrollback_len();
     let top = sb - scroll.min(sb);
-    (top..top + ROWS).map(|i| if i < sb { sc.scrollback_line(i) } else { sc.row(i - sb) }).collect()
+    (top..top + sc.rows()).map(|i| if i < sb { sc.scrollback_line(i) } else { sc.row(i - sb) }).collect()
 }
 
 /// A BBS name made safe for a file name.

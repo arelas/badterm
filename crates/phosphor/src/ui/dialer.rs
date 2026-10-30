@@ -32,12 +32,13 @@ pub enum Action {
     Close,
 }
 
-const FIELDS: [&str; 10] = [
+const FIELDS: [&str; 11] = [
     "Name",
     "Address",
     "Port",
     "Protocol",
     "Encoding",
+    "Screen mode",
     "Terminal type",
     "User name",
     "Password",
@@ -47,21 +48,26 @@ const FIELDS: [&str; 10] = [
 const F_PORT: usize = 2;
 const F_PROTOCOL: usize = 3;
 const F_ENCODING: usize = 4;
-const F_USER: usize = 6;
-const F_PASSWORD: usize = 7;
-const F_KEY_FILE: usize = 8;
-const F_COMMENT: usize = 9;
+const F_ROWS: usize = 5;
+const F_TERM: usize = 6;
+const F_USER: usize = 7;
+const F_PASSWORD: usize = 8;
+const F_KEY_FILE: usize = 9;
+const F_COMMENT: usize = 10;
+/// The fields changed with Space or the arrow keys rather than typed into.
+const OPTION_FIELDS: [usize; 3] = [F_PROTOCOL, F_ENCODING, F_ROWS];
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 10],
+    text: [TextField; 11],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
     protocol: Protocol,
     encoding: Encoding,
+    rows: u16,
     focus: usize,
     error: Option<String>,
 }
@@ -81,6 +87,7 @@ impl Form {
                 TextField::new(&e.port.to_string(), 5),
                 TextField::default(),
                 TextField::default(),
+                TextField::default(),
                 t(&e.term_type),
                 t(&e.username),
                 t(&password),
@@ -90,6 +97,7 @@ impl Form {
             keychain_unread: problem.is_some(),
             protocol: e.protocol,
             encoding: e.encoding,
+            rows: if dialer::SCREEN_ROWS.contains(&e.rows) { e.rows } else { 25 },
             focus: 0,
             error: problem.clone(),
             base: e,
@@ -125,7 +133,8 @@ impl Form {
             port,
             protocol: self.protocol,
             encoding: self.encoding,
-            term_type: self.text[5].value.trim().to_string(),
+            term_type: self.text[F_TERM].value.trim().to_string(),
+            rows: self.rows,
             username: self.text[F_USER].value.clone(),
             password,
             keychain: kept,
@@ -315,6 +324,11 @@ impl DialerUi {
                     }
                     form.protocol = all[next];
                 }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_ROWS => {
+                    let all = dialer::SCREEN_ROWS;
+                    let i = all.iter().position(|&r| r == form.rows).unwrap_or(0);
+                    form.rows = all[(i + 1) % all.len()];
+                }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_ENCODING => {
                     form.encoding = match form.encoding {
                         Encoding::Cp437 => Encoding::Utf8,
@@ -323,7 +337,7 @@ impl DialerUi {
                 }
                 Key::Char(c) if form.focus == F_PORT && !c.is_ascii_digit() => {}
                 _ => {
-                    if form.focus != F_PROTOCOL && form.focus != F_ENCODING {
+                    if !OPTION_FIELDS.contains(&form.focus) {
                         form.text[form.focus].handle_key(key, mods);
                         form.error = None;
                     }
@@ -607,6 +621,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 }
             }
             F_ENCODING => text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg),
+            F_ROWS => text(s, fx, yy, fw, &format!("\u{25C4} 80x{:<4} \u{25BA}", form.rows), fg, bg),
             _ => {
                 let pos = form.text[i].draw(s, fx, yy, fw, i == F_PASSWORD, fg, bg);
                 if focused {

@@ -76,6 +76,9 @@ pub struct Entry {
     /// Stored in plain text, as in other BBS dialers.
     pub password: String,
     pub term_type: String,
+    /// Screen height: 25 lines, or 50 (with the 8x8 font).
+    #[serde(skip_serializing_if = "is_25")]
+    pub rows: u16,
     /// SSH private key to try first; otherwise the SSH agent and the usual
     /// `~/.ssh/id_*` files are tried.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -104,6 +107,7 @@ impl Default for Entry {
             username: String::new(),
             password: String::new(),
             term_type: "ANSI".into(),
+            rows: 25,
             key_file: String::new(),
             comment: String::new(),
             keychain: false,
@@ -158,6 +162,13 @@ impl Entry {
 fn is_false(b: &bool) -> bool {
     !*b
 }
+
+fn is_25(n: &u16) -> bool {
+    *n == 25
+}
+
+/// The screen heights an entry can ask for.
+pub const SCREEN_ROWS: [u16; 2] = [25, 50];
 
 /// The entries a new directory starts with, first among them the project's
 /// own BBS. More can be added here over time: existing directories pick up
