@@ -30,8 +30,8 @@ const VIGNETTE: f64 = 0.2;
 pub enum Scanlines {
     Off,
     /// Enough to texture the picture rather than stripe it.
-    #[default]
     Light,
+    #[default]
     Medium,
     Strong,
 }
@@ -41,9 +41,9 @@ pub enum Scanlines {
 #[serde(rename_all = "lowercase")]
 pub enum Curvature {
     /// A flat screen.
+    #[default]
     Off,
     /// Enough to look like glass while text stays straight.
-    #[default]
     Slight,
     Medium,
     Strong,

@@ -699,9 +699,9 @@ mod tests {
         let mut ui = SettingsUi::default();
         let mut s = Settings::default();
         assert_eq!(ui.handle_key_test(Key::Right, &mut s), Action::Changed);
-        assert_eq!(s.crt, CrtMode::Color);
+        assert_eq!(s.crt, CrtMode::Green);
         assert_eq!(ui.handle_key_test(Key::Left, &mut s), Action::Changed);
-        assert_eq!(s.crt, CrtMode::Off);
+        assert_eq!(s.crt, CrtMode::Color);
         // Tab to the colors.
         for _ in 0..3 {
             ui.handle_key_test(Key::Tab, &mut s);

@@ -84,7 +84,9 @@ fonts and colors of a host terminal.
   otherwise means "delete a line"
 - **Phosphor mode** (`Alt-P`): the look of a CRT, with glowing text,
   scanlines and curved glass, in color or as a green or amber monochrome
-  monitor, for every BBS or chosen per directory entry
+  monitor, for every BBS or chosen per directory entry. Phosphor starts in
+  it: a color CRT with medium scanlines and flat glass, 8-dot characters
+  and square pixels, fitted to the window in its own shape
 - **VGA-accurate display options**: 9-dot character cells, where the
   line-drawing characters join up as they did on a VGA (`Alt-W`), and the
   4:3 shape of a CRT instead of square pixels (`Alt-A`). Entries can use
@@ -225,8 +227,9 @@ the upload and ANSI-art pickers start (`Enter` to change, `Del` for the
 default). The others: phosphor
 mode, its scanlines (off, light, medium or strong) and the curve of its
 glass (off for a flat screen, slight, medium or strong), the aspect ratio,
-scaling (auto: whole numbers in a window and as large as fits in full
-screen; or always whole numbers, fit keeping the shape, or stretch to fill), character cells, pixel shape, ANSI music, redialing, and the colors
+scaling (fit keeping the shape; auto, which is whole numbers in a window
+and fit in full screen; always whole numbers; or stretch to fill),
+character cells, ANSI music, redialing, and the colors
 of Phosphor's own screens. Pick one of the color schemes (Classic blue,
 Midnight, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit
 colors", give each part of the interface (title bar, selected entry,

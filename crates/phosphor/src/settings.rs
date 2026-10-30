@@ -103,11 +103,11 @@ fn aspect_or_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Aspect, D::E
 pub enum ScaleMode {
     /// Whole-number steps in a window, as large as fits when full screen
     /// or maximized.
-    #[default]
     Auto,
     /// Always whole-number steps, so every pixel is exact.
     Integer,
     /// As large as fits, keeping the shape.
+    #[default]
     Fit,
     /// The whole window, whatever its shape.
     Stretch,
@@ -210,12 +210,14 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            crt: CrtMode::Off,
-            scanlines: Scanlines::Light,
-            curvature: Curvature::Slight,
+            // A color CRT, flat, with medium scanlines, filling the window
+            // in its own shape.
+            crt: CrtMode::Color,
+            scanlines: Scanlines::Medium,
+            curvature: Curvature::Off,
             nine_dot: false,
             aspect: Aspect::Square,
-            scaling: ScaleMode::Auto,
+            scaling: ScaleMode::Fit,
             music: Music::On,
             redial: true,
             colors: Theme::default(),
@@ -287,5 +289,14 @@ mod tests {
         assert_eq!((s.aspect, s.scaling), (Aspect::Square, ScaleMode::Stretch));
         let s: Settings = toml::from_str("aspect = \"16:9\"").unwrap();
         assert_eq!(s.aspect, Aspect::SixteenNine);
+    }
+
+    #[test]
+    fn defaults() {
+        let s = Settings::default();
+        assert_eq!((s.crt, s.scanlines, s.curvature), (CrtMode::Color, Scanlines::Medium, Curvature::Off));
+        assert_eq!((s.nine_dot, s.aspect, s.scaling, s.bezel.as_str()), (false, Aspect::Square, ScaleMode::Fit, ""));
+        // A settings file without them gets the same.
+        assert_eq!(toml::from_str::<Settings>("music = \"on\"").unwrap(), s);
     }
 }

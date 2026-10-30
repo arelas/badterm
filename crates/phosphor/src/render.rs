@@ -107,8 +107,8 @@ impl Default for Display {
             scaling: Scaling::Integer,
             pixel_aspect: 1.0,
             crt: CrtMode::Off,
-            scanlines: Scanlines::Light,
-            curvature: Curvature::Slight,
+            scanlines: Scanlines::Medium,
+            curvature: Curvature::Off,
         }
     }
 }
