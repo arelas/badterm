@@ -37,7 +37,7 @@ impl Music {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     /// Phosphor mode: the CRT look (Alt-P).
@@ -48,6 +48,14 @@ pub struct Settings {
     /// pixels (Alt-A).
     pub aspect: bool,
     pub music: Music,
+    /// Call a busy or unreachable BBS again, a few times.
+    pub redial: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Settings {
+        Settings { crt: CrtMode::Off, nine_dot: false, aspect: false, music: Music::On, redial: true }
+    }
 }
 
 impl Settings {
@@ -77,7 +85,7 @@ mod tests {
 
     #[test]
     fn round_trip_and_defaults() {
-        let s = Settings { crt: CrtMode::Amber, nine_dot: true, aspect: true, music: Music::All };
+        let s = Settings { crt: CrtMode::Amber, nine_dot: true, aspect: true, music: Music::All, redial: false };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
         assert!(text.contains("crt = \"amber\""), "{text}");

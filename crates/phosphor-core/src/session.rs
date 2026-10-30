@@ -8,11 +8,29 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use crate::ansi::{TermEvent, Terminal};
+use crate::ansi::{Encoding, TermEvent, Terminal};
+use crate::autologin::{AutoLogin, Step};
 use crate::dialer::Entry;
+use crate::screen::Screen;
 use crate::telnet::Telnet;
 use crate::transfer::{self, Download, Outcome, TrailerFilter, Transfer, Upload};
 pub use crate::transport::{AuthPrompt, ConnectOptions, NetEvent, PromptKind, Writer, spawn_connection};
+
+/// How long the BBS must be quiet before the text at the cursor is taken
+/// for a prompt.
+const PROMPT_QUIET: Duration = Duration::from_millis(250);
+
+/// How soon after answering a BBS that hangs up may be called busy.
+const BUSY_WINDOW: Duration = Duration::from_secs(30);
+
+/// Whether the screen says the BBS has no free line.
+fn says_busy(screen: &Screen) -> bool {
+    const WORDS: [&str; 6] = ["busy", "no free node", "all nodes", "all lines", "try again later", "too many users"];
+    (0..screen.rows()).any(|y| {
+        let line = Screen::row_text(screen.row(y)).to_ascii_lowercase();
+        WORDS.iter().any(|w| line.contains(w))
+    })
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -66,6 +84,9 @@ pub struct Session {
     /// picks files (they include the ZRINIT the sender needs to see).
     upload_wait: Option<Vec<u8>>,
     auth_prompt: Option<AuthPrompt>,
+    login: AutoLogin,
+    /// When data last arrived, until a login prompt check has looked at it.
+    quiet_since: Option<Instant>,
     /// The end of the last data chunk, so a ZMODEM header split across two
     /// reads is still recognized.
     scan_tail: Vec<u8>,
@@ -78,6 +99,7 @@ pub struct Session {
 
 impl Session {
     pub fn new(entry: Entry, cols: usize, rows: usize, config: SessionConfig) -> Session {
+        let login = AutoLogin::new(&entry);
         let mut term = Terminal::new(cols, rows, config.scrollback);
         term.encoding = entry.encoding;
         let telnet = entry.protocol.is_telnet().then(|| Telnet::new(&entry.term_type, cols as u16, rows as u16));
@@ -93,6 +115,8 @@ impl Session {
             transfer: None,
             upload_wait: None,
             auth_prompt: None,
+            login,
+            quiet_since: None,
             scan_tail: Vec::new(),
             trailer: None,
             started: Instant::now(),
@@ -123,6 +147,7 @@ impl Session {
                 self.writer = Some(w);
                 self.state = State::Connected;
                 self.connected_at = Some(Instant::now());
+                self.login.connected();
                 self.events.push(SessionEvent::Connected);
             }
             NetEvent::Data(bytes) => self.receive(&bytes),
@@ -154,6 +179,55 @@ impl Session {
             None => bytes.to_vec(),
         };
         self.process(data);
+        self.quiet_since = Some(Instant::now());
+    }
+
+    /// Answer a login prompt, once the BBS has been quiet for a moment (so
+    /// half a line is not taken for a prompt).
+    fn check_login_prompt(&mut self) {
+        let Some(t) = self.quiet_since else { return };
+        if t.elapsed() < PROMPT_QUIET || self.transfer.is_some() || self.upload_wait.is_some() {
+            return;
+        }
+        self.quiet_since = None;
+        let screen = &self.term.screen;
+        let (x, y) = screen.cursor();
+        let row = screen.row(y);
+        let prompt = Screen::row_text(&row[..x.min(row.len())]);
+        if let Some(step) = self.login.answer(&prompt) {
+            self.send_login_step(step);
+        }
+    }
+
+    /// Send the next part of the stored login (Alt-L): the user name, then
+    /// the password. False when there is nothing (more) to send.
+    pub fn send_login(&mut self) -> bool {
+        match self.login.next_step() {
+            Some(step) => {
+                self.send_login_step(step);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether the entry has a user name or password to log in with.
+    pub fn has_login(&self) -> bool {
+        self.login.has_login()
+    }
+
+    fn send_login_step(&mut self, step: Step) {
+        let (text, what) = match step {
+            Step::User(u) => (u, "user name"),
+            Step::Password(p) => (p, "password"),
+        };
+        let mut bytes = match self.term.encoding {
+            Encoding::Utf8 => text.into_bytes(),
+            Encoding::Cp437 => crate::cp437::encode(&text),
+        };
+        bytes.push(b'\r');
+        self.send(&bytes);
+        self.events.push(SessionEvent::Notice(format!("Sent your {what}")));
     }
 
     /// Route decoded data to an active transfer, or detect a new one, or
@@ -300,6 +374,7 @@ impl Session {
             self.send(&out);
             self.end_transfer(None);
         }
+        self.check_login_prompt();
     }
 
     /// Send application data (keystrokes, paste, transfer data) to the remote.
@@ -330,6 +405,20 @@ impl Session {
         }
         self.state = State::Closed;
         self.stop_capture();
+    }
+
+    /// Whether a call that has ended is worth dialing again: the connection
+    /// could not be made (refused, timed out), or the BBS hung up soon after
+    /// answering, saying it is busy. Not for failed logins, changed host
+    /// keys and the like.
+    pub fn should_redial(&self) -> bool {
+        if self.state != State::Closed {
+            return false;
+        }
+        match self.connected_at {
+            None => self.error.as_deref().is_some_and(|e| e.contains("connecting to")),
+            Some(t) => t.elapsed() < BUSY_WINDOW && says_busy(&self.term.screen),
+        }
     }
 
     /// Time since connecting (or since dialing, while still connecting).

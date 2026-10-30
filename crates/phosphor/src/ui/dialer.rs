@@ -32,7 +32,7 @@ pub enum Action {
     Close,
 }
 
-const FIELDS: [&str; 12] = [
+const FIELDS: [&str; 13] = [
     "Name",
     "Address",
     "Port",
@@ -43,6 +43,7 @@ const FIELDS: [&str; 12] = [
     "Terminal type",
     "User name",
     "Password",
+    "Auto-login",
     "SSH key file",
     "Comment",
 ];
@@ -54,16 +55,17 @@ const F_CRT: usize = 6;
 const F_TERM: usize = 7;
 const F_USER: usize = 8;
 const F_PASSWORD: usize = 9;
-const F_KEY_FILE: usize = 10;
-const F_COMMENT: usize = 11;
+const F_AUTO_LOGIN: usize = 10;
+const F_KEY_FILE: usize = 11;
+const F_COMMENT: usize = 12;
 /// The fields changed with Space or the arrow keys rather than typed into.
-const OPTION_FIELDS: [usize; 4] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_CRT];
+const OPTION_FIELDS: [usize; 5] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_CRT, F_AUTO_LOGIN];
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 12],
+    text: [TextField; 13],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
@@ -72,6 +74,7 @@ struct Form {
     rows: u16,
     /// None: the global phosphor mode (Alt-P).
     crt: Option<CrtMode>,
+    auto_login: bool,
     focus: usize,
     error: Option<String>,
 }
@@ -96,6 +99,7 @@ impl Form {
                 t(&e.term_type),
                 t(&e.username),
                 t(&password),
+                TextField::default(),
                 TextField::new(&e.key_file, 400),
                 t(&e.comment),
             ],
@@ -104,6 +108,7 @@ impl Form {
             encoding: e.encoding,
             rows: if dialer::SCREEN_ROWS.contains(&e.rows) { e.rows } else { 25 },
             crt: e.crt,
+            auto_login: e.auto_login,
             focus: 0,
             error: problem.clone(),
             base: e,
@@ -142,6 +147,7 @@ impl Form {
             term_type: self.text[F_TERM].value.trim().to_string(),
             rows: self.rows,
             crt: self.crt,
+            auto_login: self.auto_login,
             username: self.text[F_USER].value.clone(),
             password,
             keychain: kept,
@@ -335,6 +341,9 @@ impl DialerUi {
                     let all = dialer::SCREEN_ROWS;
                     let i = all.iter().position(|&r| r == form.rows).unwrap_or(0);
                     form.rows = all[(i + 1) % all.len()];
+                }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_AUTO_LOGIN => {
+                    form.auto_login = !form.auto_login;
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_CRT => {
                     // The global setting, then each mode.
@@ -599,7 +608,8 @@ impl DialerUi {
 }
 
 fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
-    let (x, y, w, h) = (8, 4, 64, FIELDS.len() + 6);
+    let (w, h) = (64, FIELDS.len() + 6);
+    let (x, y) = ((COLS - w) / 2, (ROWS - h) / 2);
     let title = if form.index.is_some() { "Edit Entry" } else { "New Entry" };
     frame(s, x, y, w, h, title, WHITE, BLUE);
     let mut cursor = (0, 0);
@@ -617,6 +627,15 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
             }
             F_ENCODING => text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg),
             F_ROWS => text(s, fx, yy, fw, &format!("\u{25C4} 80x{:<4} \u{25BA}", form.rows), fg, bg),
+            F_AUTO_LOGIN => {
+                let v = if form.auto_login { "On " } else { "Off" };
+                text(s, fx, yy, fw, &format!("\u{25C4} {v} \u{25BA}"), fg, bg);
+                let hint = match form.protocol {
+                    Protocol::Ssh | Protocol::Rlogin => "(the protocol logs in)".to_string(),
+                    _ => format!("(answers Login/Password; or {HOTKEY}-L)"),
+                };
+                label(s, fx + 8, yy, &hint, DARK_GRAY, bg);
+            }
             F_CRT => {
                 let name = form.crt.map_or("default", CrtMode::name);
                 text(s, fx, yy, fw, &format!("\u{25C4} {name:<12} \u{25BA}"), fg, bg);

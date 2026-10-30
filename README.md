@@ -153,6 +153,8 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | --- | --- |
 | `Alt-D` | Open or close the dialing directory |
 | `Alt-H` | Hang up (or clear a finished call from the screen) |
+| `Alt-R` | Call again (after a hang-up, or now while a redial is waiting) |
+| `Alt-L` | Send the entry's user name; again for the password |
 | `Alt-B`, `Shift-PgUp`, mouse wheel | Scrollback (arrows, `PgUp`/`PgDn`, `Home`; any other key returns) |
 | `Alt-I` | Toggle iCE colors / blinking |
 | `Alt-E` | Toggle CP437 / UTF-8 |
@@ -190,6 +192,18 @@ like `new` or `guest` and then run their own login. Phosphor logs in with:
 3. keyboard-interactive or password, using the entry's password if there is
    one and asking otherwise (or when it is refused). The login dialog can
    remember the password for next time (`Tab`).
+
+Entries with a user name log in by themselves over telnet (the entry's
+"Auto-login" setting): once the BBS pauses at a prompt such as `Login:`,
+`User name:` or Synchronet's `NN:`, Phosphor sends the user name, and then
+the password at `Password:`. It answers each once, only in the first two
+minutes of a call, and never sends the password before the user name.
+`Alt-L` sends them by hand instead, one press each.
+
+A BBS that can't be reached, or that answers and hangs up straight away
+saying it is busy, is called again every 15 seconds, up to 10 times; `Esc`
+stops it and `Alt-R` calls at once. Set `redial = false` in
+`settings.toml` to turn this off.
 
 Telnet over TLS checks the BBS's certificate against the usual certificate
 authorities. Many BBSes use self-signed certificates, so one that fails

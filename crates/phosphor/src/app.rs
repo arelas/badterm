@@ -41,6 +41,9 @@ const SCROLLBACK_LINES: usize = 10_000;
 /// Cursor blink half-period; text blinks at half this rate.
 const TICK: Duration = Duration::from_millis(267);
 const NOTICE_TIME: Duration = Duration::from_secs(4);
+/// Between redials of a busy or unreachable BBS.
+const REDIAL_DELAY: Duration = Duration::from_secs(15);
+const MAX_REDIALS: u32 = 10;
 
 pub enum UserEvent {
     /// A network event for the session with this id.
@@ -49,6 +52,15 @@ pub enum UserEvent {
     /// runs; macOS sends these to the running app.
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     OpenUrl(String),
+}
+
+/// A busy call waiting to be dialed again.
+struct Redial {
+    entry: Entry,
+    index: Option<usize>,
+    /// Which redial this will be: 1 for the first.
+    attempt: u32,
+    at: Instant,
 }
 
 pub struct Paths {
@@ -156,6 +168,9 @@ pub struct App {
     session_id: u64,
     /// Directory index of the entry the session was dialed from.
     session_index: Option<usize>,
+    /// How many times the current call has been redialed.
+    redials: u32,
+    redial: Option<Redial>,
     /// Lines scrolled back from the live screen; 0 when live.
     scroll: usize,
     mods: ModifiersState,
@@ -215,6 +230,8 @@ impl App {
             session: None,
             session_id: 0,
             session_index: None,
+            redials: 0,
+            redial: None,
             scroll: 0,
             mods: ModifiersState::empty(),
             tick: 0,
@@ -276,6 +293,8 @@ impl App {
     }
 
     fn connect(&mut self, mut entry: Entry, index: Option<usize>) {
+        self.redial = None;
+        self.redials = 0;
         match secrets::password(&entry, &*self.secrets) {
             Ok(p) => entry.password = p,
             // The login asks instead.
@@ -329,6 +348,7 @@ impl App {
     }
 
     fn hang_up(&mut self) {
+        self.redial = None;
         self.session = None;
         self.session_index = None;
         self.scroll = 0;
@@ -351,6 +371,7 @@ impl App {
             return;
         };
         let connected = matches!(ev, NetEvent::Connected(_));
+        let closed = matches!(ev, NetEvent::Closed(_));
         // New text moves what a selection was over.
         if matches!(ev, NetEvent::Data(_)) && !self.dragging && self.scroll == 0 {
             self.selection = None;
@@ -365,8 +386,28 @@ impl App {
             e.last_connected = Some(dialer::now());
             self.save_directory();
         }
+        if closed {
+            self.schedule_redial();
+        }
         self.session_events();
         self.request_redraw();
+    }
+
+    /// Dial a busy or unreachable BBS again after a while, a few times.
+    fn schedule_redial(&mut self) {
+        let Some(s) = self.session.as_ref().filter(|s| s.should_redial()) else { return };
+        if !self.settings.redial || self.redials >= MAX_REDIALS {
+            return;
+        }
+        let (entry, index) = (s.entry.clone(), self.session_entry_index());
+        self.redial = Some(Redial { entry, index, attempt: self.redials + 1, at: Instant::now() + REDIAL_DELAY });
+    }
+
+    /// Make the waiting redial now.
+    fn redial_now(&mut self) {
+        let Some(r) = self.redial.take() else { return };
+        self.connect(r.entry, r.index);
+        self.redials = r.attempt;
     }
 
     fn session_events(&mut self) {
@@ -386,6 +427,10 @@ impl App {
                 }
                 SessionEvent::Notice(msg) => self.notify(msg),
                 SessionEvent::Connected => {
+                    // Got through after redialing: worth a look.
+                    if self.redials > 0 {
+                        self.attention();
+                    }
                     if let Some(pw) = self.remember.take()
                         && let Some(e) = self.session_entry_mut()
                     {
@@ -528,6 +573,20 @@ impl App {
                 event_loop.exit();
                 return true;
             }
+            // The stored login: the user name, then the password.
+            KeyCode::KeyL => {
+                let msg = match self.session.as_mut().filter(|s| s.state == State::Connected) {
+                    None => Some("Not connected"),
+                    Some(s) if !s.has_login() => Some("This entry has no user name or password"),
+                    // The session reports what it sent.
+                    Some(s) => (!s.send_login()).then_some("The user name and password were sent"),
+                };
+                if let Some(m) = msg {
+                    self.notify(m);
+                }
+                self.session_events();
+                return true;
+            }
             // Display settings, from anywhere.
             KeyCode::KeyP => {
                 // A system with its own phosphor mode keeps the change.
@@ -590,6 +649,14 @@ impl App {
         let Some(session) = self.session.as_mut() else { return false };
         match code {
             KeyCode::KeyH => self.hang_up(),
+            // Call again: now, if a redial is waiting, or after a hang-up.
+            KeyCode::KeyR if session.state == State::Closed => {
+                if self.redial.is_none() {
+                    let (entry, index) = (session.entry.clone(), self.session_entry_index());
+                    self.redial = Some(Redial { entry, index, attempt: 0, at: Instant::now() });
+                }
+                self.redial_now();
+            }
             KeyCode::KeyB => {
                 let page = session.term.screen.rows();
                 self.scroll = self.scroll.max(1).max(page.min(session.term.screen.scrollback_len()));
@@ -888,6 +955,10 @@ impl App {
         }
         match key {
             Key::PageUp if mods.shift => self.scroll = session.term.screen.rows().min(max),
+            Key::Escape if self.redial.is_some() => {
+                self.redial = None;
+                self.notify("Redial cancelled");
+            }
             _ if session.state == State::Closed => {}
             Key::Insert if mods.shift => self.paste(),
             _ => {
@@ -939,12 +1010,24 @@ impl App {
             let line = format!(" Logging in to {} \u{2502} Enter log in  Esc cancel", truncate(&e.name, 40));
             return ui::text(s, 0, 0, COLS, &line, fg, bg);
         }
+        if let Some(r) = self.redial.as_ref().filter(|_| session.state == State::Closed) {
+            let why = if session.error.is_some() { "No connection" } else { "Busy" };
+            let secs = r.at.saturating_duration_since(Instant::now()).as_secs() + 1;
+            let line = format!(
+                " {why} \u{2502} Calling again in {secs}s (redial {} of {MAX_REDIALS}) \u{2502} Esc cancel  {HOTKEY}-R now",
+                r.attempt
+            );
+            return ui::text(s, 0, 0, COLS, &line, fg, bg);
+        }
         let line = match session.state {
+            State::Connecting if self.redials > 0 => {
+                format!(" Redialing {} (redial {} of {MAX_REDIALS})...  {HOTKEY}-H cancel", e.address(), self.redials)
+            }
             State::Connecting => format!(" Connecting to {}...  {HOTKEY}-H cancel", e.address()),
             State::Closed => match &session.error {
-                Some(err) => format!(" Connection failed: {err} \u{2502} {HOTKEY}-D Dialing directory"),
+                Some(err) => format!(" Connection failed: {err} \u{2502} {HOTKEY}-R Call again"),
                 None => {
-                    format!(" Disconnected \u{2502} {HOTKEY}-D Dialing directory  {HOTKEY}-H Clear  {HOTKEY}-B Back")
+                    format!(" Disconnected \u{2502} {HOTKEY}: R Call again  D Directory  H Clear  B Back")
                 }
             },
             State::Connected => {
@@ -1156,6 +1239,9 @@ impl ApplicationHandler<UserEvent> for App {
             if let Some(s) = self.session.as_mut() {
                 s.tick();
                 self.session_events();
+            }
+            if self.redial.as_ref().is_some_and(|r| now >= r.at) {
+                self.redial_now();
             }
             self.request_redraw();
         }

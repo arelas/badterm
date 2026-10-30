@@ -121,3 +121,75 @@ fn telnet_over_tls_trusts_a_self_signed_certificate_once() {
     assert!(session.error.as_deref().unwrap().contains("CHANGED"), "{:?}", session.error);
     let _ = server.join();
 }
+
+#[test]
+fn auto_login_answers_the_prompts() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        sock.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut got = Vec::new();
+        let mut buf = [0u8; 256];
+        let mut wait_for = |sock: &mut std::net::TcpStream, needle: &[u8], got: &mut Vec<u8>| {
+            while !got.windows(needle.len()).any(|w| w == needle) {
+                let n = sock.read(&mut buf).unwrap();
+                assert!(n > 0, "client closed early; got {got:?}");
+                got.extend_from_slice(&buf[..n]);
+            }
+        };
+        // A pause too short to count: "Last login:" is not a prompt.
+        sock.write_all(b"Welcome!\r\nLast login:").unwrap();
+        thread::sleep(Duration::from_millis(50));
+        sock.write_all(b" yesterday\r\nLogin: ").unwrap();
+        wait_for(&mut sock, b"sysop\r", &mut got);
+        sock.write_all(b"\r\nPassword: ").unwrap();
+        wait_for(&mut sock, b"secret\r", &mut got);
+        sock.write_all(b"\r\nHello, sysop.\r\n").unwrap();
+        thread::sleep(Duration::from_millis(300));
+        got
+    });
+
+    let entry = Entry { username: "sysop".into(), password: "secret".into(), ..telnet_entry(port) };
+    let (mut session, rx) = dial(entry, config("autologin"));
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |s, _| (0..25).any(|y| row(s, y) == "Hello, sysop."));
+    let got = server.join().unwrap();
+    let text = String::from_utf8_lossy(&got);
+    assert_eq!(text.matches("sysop").count(), 1, "{got:?}");
+    assert!(text.find("sysop").unwrap() < text.find("secret").unwrap(), "{got:?}");
+}
+
+#[test]
+fn busy_and_unreachable_calls_are_worth_redialing() {
+    // A BBS that answers, says it is full and hangs up.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        sock.write_all(b"Sorry, all nodes are busy. Please try again later.\r\n").unwrap();
+    });
+    let (mut session, rx) = dial(telnet_entry(port), config("busy"));
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |s, _| s.state == phosphor_core::session::State::Closed);
+    server.join().unwrap();
+    assert!(session.should_redial());
+
+    // One that hangs up after a normal session is not.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        sock.write_all(b"Goodbye!\r\n").unwrap();
+    });
+    let (mut session, rx) = dial(telnet_entry(port), config("bye"));
+    pump_until(&mut session, &rx, &mut events, |s, _| s.state == phosphor_core::session::State::Closed);
+    server.join().unwrap();
+    assert!(!session.should_redial());
+
+    // Nothing listening.
+    let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let (mut session, rx) = dial(telnet_entry(port), config("down"));
+    pump_until(&mut session, &rx, &mut events, |s, _| s.state == phosphor_core::session::State::Closed);
+    assert!(session.should_redial(), "{:?}", session.error);
+}

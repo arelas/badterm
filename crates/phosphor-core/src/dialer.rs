@@ -83,6 +83,9 @@ pub struct Entry {
     pub username: String,
     /// Stored in plain text, as in other BBS dialers.
     pub password: String,
+    /// Answer the BBS's login prompts with `username` and `password`.
+    #[serde(skip_serializing_if = "is_true")]
+    pub auto_login: bool,
     pub term_type: String,
     /// Screen height: 25 lines, or 50 (with the 8x8 font).
     #[serde(skip_serializing_if = "is_25")]
@@ -117,6 +120,7 @@ impl Default for Entry {
             encoding: Encoding::Cp437,
             username: String::new(),
             password: String::new(),
+            auto_login: true,
             term_type: "ANSI".into(),
             rows: 25,
             crt: None,
@@ -173,6 +177,10 @@ impl Entry {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 fn is_25(n: &u16) -> bool {

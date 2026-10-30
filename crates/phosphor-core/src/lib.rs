@@ -4,6 +4,7 @@
 //! (telnet, raw TCP and SSH) with ZMODEM file transfers.
 
 pub mod ansi;
+pub mod autologin;
 pub mod cp437;
 pub mod dialer;
 pub mod export;
