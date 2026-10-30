@@ -313,6 +313,8 @@ pub enum Format {
     MagiTerm,
     /// EtherTerm's `dialdirectory.xml`. Import only.
     EtherTerm,
+    /// NetRunner's binary `netrunner.phn`. Import only.
+    NetRunner,
 }
 
 impl Format {
@@ -325,6 +327,7 @@ impl Format {
             "ini" if path.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("magiterm")) => Some(Format::MagiTerm),
             "lst" | "ini" => Some(Format::SyncTerm),
             "xml" => Some(Format::EtherTerm),
+            "phn" => Some(Format::NetRunner),
             _ => None,
         }
     }
@@ -469,6 +472,10 @@ impl Directory {
 /// to sniffing the content).
 pub fn import(path: &Path) -> Result<Vec<Entry>> {
     let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    // NetRunner's phone book is binary.
+    if bytes.starts_with(NETRUNNER_MAGIC) || Format::from_path(path) == Some(Format::NetRunner) {
+        return Ok(finish_import(from_netrunner(&bytes)?));
+    }
     // SyncTERM lists from Windows may be in a legacy code page.
     let text = match String::from_utf8(bytes) {
         Ok(s) => s,
@@ -494,20 +501,11 @@ pub fn import(path: &Path) -> Result<Vec<Entry>> {
             })
             .collect(),
         Some(Format::EtherTerm) => from_etherterm(text)?,
+        // Read above, as bytes.
+        Some(Format::NetRunner) => unreachable!("NetRunner phone books are read before decoding"),
         None => bail!("unrecognized dialing directory format: {}", path.display()),
     };
-    let stamp = now();
-    Ok(entries
-        .into_iter()
-        .filter(|e| !e.host.is_empty())
-        .map(|mut e| {
-            if e.name.is_empty() {
-                e.name = e.host.clone();
-            }
-            e.added.get_or_insert(stamp);
-            e
-        })
-        .collect())
+    Ok(finish_import(entries))
 }
 
 /// Write entries to a file in the format implied by its extension.
@@ -520,7 +518,9 @@ pub fn export(path: &Path, entries: &[Entry]) -> Result<()> {
         Format::Json => serde_json::to_string_pretty(entries)?,
         Format::Csv => to_csv(entries)?,
         Format::SyncTerm => to_syncterm(entries),
-        Format::MagiTerm | Format::EtherTerm => bail!("that format can be imported, not exported"),
+        Format::MagiTerm | Format::EtherTerm | Format::NetRunner => {
+            bail!("that format can be imported, not exported")
+        }
     };
     fs::write(path, text).with_context(|| format!("writing {}", path.display()))
 }
@@ -632,6 +632,57 @@ fn from_csv(text: &str) -> Result<Vec<Entry>> {
             let details: Vec<String> = c_details.iter().map(|&c| get(Some(c))).filter(|d| !d.is_empty()).collect();
             e.comment = details.join(", ");
         }
+        out.push(e);
+    }
+    Ok(out)
+}
+
+/// Name imported entries that have none, and date them.
+fn finish_import(entries: Vec<Entry>) -> Vec<Entry> {
+    let stamp = now();
+    entries
+        .into_iter()
+        .filter(|e| !e.host.is_empty())
+        .map(|mut e| {
+            if e.name.is_empty() {
+                e.name = e.host.clone();
+            }
+            e.added.get_or_insert(stamp);
+            e
+        })
+        .collect()
+}
+
+/// The start of a NetRunner phone book: "NetRunner Phone Book" as a Pascal
+/// string.
+const NETRUNNER_MAGIC: &[u8] = b"\x14NetRunner Phone Book";
+
+/// Parse NetRunner's `netrunner.phn`: a header, then 200 fixed records of
+/// 362 bytes, made of Pascal strings (a length byte, then up to 40
+/// characters): the name, the address (`host` or `host:port`), user name
+/// and password, then the sysop and BBS software, kept as the comment.
+/// Unused records have no name or address.
+fn from_netrunner(data: &[u8]) -> Result<Vec<Entry>> {
+    const START: usize = 48;
+    const RECORD: usize = 362;
+    if !data.starts_with(NETRUNNER_MAGIC) {
+        bail!("not a NetRunner phone book");
+    }
+    let text = |r: &[u8], at: usize| -> String {
+        let len = (r[at] as usize).min(40);
+        crate::cp437::decode(&r[at + 1..at + 1 + len]).trim().to_string()
+    };
+    let mut out = Vec::new();
+    for r in data.get(START..).unwrap_or(&[]).as_chunks::<RECORD>().0 {
+        let (name, address) = (text(r, 0), text(r, 41));
+        let Some(mut e) = Entry::from_address(&address) else { continue };
+        if !name.is_empty() {
+            e.name = name;
+        }
+        e.username = text(r, 82);
+        e.password = text(r, 123);
+        let details: Vec<String> = [text(r, 320), text(r, 279)].into_iter().filter(|d| !d.is_empty()).collect();
+        e.comment = details.join(", ");
         out.push(e);
     }
     Ok(out)
@@ -986,5 +1037,26 @@ mod tests {
         assert_eq!((v[1].protocol, v[1].port), (Protocol::Ssh, 22));
         assert!(export(&dir.join("out.xml"), &v).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn netrunner_phone_book() {
+        let book = include_bytes!("../tests/data/netrunner.phn");
+        let v = from_netrunner(book).unwrap();
+        assert_eq!(v.len(), 2);
+        assert_eq!((v[0].name.as_str(), v[0].host.as_str(), v[0].port), ("The Vortex BBS", "vortexbbs.com", 23));
+        assert_eq!((v[0].username.as_str(), v[0].password.as_str()), ("User Here", "Password Here"));
+        assert_eq!(v[0].comment, "Enigma 1/2, Sysop Name Here");
+        assert_eq!((v[1].name.as_str(), v[1].host.as_str()), ("Another System", "another.com"));
+        assert!(from_netrunner(b"not a phone book").is_err());
+
+        // host:port in the address, as NetRunner takes it.
+        let mut edited = book.to_vec();
+        let at = 48 + 41;
+        let addr = b"bbs.example.org:2323";
+        edited[at] = addr.len() as u8;
+        edited[at + 1..at + 1 + addr.len()].copy_from_slice(addr);
+        let v = from_netrunner(&edited).unwrap();
+        assert_eq!((v[0].host.as_str(), v[0].port), ("bbs.example.org", 2323));
     }
 }

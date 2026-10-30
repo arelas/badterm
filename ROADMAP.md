@@ -69,6 +69,7 @@ The next things to do, in order.
 - [x] XMODEM (checksum, CRC, 1K) and YMODEM (batch, G); a file picker for uploads
 - [x] Keyboard macros (Alt-1 to Alt-0); EtherTerm, MagiTerm and Telnet BBS Guide imports
 - [x] ANSI viewer with SAUCE (Alt-F, or a file on the command line)
+- [x] NetRunner phone book import
 
 ## Connections
 
@@ -98,7 +99,7 @@ The next things to do, in order.
 
 - [ ] More per-entry settings: capture/log files, hide status line
 - [ ] Multiple directories / groups
-- [ ] Import more formats: NetRunner and mTelnet (no documented format; need sample files), qodem
+- [ ] Import more formats: qodem
 - [ ] More in the settings screen: default font and screen mode, scaling,
       key bindings
 - [ ] Multiple simultaneous sessions (tabs)

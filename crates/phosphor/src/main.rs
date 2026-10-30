@@ -43,7 +43,7 @@ the viewer.
 
 Options:
   --import FILE   Add the entries in FILE to the dialing directory and exit
-                  (SyncTERM .lst, magiterm.ini, EtherTerm .xml, .csv
+                  (SyncTERM .lst, NetRunner .phn, magiterm.ini, EtherTerm .xml, .csv
                   such as the Telnet BBS Guide's, .json or .toml)
   --export FILE   Write the dialing directory to FILE and exit; the format
                   follows the extension (.lst, .csv, .json or .toml)

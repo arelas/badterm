@@ -569,7 +569,7 @@ impl DialerUi {
                 2,
                 LIST_TOP + 2,
                 COLS - 4,
-                "or I to import a directory (SyncTERM, EtherTerm, the BBS Guide's CSV...).",
+                "or I to import a directory (SyncTERM, NetRunner, EtherTerm, CSV...).",
                 list_fg,
                 list_bg,
             );
@@ -632,7 +632,7 @@ impl DialerUi {
                         ("Quick Connect", "host, host:port, telnet://host:port or raw://host:port")
                     }
                     PromptKind::Import => {
-                        ("Import Directory", "SyncTERM .lst, magiterm.ini, EtherTerm .xml, .csv, .json")
+                        ("Import Directory", "SyncTERM .lst, NetRunner .phn, EtherTerm .xml, .csv...")
                     }
                     PromptKind::Export => ("Export Directory", "Format follows extension: .lst .csv .json .toml"),
                 };
