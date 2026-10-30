@@ -56,26 +56,27 @@ The next things to do, in order.
 - [x] `phosphor --render`: ANSI file to PNG, with SAUCE iCE detection
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
+- [x] Website at badcluster.dev/phosphor (site/deploy.py)
+- [x] Linux .deb and .rpm (nfpm), Windows installer (Inno Setup)
+- [x] telnet://, telnets:// and rlogin:// links on Windows, macOS and Linux
+- [x] RLogin, telnet over TLS (pinned like SSH host keys)
+- [x] Auto-login (prompts or Alt-L), redial on busy
+- [x] CTerm font selection and palette (OSC 4/104); Amiga fonts per entry
+- [x] Screen modes 80x43, 132x25, 132x37, 132x52
+- [x] Baud rate emulation
 
 ## Connections
 
-- [ ] RLogin
-- [ ] Telnet over TLS (TelnetS)
-- [ ] Auto-login: send stored user name/password on prompt
 - [ ] Serial port / modem dialing (`serialport` crate), AT command init strings
-- [ ] Reconnect / redial with retry on busy
-- [ ] `telnet://` URL handler registration on each OS
-- [ ] Baud rate emulation (300 to 115200) for authentic pacing of ANSI animation
 
 ## Emulation
 
-- [ ] CTerm extensions: font selection (`CSI n;m SP D`), palette changes,
-      `CSI = ...` modes, bright-background/bright-font modes
-- [ ] Loadable fonts: CP437 8x8/8x14, Amiga Topaz/MicroKnight/P0T-NOoDLE,
-      Commodore, Atari, other code pages (850, 866, ...), custom `.fnt`/`.psf`
+- [ ] More CTerm: `CSI = ...` modes, and the other font IDs (code pages)
+- [ ] Loadable fonts: CP437 8x14, Commodore, Atari, other code pages (850,
+      866, ...), custom `.fnt`/`.psf`; Amiga fonts in 8-line modes
 - [ ] Configurable Device Attributes identity (e.g. CTerm, once its
       extensions are supported)
-- [ ] Additional screen modes: 80x43, 132x25, 132x37, 40-column, resizable
+- [ ] More screen modes: 40-column, resizable
 - [ ] Avatar/0+ emulation
 - [ ] PETSCII (C64/C128) and ATASCII (Atari) emulation with their fonts
 - [ ] Sixel graphics
@@ -93,8 +94,7 @@ The next things to do, in order.
 
 ## Dialer and UI
 
-- [ ] More per-entry settings (screen and phosphor mode are done): font, iCE default, baud emulation,
-      capture/log files, hide status line
+- [ ] More per-entry settings: iCE default, capture/log files, hide status line
 - [ ] Multiple directories / groups
 - [ ] Import more formats: NetRunner, mTelnet, Telnet BBS Guide lists, qodem
 - [ ] SAUCE record reading for captured/viewed files; built-in ANSI viewer
@@ -106,4 +106,4 @@ The next things to do, in order.
 ## Packaging
 
 - [ ] macOS Developer ID signing and notarization
-- [ ] Windows MSI installer; Linux `.deb` and Flatpak
+- [ ] Flatpak; an MSI for managed Windows deployments
