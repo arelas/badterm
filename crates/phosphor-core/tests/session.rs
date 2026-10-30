@@ -173,20 +173,30 @@ fn zmodem_upload_requested_by_bbs() {
 mod ssh {
     use std::sync::Arc;
 
-    use russh::keys::PrivateKey;
+    use std::borrow::Cow;
+
+    use phosphor_core::session::{PromptKind, SessionConfig};
     use russh::keys::ssh_key::private::Ed25519Keypair;
-    use russh::server::{self, Auth, Msg, Server as _, Session as ServerSession};
-    use russh::{Channel, ChannelId};
+    use russh::keys::ssh_key::{Cipher, Kdf, LineEnding};
+    use russh::keys::{PrivateKey, PublicKey};
+    use russh::server::{self, Auth, Msg, Response, Server as _, Session as ServerSession, VerifiedPublicKey};
+    use russh::{Channel, ChannelId, MethodKind, MethodSet};
 
     use super::*;
 
-    #[derive(Clone)]
-    struct Bbs;
+    /// A fake SSH BBS. The password "secret" always works for "sysop"; it can
+    /// also accept a public key, or ask a keyboard-interactive question.
+    #[derive(Clone, Default)]
+    struct Bbs {
+        client_key: Option<PublicKey>,
+        /// Ask for a verification code (answer "1234") instead of a password.
+        code: bool,
+    }
 
     impl server::Server for Bbs {
         type Handler = Self;
         fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self {
-            Bbs
+            self.clone()
         }
     }
 
@@ -194,7 +204,40 @@ mod ssh {
         type Error = russh::Error;
 
         async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
-            if user == "sysop" && password == "secret" { Ok(Auth::Accept) } else { Ok(Auth::reject()) }
+            if user == "sysop" && password == "secret" && !self.code {
+                return Ok(Auth::Accept);
+            }
+            // Keep offering passwords after a wrong one, as OpenSSH does
+            // (russh's default is to stop).
+            let methods = [MethodKind::PublicKey, MethodKind::Password, MethodKind::KeyboardInteractive];
+            Ok(Auth::Reject { proceed_with_methods: Some(MethodSet::from(&methods[..])), partial_success: false })
+        }
+
+        async fn auth_publickey(&mut self, user: &str, key: VerifiedPublicKey<'_>) -> Result<Auth, Self::Error> {
+            let ok = user == "sysop" && self.client_key.as_ref() == Some(key.public_key);
+            if ok { Ok(Auth::Accept) } else { Ok(Auth::reject()) }
+        }
+
+        async fn auth_keyboard_interactive<'a>(
+            &'a mut self,
+            _: &str,
+            _: &str,
+            response: Option<Response<'a>>,
+        ) -> Result<Auth, Self::Error> {
+            if !self.code {
+                return Ok(Auth::reject());
+            }
+            match response {
+                None => Ok(Auth::Partial {
+                    name: Cow::Borrowed(""),
+                    instructions: Cow::Borrowed("Check your authenticator app."),
+                    prompts: Cow::Owned(vec![(Cow::Borrowed("Verification code: "), true)]),
+                }),
+                Some(mut r) => {
+                    let ok = r.next().as_deref() == Some(&b"1234"[..]);
+                    if ok { Ok(Auth::Accept) } else { Ok(Auth::reject()) }
+                }
+            }
         }
 
         async fn channel_open_session(
@@ -243,6 +286,10 @@ mod ssh {
 
     /// Start an SSH BBS whose host key is derived from `seed`.
     fn start_server(seed: u8) -> u16 {
+        start_bbs(seed, Bbs::default())
+    }
+
+    fn start_bbs(seed: u8, bbs: Bbs) -> u16 {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).unwrap();
@@ -257,7 +304,8 @@ mod ssh {
                     ..Default::default()
                 });
                 let listener = tokio::net::TcpListener::from_std(listener).unwrap();
-                let _ = Bbs.run_on_socket(config, &listener).await;
+                let mut bbs = bbs;
+                let _ = bbs.run_on_socket(config, &listener).await;
             });
         });
         port
@@ -315,12 +363,157 @@ mod ssh {
         assert!(err.contains("has CHANGED"), "{err}");
     }
 
+    /// Wait for the login to ask something; returns (kind, instructions, prompt, echo).
+    fn next_prompt(session: &mut Session, rx: &mpsc::Receiver<NetEvent>) -> (PromptKind, String, String, bool) {
+        let mut events = Vec::new();
+        pump_until(session, rx, &mut events, |s, _| s.auth_prompt().is_some() || s.state == State::Closed);
+        let p = session.auth_prompt().unwrap_or_else(|| panic!("no prompt; closed with {:?}", session.error));
+        (p.kind, p.instructions.clone(), p.prompt.clone(), p.echo)
+    }
+
+    fn welcomed(session: &mut Session, rx: &mpsc::Receiver<NetEvent>) {
+        let mut events = Vec::new();
+        pump_until(session, rx, &mut events, |s, _| row(s, 1) == "Welcome to SSH BBS" || s.state == State::Closed);
+        assert_eq!(session.state, State::Connected, "{:?}", session.error);
+        assert!(events.contains(&SessionEvent::Connected), "{events:?}");
+    }
+
     #[test]
-    fn wrong_password_is_refused() {
+    fn wrong_password_asks_again() {
         let port = start_server(3);
         let (mut session, rx) = dial(ssh_entry(port, "wrong"), config("ssh-bad"));
+        let (kind, why, prompt, echo) = next_prompt(&mut session, &rx);
+        assert_eq!((kind, prompt.as_str(), echo), (PromptKind::Password, "Password for sysop:", false));
+        assert!(why.contains("not accepted"), "{why}");
+        session.answer_prompt(Some("secret".into()));
+        welcomed(&mut session, &rx);
+    }
+
+    #[test]
+    fn missing_password_is_asked_for() {
+        let port = start_server(5);
+        let (mut session, rx) = dial(ssh_entry(port, ""), config("ssh-ask"));
+        let (kind, why, ..) = next_prompt(&mut session, &rx);
+        assert_eq!((kind, why.as_str()), (PromptKind::Password, ""));
+        session.answer_prompt(Some("secret".into()));
+        welcomed(&mut session, &rx);
+    }
+
+    #[test]
+    fn cancelling_the_prompt_ends_the_login() {
+        let port = start_server(6);
+        let (mut session, rx) = dial(ssh_entry(port, ""), config("ssh-cancel"));
+        next_prompt(&mut session, &rx);
+        session.answer_prompt(None);
+        assert_eq!(closed_error(&mut session, &rx), "Login cancelled");
+    }
+
+    #[test]
+    fn repeated_wrong_passwords_are_refused() {
+        let port = start_server(7);
+        let (mut session, rx) = dial(ssh_entry(port, ""), config("ssh-refused"));
+        for _ in 0..3 {
+            next_prompt(&mut session, &rx);
+            session.answer_prompt(Some("nope".into()));
+        }
         let err = closed_error(&mut session, &rx);
         assert!(err.contains("was refused"), "{err}");
+    }
+
+    #[test]
+    fn keyboard_interactive_questions_are_shown() {
+        let port = start_bbs(8, Bbs { code: true, ..Bbs::default() });
+        // The stored password does not answer a question that echoes.
+        let (mut session, rx) = dial(ssh_entry(port, "secret"), config("ssh-kbd"));
+        let (kind, why, prompt, echo) = next_prompt(&mut session, &rx);
+        assert_eq!((kind, prompt.as_str(), echo), (PromptKind::Interactive, "Verification code:", true));
+        assert_eq!(why, "Check your authenticator app.");
+        session.answer_prompt(Some("1234".into()));
+        welcomed(&mut session, &rx);
+    }
+
+    fn client_key(seed: u8) -> PrivateKey {
+        PrivateKey::from(Ed25519Keypair::from_seed(&[seed; 32]))
+    }
+
+    fn write_key(path: &std::path::Path, key: &PrivateKey, passphrase: Option<&str>) {
+        let key = match passphrase {
+            Some(p) => {
+                key.encrypt_with(Cipher::Aes256Ctr, Kdf::Bcrypt { salt: vec![7; 16], rounds: 4 }, 42, p).unwrap()
+            }
+            None => key.clone(),
+        };
+        key.write_openssh_file(path, LineEnding::LF).unwrap();
+    }
+
+    fn key_bbs(seed: u8, key: &PrivateKey) -> u16 {
+        start_bbs(seed, Bbs { client_key: Some(key.public_key().clone()), ..Bbs::default() })
+    }
+
+    #[test]
+    fn key_file_from_the_entry() {
+        let key = client_key(20);
+        let port = key_bbs(9, &key);
+        let cfg = config("ssh-keyfile");
+        let path = cfg.known_hosts.with_file_name("bbs_key");
+        write_key(&path, &key, None);
+        let entry = Entry { key_file: path.to_string_lossy().into(), ..ssh_entry(port, "") };
+        let (mut session, rx) = dial(entry, cfg);
+        welcomed(&mut session, &rx);
+    }
+
+    #[test]
+    fn encrypted_key_file_asks_for_its_passphrase() {
+        let key = client_key(21);
+        let port = key_bbs(10, &key);
+        let cfg = config("ssh-passphrase");
+        let path = cfg.known_hosts.with_file_name("bbs_key");
+        write_key(&path, &key, Some("hunter2"));
+        let entry = Entry { key_file: path.to_string_lossy().into(), ..ssh_entry(port, "") };
+        let (mut session, rx) = dial(entry, cfg);
+
+        let (kind, why, prompt, _) = next_prompt(&mut session, &rx);
+        assert_eq!((kind, why.as_str()), (PromptKind::Passphrase, ""));
+        assert!(prompt.starts_with("Passphrase for ") && prompt.ends_with("bbs_key:"), "{prompt}");
+        session.answer_prompt(Some("wrong".into()));
+        let (kind, why, ..) = next_prompt(&mut session, &rx);
+        assert_eq!(kind, PromptKind::Passphrase);
+        assert!(why.contains("not accepted"), "{why}");
+        session.answer_prompt(Some("hunter2".into()));
+        welcomed(&mut session, &rx);
+    }
+
+    fn with_key_dir(name: &str) -> SessionConfig {
+        let cfg = config(name);
+        let dir = cfg.known_hosts.with_file_name("dot-ssh");
+        std::fs::create_dir_all(&dir).unwrap();
+        SessionConfig { ssh_key_dir: Some(dir), ..cfg }
+    }
+
+    #[test]
+    fn default_key_files_are_tried() {
+        let key = client_key(22);
+        let port = key_bbs(11, &key);
+        let cfg = with_key_dir("ssh-default-key");
+        // An unrelated key first, as people often have several.
+        write_key(&cfg.ssh_key_dir.as_ref().unwrap().join("id_ed25519"), &client_key(23), None);
+        write_key(&cfg.ssh_key_dir.as_ref().unwrap().join("id_rsa"), &key, None);
+        let (mut session, rx) = dial(ssh_entry(port, ""), cfg);
+        welcomed(&mut session, &rx);
+    }
+
+    #[test]
+    fn encrypted_default_keys_are_skipped() {
+        let key = client_key(24);
+        let port = key_bbs(12, &key);
+        let cfg = with_key_dir("ssh-default-encrypted");
+        write_key(&cfg.ssh_key_dir.as_ref().unwrap().join("id_ed25519"), &key, Some("hunter2"));
+        // No passphrase question: straight to the password.
+        let (mut session, rx) = dial(ssh_entry(port, ""), cfg);
+        let (kind, ..) = next_prompt(&mut session, &rx);
+        assert_eq!(kind, PromptKind::Password);
+        session.answer_prompt(Some("secret".into()));
+        welcomed(&mut session, &rx);
     }
 
     #[test]

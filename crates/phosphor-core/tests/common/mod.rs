@@ -17,7 +17,14 @@ pub fn temp_dir(name: &str) -> PathBuf {
 
 pub fn config(name: &str) -> SessionConfig {
     let dir = temp_dir(name);
-    SessionConfig { scrollback: 100, known_hosts: dir.join("known_hosts"), download_dir: dir.join("downloads") }
+    SessionConfig {
+        scrollback: 100,
+        known_hosts: dir.join("known_hosts"),
+        download_dir: dir.join("downloads"),
+        // Never the developer's own agent or ~/.ssh keys.
+        ssh_agent: false,
+        ssh_key_dir: None,
+    }
 }
 
 /// Connect a session and return it with the channel its events arrive on.

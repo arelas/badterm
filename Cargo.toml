@@ -26,6 +26,8 @@ directories = "6.0"
 winit = "0.30.13"
 softbuffer = "0.4.8"
 arboard = { version = "3.7", default-features = false }
+# Keychain (macOS), Credential Manager (Windows), Secret Service over zbus (Linux, pure Rust).
+keyring = "4.2"
 
 [profile.release]
 lto = "thin"

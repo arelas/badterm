@@ -3,6 +3,26 @@
 The goal is feature parity with the classic BBS clients: SyncTERM, NetRunner
 and mTelnet. Items are roughly in priority order within each section.
 
+## Punch list
+
+The next things to do, in order.
+
+- [ ] Try each release on a real desktop on all three OSes: hotkeys
+      (Alt-D, Cmd-D on macOS, Alt-Enter), the login dialog, fullscreen
+      scaling, a ZMODEM download, and the keychain
+- [ ] Mouse selection and copy (as text or ANSI)
+- [ ] Search/filter in the directory; sort by name, last called, calls
+- [ ] Save scrollback to `.ans`/`.txt`; save screen as PNG
+- [ ] Application icon and desktop integration
+- [ ] macOS `.app` bundle (the tarball is a bare binary, which macOS warns
+      about and won't keep in the Dock), then signing and a `.dmg`
+- [ ] Linux desktop launcher and AppImage
+- [ ] 9-pixel-wide VGA cells and 4:3 aspect correction
+- [ ] 80x50 screen mode, then the other modes below
+- [ ] ANSI music (`CSI M` / `CSI N` music strings, PC speaker synthesis)
+- [ ] Marketing site: what Phosphor is, screenshots, downloads for each OS,
+      and a link to The Vortex BBS
+
 ## Done (0.1)
 
 - [x] Native window with pixel-exact CP437 VGA 8x16 font and integer scaling
@@ -16,17 +36,24 @@ and mTelnet. Items are roughly in priority order within each section.
 - [x] CP437 and UTF-8 encodings
 - [x] Scrollback buffer, including screens cleared by the BBS
 - [x] Session capture to file
-- [x] Dialing directory: add/edit/delete, quick connect, call stats
+- [x] Dialing directory: add/edit/delete, quick connect, call stats, pinned
+      entries, starts with The Vortex BBS
 - [x] Directory import/export: SyncTERM `.lst`, CSV, JSON, TOML
 - [x] Clipboard paste, fullscreen, drag-and-drop import
 - [x] SSH: none/password/keyboard-interactive auth, PTY, TOFU host key pinning
+- [x] SSH public keys: entry key file (with passphrase prompt), agent
+      (`SSH_AUTH_SOCK`, Windows OpenSSH agent, Pageant), default `~/.ssh` keys
+- [x] Login dialog for passwords, passphrases and keyboard-interactive
+      questions not stored in the entry, with retry on a wrong answer
+- [x] Passwords stored in the OS keychain, falling back to the directory file
+- [x] Device Attributes (`CSI c`) reply, as a VT100
+- [x] Fullscreen (`Alt-Enter`) fills the screen with sharp fractional
+      scaling; normal windows keep exact integer scaling
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
 
 ## Connections
 
-- [ ] SSH public-key authentication (agent and key files)
-- [ ] Prompt for a missing password at connect time instead of failing
 - [ ] RLogin
 - [ ] Telnet over TLS (TelnetS)
 - [ ] Auto-login: send stored user name/password on prompt
@@ -37,14 +64,13 @@ and mTelnet. Items are roughly in priority order within each section.
 
 ## Emulation
 
-- [ ] Device Attributes (`CSI c`) response, configurable identity
-- [ ] ANSI music (`CSI M` / `CSI N` music strings, PC speaker synthesis)
 - [ ] CTerm extensions: font selection (`CSI n;m SP D`), palette changes,
       `CSI = ...` modes, bright-background/bright-font modes
 - [ ] Loadable fonts: CP437 8x8/8x14, Amiga Topaz/MicroKnight/P0T-NOoDLE,
       Commodore, Atari, other code pages (850, 866, ...), custom `.fnt`/`.psf`
-- [ ] 9-pixel-wide VGA cells and 4:3 aspect correction
-- [ ] Additional screen modes: 80x43, 80x50, 132x25, 132x37, 40-column, resizable
+- [ ] Configurable Device Attributes identity (e.g. CTerm, once its
+      extensions are supported)
+- [ ] Additional screen modes: 80x43, 132x25, 132x37, 40-column, resizable
 - [ ] Avatar/0+ emulation
 - [ ] PETSCII (C64/C128) and ATASCII (Atari) emulation with their fonts
 - [ ] Sixel graphics
@@ -64,20 +90,14 @@ and mTelnet. Items are roughly in priority order within each section.
 
 - [ ] Per-entry settings: screen mode, font, iCE default, baud emulation,
       capture/log files, hide status line
-- [ ] Search/filter in the directory; sort by name, last called, calls
-- [ ] Multiple directories / groups, favorites
+- [ ] Multiple directories / groups
 - [ ] Import more formats: NetRunner, mTelnet, Telnet BBS Guide lists, qodem
-- [ ] Mouse selection and copy (as text or ANSI)
-- [ ] Save scrollback to `.ans`/`.txt`; save screen as PNG
 - [ ] SAUCE record reading for captured/viewed files; built-in ANSI viewer
 - [ ] Configuration screen (default font, scaling, palette, keys)
-- [ ] Optional password storage in the OS keychain (`keyring` crate)
 - [ ] Multiple simultaneous sessions (tabs)
 - [ ] Scripting / macros (e.g. Lua or Rhai) bound to keys
 - [ ] Optional curses/TUI front end built on `phosphor-core`
 
 ## Packaging
 
-- [ ] Release builds for Windows (MSI/zip), macOS (signed `.app`/`.dmg`),
-      Linux (AppImage, `.deb`, Flatpak)
-- [ ] Application icon and desktop integration
+- [ ] Windows MSI installer; Linux `.deb` and Flatpak

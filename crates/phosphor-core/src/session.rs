@@ -12,7 +12,7 @@ use crate::ansi::{TermEvent, Terminal};
 use crate::dialer::{Entry, Protocol};
 use crate::telnet::Telnet;
 use crate::transfer::{self, Download, Outcome, TrailerFilter, Transfer, Upload};
-pub use crate::transport::{ConnectOptions, NetEvent, Writer, spawn_connection};
+pub use crate::transport::{AuthPrompt, ConnectOptions, NetEvent, PromptKind, Writer, spawn_connection};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -27,17 +27,26 @@ pub struct SessionConfig {
     pub scrollback: usize,
     pub known_hosts: PathBuf,
     pub download_dir: PathBuf,
+    /// Offer the SSH agent's keys when logging in.
+    pub ssh_agent: bool,
+    /// Where default SSH keys (`id_ed25519`, ...) are looked for.
+    pub ssh_key_dir: Option<PathBuf>,
 }
 
 /// Things the front end should react to.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionEvent {
+    /// The connection is up (for SSH, the login succeeded).
+    Connected,
     Term(TermEvent),
     Notice(String),
     /// The BBS is waiting to receive files (it sent ZRINIT); ask the user
     /// what to upload, then call [`Session::start_upload`] or
     /// [`Session::decline_upload`].
     UploadRequested,
+    /// The login has a question for the user: see [`Session::auth_prompt`],
+    /// and reply with [`Session::answer_prompt`].
+    AuthPrompt,
     TransferStarted,
     TransferFinished(Outcome),
 }
@@ -56,6 +65,7 @@ pub struct Session {
     /// Bytes received since the BBS asked for an upload, held until the user
     /// picks files (they include the ZRINIT the sender needs to see).
     upload_wait: Option<Vec<u8>>,
+    auth_prompt: Option<AuthPrompt>,
     /// The end of the last data chunk, so a ZMODEM header split across two
     /// reads is still recognized.
     scan_tail: Vec<u8>,
@@ -86,6 +96,7 @@ impl Session {
             capture: None,
             transfer: None,
             upload_wait: None,
+            auth_prompt: None,
             scan_tail: Vec::new(),
             trailer: None,
             started: Instant::now(),
@@ -104,6 +115,8 @@ impl Session {
             cols: self.term.screen.cols() as u16,
             rows: self.term.screen.rows() as u16,
             known_hosts: self.config.known_hosts.clone(),
+            ssh_agent: self.config.ssh_agent,
+            ssh_key_dir: self.config.ssh_key_dir.clone(),
         };
         spawn_connection(&self.entry, &opts, sink);
     }
@@ -114,10 +127,16 @@ impl Session {
                 self.writer = Some(w);
                 self.state = State::Connected;
                 self.connected_at = Some(Instant::now());
+                self.events.push(SessionEvent::Connected);
             }
             NetEvent::Data(bytes) => self.receive(&bytes),
             NetEvent::Notice(msg) => self.events.push(SessionEvent::Notice(msg)),
+            NetEvent::Prompt(p) => {
+                self.auth_prompt = Some(p);
+                self.events.push(SessionEvent::AuthPrompt);
+            }
             NetEvent::Closed(err) => {
+                self.auth_prompt = None;
                 self.state = State::Closed;
                 self.error = err;
                 self.writer = None;
@@ -226,6 +245,18 @@ impl Session {
         self.transfer.as_ref()
     }
 
+    /// The login question waiting for an answer, if any.
+    pub fn auth_prompt(&self) -> Option<&AuthPrompt> {
+        self.auth_prompt.as_ref()
+    }
+
+    /// Answer the waiting login question; `None` cancels the login.
+    pub fn answer_prompt(&mut self, answer: Option<String>) {
+        if let Some(p) = self.auth_prompt.take() {
+            p.answer(answer);
+        }
+    }
+
     /// Whether the BBS is waiting for the user to choose files to upload.
     pub fn upload_requested(&self) -> bool {
         self.upload_wait.is_some()
@@ -297,6 +328,7 @@ impl Session {
     }
 
     pub fn hang_up(&mut self) {
+        self.answer_prompt(None);
         if let Some(w) = self.writer.take() {
             w.shutdown();
         }

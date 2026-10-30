@@ -16,4 +16,4 @@ pub mod transport;
 pub use ansi::{Encoding, TermEvent, Terminal};
 pub use dialer::{Directory, Entry, Protocol};
 pub use screen::{Cell, Color, Screen};
-pub use session::{NetEvent, Session, SessionConfig, SessionEvent};
+pub use session::{AuthPrompt, NetEvent, PromptKind, Session, SessionConfig, SessionEvent};

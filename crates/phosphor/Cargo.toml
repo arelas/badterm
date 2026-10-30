@@ -16,6 +16,7 @@ directories.workspace = true
 winit.workspace = true
 softbuffer.workspace = true
 arboard.workspace = true
+keyring.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true

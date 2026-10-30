@@ -2,6 +2,7 @@
 //! [`Screen`] so it renders exactly like BBS content.
 
 pub mod dialer;
+pub mod login;
 pub mod transfer;
 
 use phosphor_core::cp437;
@@ -137,6 +138,34 @@ impl TextField {
         };
         text(s, x, y, width, &shown, fg, bg);
         (x + self.cursor - start, y)
+    }
+}
+
+/// Word-wrap `s` into lines of at most `width` characters.
+pub fn wrap(s: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut cur = String::new();
+    for word in s.split_whitespace() {
+        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > width {
+            lines.push(std::mem::take(&mut cur));
+        }
+        if !cur.is_empty() {
+            cur.push(' ');
+        }
+        cur.push_str(&truncate(word, width));
+    }
+    lines.push(cur);
+    lines
+}
+
+/// Shorten `s` to `n` characters, marking the cut with `»`.
+pub fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        let mut t: String = s.chars().take(n - 1).collect();
+        t.push('\u{00BB}');
+        t
     }
 }
 

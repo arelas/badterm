@@ -14,6 +14,7 @@ mod app;
 mod console;
 mod input;
 mod render;
+mod secrets;
 mod ui;
 
 use std::path::PathBuf;

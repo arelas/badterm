@@ -21,8 +21,10 @@ use winit::keyboard::{KeyCode, ModifiersState, PhysicalKey};
 use winit::window::{Fullscreen, UserAttentionType, Window, WindowId};
 
 use crate::input::{self, Key, Mods};
-use crate::render::{Font, Frame, Renderer};
+use crate::render::{Font, Frame, Renderer, Scaling};
+use crate::secrets::{self, Keychain, Store};
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
+use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::transfer::{self as transfer_ui, UploadPrompt};
 use crate::ui::{self, format_date};
 
@@ -50,6 +52,8 @@ pub struct Paths {
     pub downloads: PathBuf,
     /// Default location offered for import/export.
     pub files: PathBuf,
+    /// Where default SSH keys are looked for.
+    pub ssh_keys: Option<PathBuf>,
 }
 
 impl Paths {
@@ -68,6 +72,7 @@ impl Paths {
             known_hosts: config.join("known_hosts"),
             downloads: files.join("Phosphor"),
             files,
+            ssh_keys: directories::BaseDirs::new().map(|b| b.home_dir().join(".ssh")),
         }
     }
 }
@@ -114,6 +119,13 @@ pub struct App {
     /// The terminal with a dialog drawn over it.
     overlay: Screen,
     upload_prompt: Option<UploadPrompt>,
+    /// The SSH login's question, while one is waiting.
+    login: Option<LoginPrompt>,
+    /// A typed password to remember once the login succeeds.
+    remember: Option<String>,
+    secrets: Rc<dyn Store>,
+    /// False once the keychain has failed; passwords then stay in the file.
+    keychain_ok: bool,
     /// Direction of the transfer in progress, for reporting its outcome.
     transfer_direction: Option<Direction>,
     session: Option<Session>,
@@ -131,9 +143,18 @@ pub struct App {
 
 impl App {
     pub fn new(proxy: EventLoopProxy<UserEvent>, paths: Paths, startup: Option<Entry>) -> App {
-        let (mut directory, load_error) = load_directory(&paths.directory);
+        let (mut directory, mut load_error) = load_directory(&paths.directory);
         directory.sort();
-        let mut dialer = DialerUi::new(paths.files.clone());
+        // New default entries (the first time, the whole starter directory).
+        // Not over a file that could not be read: that was moved aside.
+        if load_error.is_none()
+            && directory.offer_defaults()
+            && let Err(e) = directory.save(&paths.directory)
+        {
+            load_error = Some(format!("Could not save the dialing directory: {e:#}"));
+        }
+        let secrets: Rc<dyn Store> = Rc::new(Keychain);
+        let mut dialer = DialerUi::new(paths.files.clone(), secrets.clone());
         // The app starts on the idle screen; the dialer opens only to show a
         // problem with the directory file.
         let dialer_open = load_error.is_some();
@@ -154,6 +175,10 @@ impl App {
             status: Screen::new(COLS, 1, 0),
             overlay: Screen::new(COLS, ROWS, 0),
             upload_prompt: None,
+            login: None,
+            remember: None,
+            secrets,
+            keychain_ok: true,
             transfer_direction: None,
             session: None,
             session_id: 0,
@@ -197,16 +222,30 @@ impl App {
     }
 
     fn save_directory(&mut self) {
+        if self.keychain_ok
+            && let Err(e) = secrets::migrate(&mut self.directory, &*self.secrets)
+        {
+            self.keychain_ok = false;
+            log::warn!("keychain unavailable: {e}");
+            self.notify("No keychain available; passwords are kept in the directory file");
+        }
         if let Err(e) = self.directory.save(&self.paths.directory) {
             self.dialer.show_message(format!("Could not save the dialing directory: {e:#}"));
         }
     }
 
-    fn connect(&mut self, entry: Entry, index: Option<usize>) {
+    fn connect(&mut self, mut entry: Entry, index: Option<usize>) {
+        match secrets::password(&entry, &*self.secrets) {
+            Ok(p) => entry.password = p,
+            // The login asks instead.
+            Err(e) => self.notify(format!("Could not read the password from the keychain: {e}")),
+        }
         let config = SessionConfig {
             scrollback: SCROLLBACK_LINES,
             known_hosts: self.paths.known_hosts.clone(),
             download_dir: self.paths.downloads.clone(),
+            ssh_agent: true,
+            ssh_key_dir: self.paths.ssh_keys.clone(),
         };
         let session = match Session::new(entry, COLS, ROWS, config) {
             Ok(s) => s,
@@ -246,6 +285,8 @@ impl App {
         self.session_index = None;
         self.scroll = 0;
         self.upload_prompt = None;
+        self.login = None;
+        self.remember = None;
         self.transfer_direction = None;
         self.set_title("Phosphor");
     }
@@ -260,6 +301,10 @@ impl App {
         };
         let connected = matches!(ev, NetEvent::Connected(_));
         session.handle(ev);
+        // The question went away (the connection closed).
+        if session.auth_prompt().is_none() {
+            self.login = None;
+        }
         if connected && let Some(e) = self.session_index.and_then(|i| self.directory.entries.get_mut(i)) {
             e.calls += 1;
             e.last_connected = Some(dialer::now());
@@ -280,6 +325,21 @@ impl App {
                 }
                 SessionEvent::Term(TermEvent::Title(t)) => self.set_title(&format!("Phosphor \u{2014} {t}")),
                 SessionEvent::Notice(msg) => self.notify(msg),
+                SessionEvent::Connected => {
+                    if let Some(pw) = self.remember.take()
+                        && let Some(e) = self.session_index.and_then(|i| self.directory.entries.get_mut(i))
+                    {
+                        e.password = pw;
+                        self.save_directory();
+                    }
+                }
+                SessionEvent::AuthPrompt => {
+                    let Some(p) = self.session.as_ref().and_then(|s| s.auth_prompt()) else { continue };
+                    self.login = Some(LoginPrompt::new(p, self.session_index.is_some(), self.keychain_ok));
+                    self.dialer_open = false;
+                    self.scroll = 0;
+                    self.attention();
+                }
                 // Both need the terminal view (the prompt and progress window
                 // live there), so they close the dialer if it is open.
                 SessionEvent::UploadRequested => {
@@ -350,6 +410,8 @@ impl App {
         let Some(key) = input::translate(event) else { return };
         if self.dialer_open {
             self.dialer_key(key, mods);
+        } else if self.login.is_some() {
+            self.login_key(key, mods);
         } else if self.upload_prompt.is_some() {
             self.prompt_key(key, mods);
         } else if self.session.as_ref().is_some_and(|s| s.transfer().is_some()) {
@@ -374,7 +436,7 @@ impl App {
                 let e = self.directory.entries[i].clone();
                 self.dial(e, Some(i));
             }
-            Action::QuickConnect(e) => self.dial(e, None),
+            Action::QuickConnect(e) => self.dial(*e, None),
             Action::Changed => self.save_directory(),
             Action::HangUpAndDial => {
                 if let Some((e, i)) = self.pending_dial.take() {
@@ -449,6 +511,26 @@ impl App {
             _ => return false,
         }
         true
+    }
+
+    fn login_key(&mut self, key: Key, mods: Mods) {
+        let Some(login) = self.login.as_mut() else { return };
+        let answer = match login.handle_key(key, mods) {
+            LoginAction::None => return,
+            LoginAction::Answer(a) => {
+                // A later question (say, a one-time code) leaves the
+                // password's choice alone.
+                if login.can_remember {
+                    self.remember = login.remember.then(|| a.clone());
+                }
+                Some(a)
+            }
+            LoginAction::Cancel => None,
+        };
+        self.login = None;
+        if let Some(s) = self.session.as_mut() {
+            s.answer_prompt(answer);
+        }
     }
 
     fn prompt_key(&mut self, key: Key, mods: Mods) {
@@ -570,6 +652,10 @@ impl App {
             let line = format!(" {} \u{2502} ZMODEM transfer in progress \u{2502} Esc cancels", truncate(&e.name, 30));
             return ui::text(s, 0, 0, COLS, &line, fg, bg);
         }
+        if self.login.is_some() {
+            let line = format!(" Logging in to {} \u{2502} Enter log in  Esc cancel", truncate(&e.name, 40));
+            return ui::text(s, 0, 0, COLS, &line, fg, bg);
+        }
         let line = match session.state {
             State::Connecting => format!(" Connecting to {}...  {HOTKEY}-H cancel", e.address()),
             State::Closed => match &session.error {
@@ -612,7 +698,7 @@ impl App {
         // Dialogs over the terminal are drawn on a copy of its screen.
         let mut overlay_cursor = None;
         let overlay = match &self.session {
-            Some(session) if self.upload_prompt.is_some() || session.transfer().is_some() => {
+            Some(session) if self.login.is_some() || self.upload_prompt.is_some() || session.transfer().is_some() => {
                 let sc = &session.term.screen;
                 for y in 0..ROWS.min(sc.rows()) {
                     for (x, cell) in sc.row(y).iter().enumerate() {
@@ -621,7 +707,9 @@ impl App {
                         }
                     }
                 }
-                if let Some(prompt) = &self.upload_prompt {
+                if let Some(login) = &self.login {
+                    overlay_cursor = Some(login.draw(&mut self.overlay));
+                } else if let Some(prompt) = &self.upload_prompt {
                     overlay_cursor = Some(prompt.draw(&mut self.overlay));
                 } else if let Some(t) = session.transfer() {
                     transfer_ui::draw_progress(&mut self.overlay, t.progress());
@@ -666,7 +754,11 @@ impl App {
         }
         match gfx.surface.buffer_mut() {
             Ok(mut buf) => {
-                self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize);
+                // Fullscreen and maximized windows fill the screen; a normal
+                // window keeps whole-number scaling.
+                let fill = gfx.window.fullscreen().is_some() || gfx.window.is_maximized();
+                let scaling = if fill { Scaling::Fill } else { Scaling::Integer };
+                self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize, scaling);
                 if let Err(e) = buf.present() {
                     log::error!("presenting frame: {e}");
                 }

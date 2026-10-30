@@ -2,6 +2,7 @@
 //! import/export.
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use phosphor_core::Encoding;
 use phosphor_core::dialer::{self, Directory, Entry, Protocol};
@@ -9,6 +10,7 @@ use phosphor_core::screen::{Cell, Screen};
 
 use super::*;
 use crate::input::{Key, Mods};
+use crate::secrets::{self, Store};
 
 pub const COLS: usize = 80;
 pub const ROWS: usize = 25;
@@ -21,7 +23,7 @@ pub enum Action {
     /// Connect to the directory entry at this index.
     Connect(usize),
     /// Connect to an address that is not (yet) in the directory.
-    QuickConnect(Entry),
+    QuickConnect(Box<Entry>),
     /// The directory changed and should be saved.
     Changed,
     /// The user confirmed hanging up the current call to dial the one chosen.
@@ -30,18 +32,34 @@ pub enum Action {
     Close,
 }
 
-const FIELDS: [&str; 9] =
-    ["Name", "Address", "Port", "Protocol", "Encoding", "Terminal type", "User name", "Password", "Comment"];
+const FIELDS: [&str; 10] = [
+    "Name",
+    "Address",
+    "Port",
+    "Protocol",
+    "Encoding",
+    "Terminal type",
+    "User name",
+    "Password",
+    "SSH key file",
+    "Comment",
+];
 const F_PORT: usize = 2;
 const F_PROTOCOL: usize = 3;
 const F_ENCODING: usize = 4;
+const F_USER: usize = 6;
 const F_PASSWORD: usize = 7;
+const F_KEY_FILE: usize = 8;
+const F_COMMENT: usize = 9;
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 9],
+    text: [TextField; 10],
+    /// The stored password could not be read from the keychain, so an empty
+    /// password field means "unchanged" rather than "none".
+    keychain_unread: bool,
     protocol: Protocol,
     encoding: Encoding,
     focus: usize,
@@ -49,9 +67,13 @@ struct Form {
 }
 
 impl Form {
-    fn new(index: Option<usize>, e: Entry) -> Form {
+    fn new(index: Option<usize>, e: Entry, store: &dyn Store) -> (Form, Option<String>) {
         let t = |s: &str| TextField::new(s, 120);
-        Form {
+        let (password, problem) = match secrets::password(&e, store) {
+            Ok(p) => (p, None),
+            Err(err) => (String::new(), Some(format!("Could not read the password from the keychain: {err}"))),
+        };
+        let form = Form {
             index,
             text: [
                 t(&e.name),
@@ -61,15 +83,18 @@ impl Form {
                 TextField::default(),
                 t(&e.term_type),
                 t(&e.username),
-                t(&e.password),
+                t(&password),
+                TextField::new(&e.key_file, 400),
                 t(&e.comment),
             ],
+            keychain_unread: problem.is_some(),
             protocol: e.protocol,
             encoding: e.encoding,
             focus: 0,
-            error: None,
+            error: problem.clone(),
             base: e,
-        }
+        };
+        (form, problem)
     }
 
     fn to_entry(&self) -> Result<Entry, String> {
@@ -86,10 +111,14 @@ impl Form {
         if parsed.port != parsed.protocol.default_port() {
             port = parsed.port;
         }
-        if self.protocol == Protocol::Ssh && self.text[6].value.trim().is_empty() {
+        if self.protocol == Protocol::Ssh && self.text[F_USER].value.trim().is_empty() {
             return Err("SSH needs a user name (BBSes often accept \"new\" or \"guest\")".into());
         }
         let name = self.text[0].value.trim();
+        let password = self.text[F_PASSWORD].value.clone();
+        // A password still in the keychain stays there; a new one is moved
+        // there when the directory is saved.
+        let kept = self.keychain_unread && password.is_empty() && self.base.keychain;
         Ok(Entry {
             name: if name.is_empty() { parsed.host.clone() } else { name.to_string() },
             host: parsed.host,
@@ -97,9 +126,11 @@ impl Form {
             protocol: self.protocol,
             encoding: self.encoding,
             term_type: self.text[5].value.trim().to_string(),
-            username: self.text[6].value.clone(),
-            password: self.text[7].value.clone(),
-            comment: self.text[8].value.clone(),
+            username: self.text[F_USER].value.clone(),
+            password,
+            keychain: kept,
+            key_file: self.text[F_KEY_FILE].value.trim().to_string(),
+            comment: self.text[F_COMMENT].value.clone(),
             added: self.base.added.or(Some(dialer::now())),
             ..self.base.clone()
         })
@@ -129,11 +160,12 @@ pub struct DialerUi {
     mode: Mode,
     /// Default directory offered for import/export paths.
     pub files_dir: PathBuf,
+    secrets: Rc<dyn Store>,
 }
 
 impl DialerUi {
-    pub fn new(files_dir: PathBuf) -> DialerUi {
-        DialerUi { selected: 0, top: 0, mode: Mode::List, files_dir }
+    pub fn new(files_dir: PathBuf, secrets: Rc<dyn Store>) -> DialerUi {
+        DialerUi { selected: 0, top: 0, mode: Mode::List, files_dir, secrets }
     }
 
     pub fn show_message(&mut self, msg: impl Into<String>) {
@@ -149,7 +181,7 @@ impl DialerUi {
 
     pub fn status_help(&self) -> &'static str {
         match self.mode {
-            Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  Q Quick  I Import  X Export  Esc Close",
+            Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  P Pin  Q Quick  I/X Imp/Exp  Esc Close",
             Mode::Edit(_) => "Enter Save  Esc Cancel  Tab/\u{2191}\u{2193} Field  Space/\u{2190}\u{2192} Change option",
             Mode::Prompt(..) => "Enter OK  Esc Cancel",
             Mode::ConfirmDelete => "Y Delete  N Keep",
@@ -171,11 +203,21 @@ impl DialerUi {
                 Key::End => self.selected = n.saturating_sub(1),
                 Key::Enter if n > 0 => return Action::Connect(self.selected),
                 Key::Insert | Key::Char('a') | Key::Char('A') => {
-                    self.mode = Mode::Edit(Box::new(Form::new(None, Entry::default())));
+                    let (form, _) = Form::new(None, Entry::default(), &*self.secrets);
+                    self.mode = Mode::Edit(Box::new(form));
                 }
                 Key::Char('e') | Key::Char('E') | Key::F(2) if n > 0 => {
                     let e = dir.entries[self.selected].clone();
-                    self.mode = Mode::Edit(Box::new(Form::new(Some(self.selected), e)));
+                    let (form, _) = Form::new(Some(self.selected), e, &*self.secrets);
+                    self.mode = Mode::Edit(Box::new(form));
+                }
+                Key::Char('p') | Key::Char('P') if n > 0 => {
+                    let e = &mut dir.entries[self.selected];
+                    e.pinned = !e.pinned;
+                    let id = (e.system_id(), e.name.clone());
+                    dir.sort();
+                    self.select(dir, &id);
+                    return Action::Changed;
                 }
                 Key::Delete | Key::Char('d') | Key::Char('D') if n > 0 => self.mode = Mode::ConfirmDelete,
                 Key::Char('q') | Key::Char('Q') => {
@@ -205,13 +247,21 @@ impl DialerUi {
                 Key::Enter => match form.to_entry() {
                     Ok(e) => {
                         let index = form.index;
-                        let name = e.name.clone();
+                        let id = (e.system_id(), e.name.clone());
+                        // A password that moved (new user or address) or was
+                        // cleared leaves the keychain.
+                        if let Some(old) = index.map(|i| &dir.entries[i])
+                            && !e.keychain
+                            && (e.password.is_empty() || secrets::account(old) != secrets::account(&e))
+                        {
+                            secrets::forget(old, &*self.secrets);
+                        }
                         match index {
                             Some(i) => dir.entries[i] = e,
                             None => dir.entries.push(e),
                         }
                         dir.sort();
-                        self.selected = dir.entries.iter().position(|x| x.name == name).unwrap_or(0);
+                        self.select(dir, &id);
                         self.mode = Mode::List;
                         return Action::Changed;
                     }
@@ -260,7 +310,8 @@ impl DialerUi {
             },
             Mode::ConfirmDelete => {
                 if let Key::Char('y' | 'Y') = key {
-                    dir.entries.remove(self.selected);
+                    let gone = dir.entries.remove(self.selected);
+                    secrets::forget(&gone, &*self.secrets);
                     self.selected = self.selected.min(dir.entries.len().saturating_sub(1));
                     self.mode = Mode::List;
                     return Action::Changed;
@@ -278,10 +329,16 @@ impl DialerUi {
         Action::None
     }
 
+    /// Select the entry with this (system id, name), e.g. after re-sorting.
+    fn select(&mut self, dir: &Directory, id: &(String, String)) {
+        let pos = dir.entries.iter().position(|x| x.system_id() == id.0 && x.name == id.1);
+        self.selected = pos.unwrap_or(0);
+    }
+
     fn run_prompt(&mut self, kind: PromptKind, value: &str, dir: &mut Directory) -> Action {
         match kind {
             PromptKind::QuickConnect => match Entry::from_address(value) {
-                Some(e) => Action::QuickConnect(e),
+                Some(e) => Action::QuickConnect(Box::new(e)),
                 None => {
                     self.show_message(format!("Not a valid address: {value}"));
                     Action::None
@@ -350,8 +407,10 @@ impl DialerUi {
             );
         }
         for (row, (i, e)) in dir.entries.iter().enumerate().skip(self.top).take(LIST_ROWS).enumerate() {
+            // Pinned entries are marked with a diamond.
             let line = format!(
-                " {:<30} {:<30} {:<7} {:>5}",
+                "{}{:<30} {:<30} {:<7} {:>5}",
+                if e.pinned { '\u{2666}' } else { ' ' },
                 truncate(&e.name, 30),
                 truncate(&e.address(), 30),
                 e.protocol.name(),
@@ -475,35 +534,10 @@ fn message_box(s: &mut Screen, title: &str, msg: &str) {
     }
 }
 
-fn wrap(s: &str, width: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut cur = String::new();
-    for word in s.split_whitespace() {
-        if !cur.is_empty() && cur.chars().count() + 1 + word.chars().count() > width {
-            lines.push(std::mem::take(&mut cur));
-        }
-        if !cur.is_empty() {
-            cur.push(' ');
-        }
-        cur.push_str(&truncate(word, width));
-    }
-    lines.push(cur);
-    lines
-}
-
-fn truncate(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        s.to_string()
-    } else {
-        let mut t: String = s.chars().take(n - 1).collect();
-        t.push('\u{00BB}');
-        t
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::secrets::tests::Memory;
 
     fn dir() -> Directory {
         let mut d = Directory::default();
@@ -520,13 +554,13 @@ mod tests {
 
     #[test]
     fn escape_closes_instead_of_quitting() {
-        let (mut ui, mut d) = (DialerUi::new(PathBuf::new()), dir());
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
         assert!(matches!(key(&mut ui, &mut d, Key::Escape), Action::Close));
     }
 
     #[test]
     fn hang_up_confirmation() {
-        let (mut ui, mut d) = (DialerUi::new(PathBuf::new()), dir());
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
         assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(0)));
 
         ui.confirm_hang_up("Alpha", "Beta");
@@ -539,5 +573,52 @@ mod tests {
         ui.confirm_hang_up("Alpha", "Beta");
         assert!(matches!(key(&mut ui, &mut d, Key::Char('n')), Action::None));
         assert!(ui.status_help().starts_with("Enter Dial"));
+    }
+
+    #[test]
+    fn pinning_moves_an_entry_to_the_top() {
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
+        key(&mut ui, &mut d, Key::Down);
+        assert!(matches!(key(&mut ui, &mut d, Key::Char('p')), Action::Changed));
+        assert!(d.entries[0].pinned && d.entries[0].host == "beta.example.org");
+        // The selection follows the entry.
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(0)));
+    }
+
+    #[test]
+    fn edited_passwords_and_the_keychain() {
+        let store = Rc::new(Memory::default());
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), store.clone()), dir());
+        let account = secrets::account(&d.entries[0]);
+        store.map.borrow_mut().insert(account.clone(), "pw".into());
+        d.entries[0].keychain = true;
+
+        // The editor shows the stored password; saving unchanged keeps it.
+        key(&mut ui, &mut d, Key::Char('e'));
+        let Mode::Edit(form) = &ui.mode else { panic!() };
+        assert_eq!(form.text[F_PASSWORD].value, "pw");
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Changed));
+        assert_eq!(d.entries[0].password, "pw");
+        assert!(store.map.borrow().contains_key(&account));
+        crate::secrets::migrate(&mut d, &*store).unwrap();
+        assert!(d.entries[0].keychain && d.entries[0].password.is_empty());
+
+        // Clearing the password removes it from the keychain.
+        key(&mut ui, &mut d, Key::Char('e'));
+        let Mode::Edit(form) = &mut ui.mode else { panic!() };
+        form.focus = F_PASSWORD;
+        key(&mut ui, &mut d, Key::Char('u'));
+        let ctrl = Mods { ctrl: true, ..Mods::default() };
+        ui.handle_key(Key::Char('u'), ctrl, &mut d);
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Changed));
+        assert!(!d.entries[0].keychain && d.entries[0].password.is_empty());
+        assert!(store.map.borrow().is_empty());
+
+        // Deleting an entry forgets its password.
+        store.map.borrow_mut().insert(account, "pw".into());
+        d.entries[0].keychain = true;
+        key(&mut ui, &mut d, Key::Delete);
+        key(&mut ui, &mut d, Key::Char('y'));
+        assert!(store.map.borrow().is_empty());
     }
 }

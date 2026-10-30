@@ -6,7 +6,10 @@
 //! - SSH runs the `russh` client on a single-threaded Tokio runtime, opening
 //!   one interactive shell channel with a PTY. Host keys are trusted on first
 //!   use and pinned in Phosphor's own `known_hosts` file; a changed key
-//!   refuses the connection.
+//!   refuses the connection. Login tries "none", then public keys (the
+//!   entry's key file, the SSH agent, the usual `~/.ssh/id_*` files), then
+//!   keyboard-interactive or password, asking the user through
+//!   [`NetEvent::Prompt`] for anything not stored.
 
 use std::fmt;
 use std::io::{self, Read, Write};
@@ -17,17 +20,25 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
-use russh::client::{self, KeyboardInteractiveAuthResponse};
+use russh::MethodKind;
+use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
+use russh::keys::agent::AgentIdentity;
+use russh::keys::agent::client::{AgentClient, AgentStream};
 use russh::keys::known_hosts::{check_known_hosts_path, learn_known_hosts_path};
-use russh::keys::{HashAlg, PublicKey, PublicKeyOrCertificate};
+use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
 use russh::{ChannelMsg, Disconnect};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::dialer::{Entry, Protocol};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// Rounds of keyboard-interactive prompts answered before giving up.
 const MAX_KBD_INTERACTIVE_ROUNDS: usize = 5;
+/// Times the user is asked for a password (or passphrase) before giving up.
+const MAX_PROMPTED_ATTEMPTS: usize = 3;
+/// Key files tried from the SSH directory, in OpenSSH's order.
+const DEFAULT_KEY_FILES: [&str; 3] = ["id_ed25519", "id_ecdsa", "id_rsa"];
+const LOGIN_CANCELLED: &str = "Login cancelled";
 
 /// Events produced by a connection thread.
 #[derive(Debug)]
@@ -37,8 +48,55 @@ pub enum NetEvent {
     Data(Vec<u8>),
     /// Something worth telling the user, e.g. a newly trusted host key.
     Notice(String),
+    /// The login needs an answer from the user.
+    Prompt(AuthPrompt),
     /// The connection ended, with an error message if it failed.
     Closed(Option<String>),
+}
+
+/// What an [`AuthPrompt`] asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PromptKind {
+    /// The account password (worth offering to remember).
+    Password,
+    /// The passphrase of a private key file.
+    Passphrase,
+    /// A question from the server's keyboard-interactive login, such as a
+    /// one-time code.
+    Interactive,
+}
+
+/// A question the SSH login needs the user to answer. Answer it with
+/// [`AuthPrompt::answer`]; dropping it unanswered cancels the login.
+pub struct AuthPrompt {
+    pub kind: PromptKind,
+    /// A heading, e.g. "SSH login to bbs.example.com".
+    pub title: String,
+    /// Extra text from the server, or why the question is asked again.
+    pub instructions: String,
+    pub prompt: String,
+    /// Whether the answer may be shown as it is typed.
+    pub echo: bool,
+    reply: oneshot::Sender<Option<String>>,
+}
+
+impl AuthPrompt {
+    /// Reply with the answer, or `None` to cancel the login.
+    pub fn answer(self, answer: Option<String>) {
+        let _ = self.reply.send(answer);
+    }
+}
+
+impl fmt::Debug for AuthPrompt {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AuthPrompt")
+            .field("kind", &self.kind)
+            .field("title", &self.title)
+            .field("instructions", &self.instructions)
+            .field("prompt", &self.prompt)
+            .field("echo", &self.echo)
+            .finish()
+    }
 }
 
 /// Settings for establishing a connection.
@@ -48,6 +106,10 @@ pub struct ConnectOptions {
     pub rows: u16,
     /// Where SSH host keys are pinned.
     pub known_hosts: PathBuf,
+    /// Whether to offer the SSH agent's keys.
+    pub ssh_agent: bool,
+    /// Where to look for default SSH keys (usually `~/.ssh`).
+    pub ssh_key_dir: Option<PathBuf>,
 }
 
 enum SshCmd {
@@ -111,6 +173,9 @@ where
                 port: entry.port,
                 user: entry.username.clone(),
                 password: entry.password.clone(),
+                key_file: (!entry.key_file.trim().is_empty()).then(|| expand_home(entry.key_file.trim())),
+                agent: opts.ssh_agent,
+                key_dir: opts.ssh_key_dir.clone(),
                 term: if entry.term_type.is_empty() { "ansi".into() } else { entry.term_type.clone() },
                 cols: opts.cols,
                 rows: opts.rows,
@@ -170,6 +235,9 @@ struct SshParams {
     port: u16,
     user: String,
     password: String,
+    key_file: Option<PathBuf>,
+    agent: bool,
+    key_dir: Option<PathBuf>,
     term: String,
     cols: u16,
     rows: u16,
@@ -280,7 +348,7 @@ async fn run_ssh(p: SshParams, emitter: Emitter) -> Result<()> {
         Ok(Ok(s)) => s,
     };
 
-    authenticate(&mut session, &p.user, &p.password).await?;
+    Login { session: &mut session, p: &p, emitter: &emitter }.run().await?;
 
     let channel = session.channel_open_session().await.context("opening SSH channel")?;
     channel
@@ -311,29 +379,304 @@ async fn run_ssh(p: SshParams, emitter: Emitter) -> Result<()> {
     Ok(())
 }
 
-/// Try "none" (common for BBSes that run their own login), then password,
-/// then keyboard-interactive answering every prompt with the stored
-/// password.
-async fn authenticate<H: client::Handler>(session: &mut client::Handle<H>, user: &str, password: &str) -> Result<()> {
-    if session.authenticate_none(user).await?.success() {
-        return Ok(());
+/// Expand a leading `~/` to the home directory.
+fn expand_home(p: &str) -> PathBuf {
+    match (p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\")), std::env::home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest),
+        _ => PathBuf::from(p),
     }
-    if !password.is_empty() && session.authenticate_password(user, password).await?.success() {
-        return Ok(());
+}
+
+/// How a login attempt went.
+enum Attempt {
+    Success,
+    /// Rejected; the server lists the methods still worth trying.
+    Failed(Vec<MethodKind>),
+}
+
+impl From<AuthResult> for Attempt {
+    fn from(r: AuthResult) -> Attempt {
+        match r {
+            AuthResult::Success => Attempt::Success,
+            AuthResult::Failure { remaining_methods, .. } => Attempt::Failed(remaining_methods.to_vec()),
+        }
     }
-    let mut resp = session.authenticate_keyboard_interactive_start(user, None).await?;
-    for _ in 0..MAX_KBD_INTERACTIVE_ROUNDS {
-        match resp {
-            KeyboardInteractiveAuthResponse::Success => return Ok(()),
-            KeyboardInteractiveAuthResponse::Failure { .. } => break,
-            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
-                let answers = vec![password.to_string(); prompts.len()];
-                resp = session.authenticate_keyboard_interactive_respond(answers).await?;
+}
+
+/// The SSH login sequence.
+struct Login<'a, H: client::Handler> {
+    session: &'a mut client::Handle<H>,
+    p: &'a SshParams,
+    emitter: &'a Emitter,
+}
+
+impl<H: client::Handler> Login<'_, H> {
+    /// Try "none" (common for BBSes that run their own login), then public
+    /// keys, then keyboard-interactive or password, prompting for whatever
+    /// is not stored.
+    async fn run(&mut self) -> Result<()> {
+        let user = self.p.user.clone();
+        let mut methods = match self.session.authenticate_none(&user).await?.into() {
+            Attempt::Success => return Ok(()),
+            Attempt::Failed(m) => m,
+        };
+        if methods.contains(&MethodKind::PublicKey) {
+            match self.public_keys().await? {
+                Some(Attempt::Success) => return Ok(()),
+                Some(Attempt::Failed(m)) => methods = m,
+                None => {}
+            }
+        }
+        // Like OpenSSH, keyboard-interactive first: servers that offer it
+        // (PAM, one-time codes) often refuse plain password logins. If it
+        // already asked the user, the password method would only ask again.
+        let mut asked = false;
+        if methods.contains(&MethodKind::KeyboardInteractive) {
+            let (attempt, a) = self.keyboard_interactive().await?;
+            asked = a;
+            match attempt {
+                Attempt::Success => return Ok(()),
+                Attempt::Failed(m) => methods = m,
+            }
+        }
+        if !asked && methods.contains(&MethodKind::Password) {
+            match self.password().await? {
+                Attempt::Success => return Ok(()),
+                Attempt::Failed(m) => methods = m,
+            }
+        }
+        let offered: Vec<&str> = methods.iter().map(<&str>::from).collect();
+        log::debug!("SSH login refused; server still offers {offered:?}");
+        bail!("SSH login as \"{user}\" was refused: check the user name and password")
+    }
+
+    async fn ask(&self, kind: PromptKind, instructions: String, prompt: String, echo: bool) -> Option<String> {
+        let (reply, answer) = oneshot::channel();
+        let title = format!("SSH login to {}", self.p.host);
+        self.emitter.emit(NetEvent::Prompt(AuthPrompt { kind, title, instructions, prompt, echo, reply }));
+        answer.await.ok().flatten()
+    }
+
+    async fn ask_password(&self, retry: bool) -> Result<String> {
+        let why = if retry { "That password was not accepted." } else { "" };
+        let prompt = format!("Password for {}:", self.p.user);
+        self.ask(PromptKind::Password, why.into(), prompt, false).await.context(LOGIN_CANCELLED)
+    }
+
+    /// The stored password once, then up to [`MAX_PROMPTED_ATTEMPTS`]
+    /// typed ones.
+    async fn password(&mut self) -> Result<Attempt> {
+        let mut stored = (!self.p.password.is_empty()).then(|| self.p.password.clone());
+        let (mut retry, mut asked) = (false, 0);
+        let mut last = Attempt::Failed(vec![MethodKind::Password]);
+        while asked < MAX_PROMPTED_ATTEMPTS {
+            let pw = match stored.take() {
+                Some(pw) => pw,
+                None => {
+                    asked += 1;
+                    self.ask_password(retry).await?
+                }
+            };
+            last = self.session.authenticate_password(&self.p.user, pw).await?.into();
+            match &last {
+                Attempt::Failed(m) if m.contains(&MethodKind::Password) => retry = true,
+                _ => break,
+            }
+        }
+        Ok(last)
+    }
+
+    /// Answer the server's questions. A lone hidden question is taken to be
+    /// the password, so a stored one answers it the first time. Also returns
+    /// whether the user was asked anything.
+    async fn keyboard_interactive(&mut self) -> Result<(Attempt, bool)> {
+        let user = self.p.user.clone();
+        let mut stored = (!self.p.password.is_empty()).then(|| self.p.password.clone());
+        let (mut retry, mut asked) = (false, false);
+        let mut last = Attempt::Failed(vec![MethodKind::KeyboardInteractive]);
+        // A stored password gets one try ahead of the typed ones.
+        let attempts = MAX_PROMPTED_ATTEMPTS + usize::from(stored.is_some());
+        'attempts: for _ in 0..attempts {
+            let mut resp = self.session.authenticate_keyboard_interactive_start(&user, None).await?;
+            for _ in 0..MAX_KBD_INTERACTIVE_ROUNDS {
+                let (name, instructions, prompts) = match resp {
+                    KeyboardInteractiveAuthResponse::Success => return Ok((Attempt::Success, asked)),
+                    KeyboardInteractiveAuthResponse::Failure { remaining_methods, .. } => {
+                        last = Attempt::Failed(remaining_methods.to_vec());
+                        // Retry only after a wrong answer: one the user typed,
+                        // or the stored password (the user is asked next time).
+                        let used_stored = stored.is_none() && !self.p.password.is_empty();
+                        if !remaining_methods.contains(&MethodKind::KeyboardInteractive) || !asked && !used_stored {
+                            break 'attempts;
+                        }
+                        retry = true;
+                        continue 'attempts;
+                    }
+                    KeyboardInteractiveAuthResponse::InfoRequest { name, instructions, prompts } => {
+                        (name, instructions, prompts)
+                    }
+                };
+                let mut answers = Vec::with_capacity(prompts.len());
+                if let ([only], Some(pw)) = (prompts.as_slice(), stored.as_ref())
+                    && !only.echo
+                {
+                    answers.push(pw.clone());
+                    stored = None;
+                } else {
+                    let mut info = [name.trim(), instructions.trim()]
+                        .into_iter()
+                        .filter(|s| !s.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if retry && info.is_empty() {
+                        info = "That answer was not accepted.".into();
+                    }
+                    for q in &prompts {
+                        let kind = if q.echo { PromptKind::Interactive } else { PromptKind::Password };
+                        let text = if q.prompt.trim().is_empty() { "Password:" } else { q.prompt.trim() };
+                        asked = true;
+                        let answer = self.ask(kind, info.clone(), text.into(), q.echo).await;
+                        answers.push(answer.context(LOGIN_CANCELLED)?);
+                    }
+                }
+                resp = self.session.authenticate_keyboard_interactive_respond(answers).await?;
+            }
+            break;
+        }
+        Ok((last, asked))
+    }
+
+    /// The entry's key file, then the agent's keys, then the default key
+    /// files. Returns None if no key was offered at all.
+    async fn public_keys(&mut self) -> Result<Option<Attempt>> {
+        let rsa_hash = self.session.best_supported_rsa_hash().await.ok().flatten().flatten();
+        let mut offered: Vec<PublicKey> = Vec::new();
+        let mut last = None;
+
+        if let Some(path) = self.p.key_file.clone()
+            && let Some(key) = self.load_key(&path, true).await?
+        {
+            offered.push(key.public_key().clone());
+            let r = self.offer_key(key, rsa_hash).await?;
+            if matches!(r, Attempt::Success) {
+                return Ok(Some(r));
+            }
+            last = Some(r);
+        }
+
+        if self.p.agent
+            && let Some(mut agent) = connect_agent().await
+        {
+            let identities = agent.request_identities().await.unwrap_or_else(|e| {
+                log::debug!("listing SSH agent keys: {e}");
+                Vec::new()
+            });
+            for id in identities {
+                let AgentIdentity::PublicKey { key, .. } = id else { continue };
+                if offered.contains(&key) {
+                    continue;
+                }
+                offered.push(key.clone());
+                let hash = if key.algorithm().is_rsa() { rsa_hash } else { None };
+                match self.session.authenticate_publickey_with(&self.p.user, key, hash, &mut agent).await {
+                    Ok(r) => match Attempt::from(r) {
+                        Attempt::Success => return Ok(Some(Attempt::Success)),
+                        failed => last = Some(failed),
+                    },
+                    Err(e) => log::debug!("SSH agent signing failed: {e}"),
+                }
+            }
+        }
+
+        if let Some(dir) = self.p.key_dir.clone() {
+            for name in DEFAULT_KEY_FILES {
+                let path = dir.join(name);
+                if Some(&path) == self.p.key_file.as_ref() || !path.exists() {
+                    continue;
+                }
+                // Encrypted default keys are skipped rather than asking for
+                // their passphrase on every BBS that offers public keys;
+                // load them into the agent, or name one in the entry.
+                let Some(key) = self.load_key(&path, false).await? else { continue };
+                if offered.contains(key.public_key()) {
+                    continue;
+                }
+                offered.push(key.public_key().clone());
+                match self.offer_key(key, rsa_hash).await? {
+                    Attempt::Success => return Ok(Some(Attempt::Success)),
+                    failed => last = Some(failed),
+                }
+            }
+        }
+        Ok(last)
+    }
+
+    async fn offer_key(&mut self, key: PrivateKey, rsa_hash: Option<HashAlg>) -> Result<Attempt> {
+        let key = PrivateKeyWithHashAlg::new(Arc::new(key), rsa_hash);
+        Ok(self.session.authenticate_publickey(&self.p.user, key).await?.into())
+    }
+
+    /// Load a private key. For the entry's own key (`ask`), an encrypted key
+    /// prompts for its passphrase and problems are reported; otherwise they
+    /// only skip the key.
+    async fn load_key(&self, path: &Path, ask: bool) -> Result<Option<PrivateKey>> {
+        let shown = path.display().to_string();
+        let mut why = String::new();
+        let mut passphrase: Option<String> = None;
+        for _ in 0..=MAX_PROMPTED_ATTEMPTS {
+            match russh::keys::load_secret_key(path, passphrase.as_deref()) {
+                Ok(key) => return Ok(Some(key)),
+                Err(e) if !ask => {
+                    log::debug!("skipping SSH key {shown}: {e}");
+                    return Ok(None);
+                }
+                Err(russh::keys::Error::KeyIsEncrypted) => {}
+                // A wrong passphrase shows up as a decryption error.
+                Err(russh::keys::Error::SshKey(_)) if passphrase.is_some() => {
+                    why = "That passphrase was not accepted.".into();
+                }
+                Err(e) => {
+                    self.emitter.emit(NetEvent::Notice(format!("Cannot use SSH key {shown}: {e}")));
+                    return Ok(None);
+                }
+            }
+            let prompt = format!("Passphrase for {shown}:");
+            match self.ask(PromptKind::Passphrase, why.clone(), prompt, false).await {
+                Some(p) => passphrase = Some(p),
+                // Skip the key; other methods may still work.
+                None => return Ok(None),
+            }
+        }
+        Ok(None)
+    }
+}
+
+/// Connect to the user's SSH agent, if one is running.
+async fn connect_agent() -> Option<AgentClient<Box<dyn AgentStream + Send + Unpin>>> {
+    #[cfg(unix)]
+    {
+        match AgentClient::connect_env().await {
+            Ok(a) => Some(a.dynamic()),
+            Err(e) => {
+                log::debug!("no SSH agent: {e}");
+                None
             }
         }
     }
-    if password.is_empty() {
-        bail!("SSH login as \"{user}\" was refused; the BBS may need a password set in the entry");
+    #[cfg(windows)]
+    {
+        // The Windows OpenSSH agent service, then PuTTY's Pageant.
+        if let Ok(a) = AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent").await {
+            return Some(a.dynamic());
+        }
+        match AgentClient::connect_pageant().await {
+            Ok(a) => Some(a.dynamic()),
+            Err(e) => {
+                log::debug!("no SSH agent: {e}");
+                None
+            }
+        }
     }
-    bail!("SSH login as \"{user}\" was refused: check the user name and password")
+    #[cfg(not(any(unix, windows)))]
+    None
 }

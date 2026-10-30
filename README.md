@@ -24,7 +24,10 @@ fonts and colors of a host terminal.
 - **Telnet** with BINARY, ECHO, SGA, TERMINAL-TYPE and NAWS negotiation;
   **raw TCP** for systems that don't speak telnet
 - **SSH** (pure Rust, no OpenSSL): "none" auth for BBSes that run their own
-  login, password, and keyboard-interactive auth. Host keys are trusted on
+  login, public keys (a key file set in the entry, your SSH agent, or
+  `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`), keyboard-interactive and
+  password auth. Anything not stored, such as a password, a key passphrase or
+  a one-time code, is asked for in a login dialog. Host keys are trusted on
   first use and pinned in Phosphor's own `known_hosts`; a changed key is
   refused with an explanation.
 - **ZMODEM** downloads start automatically when the BBS sends a file. Uploads
@@ -35,15 +38,21 @@ fonts and colors of a host terminal.
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
 - **Session capture** to `.ans` files (`Alt-C`)
-- **Dialing directory** with add/edit/delete, quick connect, call counts and
-  last-called dates
+- **Dialing directory** with add/edit/delete, quick connect, call counts,
+  last-called dates and pinned favorites. It starts with
+  [The Vortex BBS](telnet://vortexbbs.com), the project's home BBS.
+- **Passwords in the OS keychain** (Keychain on macOS, Credential Manager on
+  Windows, the Secret Service on Linux) rather than the directory file. Where
+  no keychain is available, they stay in the file.
 - **Import/export** of SyncTERM `.lst`, CSV, JSON and TOML directories. Use
   the dialer, the command line, or drag a file onto the window.
-- Clipboard paste, fullscreen, integer pixel scaling with letterboxing
+- Clipboard paste. A normal window scales by whole numbers so every pixel
+  is exact; fullscreen (`Alt-Enter`) and maximized windows fill the screen,
+  keeping the shape and keeping the pixels sharp.
 
 ## Building
 
-Install Rust (stable, 1.85 or newer) from <https://rustup.rs>, then:
+Install Rust (stable, 1.89 or newer) from <https://rustup.rs>, then:
 
 ```sh
 cargo build --release
@@ -81,6 +90,7 @@ hanging up.
 | `Ins` / `A` | Add an entry |
 | `E` / `F2` | Edit the selected entry |
 | `Del` / `D` | Remove the selected entry |
+| `P` | Pin or unpin the entry (pinned entries are listed first) |
 | `Q` | Quick connect to an address |
 | `I` / `X` | Import / export a directory file |
 | letter or digit | Jump to the next entry starting with it |
@@ -101,15 +111,29 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-C` | Start/stop capturing to a file |
 | `Alt-U` | Upload files with ZMODEM (or drop files on the window) |
 | `Alt-V`, `Shift-Ins` | Paste from the clipboard |
-| `Alt-Enter` | Toggle fullscreen |
+| `Alt-Enter` | Toggle fullscreen (fills the screen, keeping the shape) |
 | `Alt-X` | Exit |
 
 Downloads are saved to `Downloads/Phosphor`; `phosphor --paths` shows every
 location Phosphor uses.
 
-For SSH entries, set the user name (and password, if the BBS needs one) in
-the entry. Many BBSes accept a user like `new` or `guest` and then run their
-own login.
+For SSH entries, set the user name in the entry. Many BBSes accept a user
+like `new` or `guest` and then run their own login. Phosphor logs in with:
+
+1. "none", which is all most BBSes need;
+2. public keys: the entry's "SSH key file" (asking for its passphrase if it
+   has one), then your SSH agent (`SSH_AUTH_SOCK`; on Windows the OpenSSH
+   agent service or Pageant), then unencrypted `~/.ssh/id_ed25519`,
+   `id_ecdsa` and `id_rsa`. Encrypted default keys are skipped rather than
+   asking for a passphrase on every BBS that offers key logins: add them to
+   your agent, or name one in the entry;
+3. keyboard-interactive or password, using the entry's password if there is
+   one and asking otherwise (or when it is refused). The login dialog can
+   remember the password for next time (`Tab`).
+
+Passwords you enter in the directory, remember from the login dialog, or
+import with a SyncTERM list are moved into the OS keychain when the
+directory is saved. Exported directories don't include them.
 
 Keys are sent the way ANSI-BBS software expects: arrows as `ESC [ A..D`,
 `Home`/`End` as `ESC [ H` / `ESC [ K`, `PgUp`/`PgDn` as `ESC [ V` / `ESC [ U`,

@@ -76,7 +76,17 @@ pub struct Entry {
     /// Stored in plain text, as in other BBS dialers.
     pub password: String,
     pub term_type: String,
+    /// SSH private key to try first; otherwise the SSH agent and the usual
+    /// `~/.ssh/id_*` files are tried.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub key_file: String,
     pub comment: String,
+    /// The password is kept in the OS keychain rather than in `password`.
+    #[serde(skip_serializing_if = "is_false")]
+    pub keychain: bool,
+    /// Pinned entries sort ahead of the rest.
+    #[serde(skip_serializing_if = "is_false")]
+    pub pinned: bool,
     /// Unix timestamps.
     pub added: Option<u64>,
     pub last_connected: Option<u64>,
@@ -94,7 +104,10 @@ impl Default for Entry {
             username: String::new(),
             password: String::new(),
             term_type: "ANSI".into(),
+            key_file: String::new(),
             comment: String::new(),
+            keychain: false,
+            pinned: false,
             added: None,
             last_connected: None,
             calls: 0,
@@ -134,6 +147,31 @@ impl Entry {
     fn same_system(&self, other: &Entry) -> bool {
         self.host.eq_ignore_ascii_case(&other.host) && self.port == other.port && self.protocol == other.protocol
     }
+
+    /// Identifies the system (protocol, host and port), e.g. for remembering
+    /// which default entries were already offered.
+    pub fn system_id(&self) -> String {
+        format!("{}://{}:{}", self.protocol.name().to_ascii_lowercase(), self.host.to_ascii_lowercase(), self.port)
+    }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// The entries a new directory starts with, first among them the project's
+/// own BBS. More can be added here over time: existing directories pick up
+/// new ones once (see [`Directory::offer_defaults`]).
+pub fn default_entries() -> Vec<Entry> {
+    vec![Entry {
+        name: "The Vortex BBS".into(),
+        host: "vortexbbs.com".into(),
+        port: 23,
+        protocol: Protocol::Telnet,
+        comment: "Home BBS of the Phosphor project".into(),
+        pinned: true,
+        ..Entry::default()
+    }]
 }
 
 fn split_host_port(s: &str) -> Option<(String, Option<u16>)> {
@@ -182,6 +220,10 @@ impl Format {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Directory {
+    /// Default entries already offered to this directory (by
+    /// [`Entry::system_id`]), so one the user deleted does not come back.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub defaults_offered: Vec<String>,
     #[serde(default, rename = "entry")]
     pub entries: Vec<Entry>,
 }
@@ -206,8 +248,30 @@ impl Directory {
         fs::rename(&tmp, path).with_context(|| format!("writing {}", path.display()))
     }
 
+    /// Pinned entries first, then by name.
     pub fn sort(&mut self) {
-        self.entries.sort_by_key(|e| e.name.to_lowercase());
+        self.entries.sort_by_key(|e| (!e.pinned, e.name.to_lowercase()));
+    }
+
+    /// Add any default entries this directory has not been offered before.
+    /// Returns true if the directory changed and should be saved.
+    pub fn offer_defaults(&mut self) -> bool {
+        let mut changed = false;
+        for e in default_entries() {
+            let id = e.system_id();
+            if self.defaults_offered.contains(&id) {
+                continue;
+            }
+            if !self.entries.iter().any(|x| x.same_system(&e)) {
+                self.entries.push(Entry { added: Some(now()), ..e });
+            }
+            self.defaults_offered.push(id);
+            changed = true;
+        }
+        if changed {
+            self.sort();
+        }
+        changed
     }
 
     /// Add entries that are not already present (same host, port and
@@ -263,7 +327,7 @@ pub fn export(path: &Path, entries: &[Entry]) -> Result<()> {
         bail!("use a .lst, .csv, .json or .toml file name to choose the export format");
     };
     let text = match format {
-        Format::Toml => toml::to_string_pretty(&Directory { entries: entries.to_vec() })?,
+        Format::Toml => toml::to_string_pretty(&Directory { entries: entries.to_vec(), ..Directory::default() })?,
         Format::Json => serde_json::to_string_pretty(entries)?,
         Format::Csv => to_csv(entries)?,
         Format::SyncTerm => to_syncterm(entries),
@@ -511,7 +575,7 @@ mod tests {
 
     #[test]
     fn toml_and_json_round_trip() {
-        let d = Directory { entries: sample() };
+        let d = Directory { entries: sample(), defaults_offered: vec!["telnet://x:23".into()] };
         let t = toml::to_string_pretty(&d).unwrap();
         assert_eq!(toml::from_str::<Directory>(&t).unwrap(), d);
         let j = serde_json::to_string(&d.entries).unwrap();
@@ -520,9 +584,34 @@ mod tests {
 
     #[test]
     fn merge_skips_duplicates() {
-        let mut d = Directory { entries: sample() };
+        let mut d = Directory { entries: sample(), ..Directory::default() };
         let added = d.merge(sample());
         assert_eq!(added, 0);
         assert_eq!(d.entries.len(), 2);
+    }
+
+    #[test]
+    fn defaults_are_offered_once() {
+        let mut d = Directory { entries: sample(), ..Directory::default() };
+        assert!(d.offer_defaults());
+        // Pinned, so first despite the name.
+        assert_eq!(d.entries[0].host, "vortexbbs.com");
+        assert_eq!(d.entries.len(), 3);
+        assert!(!d.offer_defaults());
+
+        // Deleting it sticks, including across a save and load.
+        d.entries.remove(0);
+        let d: Directory = toml::from_str(&toml::to_string_pretty(&d).unwrap()).unwrap();
+        let mut d = d;
+        assert!(!d.offer_defaults());
+        assert_eq!(d.entries.len(), 2);
+    }
+
+    #[test]
+    fn new_fields_are_optional_in_toml() {
+        let d: Directory = toml::from_str("[[entry]]\nname = \"A\"\nhost = \"a.example\"\n").unwrap();
+        assert!(!d.entries[0].pinned && !d.entries[0].keychain && d.entries[0].key_file.is_empty());
+        let t = toml::to_string_pretty(&d).unwrap();
+        assert!(!t.contains("pinned") && !t.contains("keychain") && !t.contains("key_file"), "{t}");
     }
 }

@@ -329,6 +329,9 @@ impl Terminal {
             b'T' => s.scroll_down(n),
             b'X' => s.erase_chars(n),
             b'Z' => s.back_tab(n),
+            // Device Attributes: answer as a plain VT100. Claiming CTerm would
+            // invite font and palette sequences that are not supported yet.
+            b'c' if self.params.first().is_none_or(|&v| v == 0) => self.replies.extend_from_slice(b"\x1b[?1;0c"),
             b'm' => self.sgr(),
             b'n' => match self.params.first().copied().unwrap_or(0) {
                 5 => self.replies.extend_from_slice(b"\x1b[0n"),
@@ -470,6 +473,16 @@ mod tests {
         let mut t = term();
         t.feed(b"\x1b[10;20H\x1b[6n");
         assert_eq!(t.take_replies(), b"\x1b[10;20R");
+    }
+
+    #[test]
+    fn device_attributes() {
+        let mut t = term();
+        t.feed(b"\x1b[c\x1b[0c");
+        assert_eq!(t.take_replies(), b"\x1b[?1;0c\x1b[?1;0c");
+        // Secondary DA (`CSI > c`) and `CSI 1 c` are not answered.
+        t.feed(b"\x1b[>c\x1b[1c");
+        assert!(t.take_replies().is_empty());
     }
 
     #[test]
