@@ -25,7 +25,8 @@ use crate::input::{self, Key, Mods};
 use crate::render::{Display, Font, Frame, Renderer, Scaling};
 use crate::secrets::{self, Keychain, Store};
 use crate::selection::Selection;
-use crate::settings::Settings;
+use crate::settings::{Music, Settings};
+use crate::sound::Player;
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
 use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::save::{SaveFormat, SavePrompt};
@@ -135,6 +136,8 @@ pub struct App {
     /// Mouse position in window pixels.
     mouse: (f64, f64),
     settings: Settings,
+    /// Plays ANSI music.
+    player: Player,
     /// Where the last frame was drawn in the window: (x, y, w, h).
     view_rect: (usize, usize, usize, usize),
     /// The SSH login's question, while one is waiting.
@@ -200,6 +203,7 @@ impl App {
             mouse: (0.0, 0.0),
             view_rect: (0, 0, 1, 1),
             settings,
+            player: Player::default(),
             login: None,
             remember: None,
             secrets,
@@ -283,7 +287,10 @@ impl App {
         };
         let rows = if dialer::SCREEN_ROWS.contains(&entry.rows) { entry.rows as usize } else { ROWS };
         let session = match Session::new(entry, COLS, rows, config) {
-            Ok(s) => s,
+            Ok(mut s) => {
+                s.term.music_on_csi_m = self.settings.music == Music::All;
+                s
+            }
             Err(e) => {
                 self.dialer_open = true;
                 return self.dialer.show_message(format!("{e:#}"));
@@ -319,6 +326,7 @@ impl App {
         self.session = None;
         self.session_index = None;
         self.scroll = 0;
+        self.player.stop();
         self.upload_prompt = None;
         self.save_prompt = None;
         self.selection = None;
@@ -365,6 +373,11 @@ impl App {
                     }
                 }
                 SessionEvent::Term(TermEvent::Title(t)) => self.set_title(&format!("Phosphor \u{2014} {t}")),
+                SessionEvent::Term(TermEvent::Music(tones)) => {
+                    if self.settings.music != Music::Off {
+                        self.player.play(tones);
+                    }
+                }
                 SessionEvent::Notice(msg) => self.notify(msg),
                 SessionEvent::Connected => {
                     if let Some(pw) = self.remember.take()
@@ -519,6 +532,18 @@ impl App {
             KeyCode::KeyA => {
                 self.settings.aspect = !self.settings.aspect;
                 let msg = if self.settings.aspect { "4:3 aspect, as on a CRT" } else { "Square pixels" };
+                self.settings_changed(msg);
+                return true;
+            }
+            KeyCode::KeyM => {
+                self.settings.music = self.settings.music.next();
+                if self.settings.music == Music::Off {
+                    self.player.stop();
+                }
+                if let Some(s) = self.session.as_mut() {
+                    s.term.music_on_csi_m = self.settings.music == Music::All;
+                }
+                let msg = self.settings.music.name();
                 self.settings_changed(msg);
                 return true;
             }

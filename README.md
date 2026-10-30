@@ -51,6 +51,10 @@ fonts and colors of a host terminal.
   no keychain is available, they stay in the file.
 - **Import/export** of SyncTERM `.lst`, CSV, JSON and TOML directories. Use
   the dialer, the command line, or drag a file onto the window.
+- **ANSI music**: BBS tunes in the BASIC `PLAY` language (`ESC [ N` or
+  `ESC [ |` up to Ctrl-N) play as PC-speaker square waves. `Alt-M` turns
+  it off, or also on for `ESC [ M`, which many doors use but which
+  otherwise means "delete a line"
 - **Phosphor mode** (`Alt-P`): the look of a CRT, with glowing text,
   scanlines and curved glass, in color or as a green or amber monochrome
   monitor
@@ -85,8 +89,8 @@ cargo build --release
 ./target/release/phosphor
 ```
 
-No extra system libraries are required on Linux; X11 and Wayland are both
-supported and loaded at runtime.
+No extra system libraries are required on Linux: X11 and Wayland are both
+supported, and they and ALSA (for ANSI music) are loaded at run time.
 
 ## Usage
 
@@ -145,9 +149,10 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-P` | Phosphor mode: off, color CRT, green screen, amber screen |
 | `Alt-A` | 4:3 aspect, as on a CRT, or square pixels |
 | `Alt-W` | 9-dot or 8-dot character cells |
+| `Alt-M` | ANSI music: on, on including `ESC [ M`, off |
 | `Alt-X` | Exit |
 
-`Alt-P`, `Alt-A` and `Alt-W` work anywhere, including in the dialing
+`Alt-P`, `Alt-A`, `Alt-W` and `Alt-M` work anywhere, including in the dialing
 directory, and are remembered in `settings.toml`. An entry's "Screen mode"
 can be 80x25 or 80x50.
 

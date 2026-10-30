@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::cp437;
+use crate::music::{self, Tone};
 use crate::palette::{ANSI_TO_VGA, rgb};
 use crate::screen::{Cell, Color, DEFAULT_BG, DEFAULT_FG, Screen, flags};
 
@@ -44,6 +45,8 @@ enum State {
     IgnoreString,
     /// Saw ESC inside a string; `\` terminates it.
     StringEsc,
+    /// An ANSI music string, up to Ctrl-N.
+    Music,
 }
 
 /// Things the front end may want to react to.
@@ -51,11 +54,17 @@ enum State {
 pub enum TermEvent {
     Bell,
     Title(String),
+    /// ANSI music to play.
+    Music(Vec<Tone>),
 }
 
 pub struct Terminal {
     pub screen: Screen,
     pub encoding: Encoding,
+    /// Treat `ESC [ M` with no parameter as the start of ANSI music, as
+    /// many BBS doors expect, instead of "delete one line". `ESC [ N` and
+    /// `ESC [ |` always start music.
+    pub music_on_csi_m: bool,
     state: State,
     string_is_osc: bool,
     private: u8,
@@ -75,6 +84,7 @@ impl Terminal {
         Terminal {
             screen: Screen::new(cols, rows, scrollback),
             encoding: Encoding::Cp437,
+            music_on_csi_m: false,
             state: State::Ground,
             string_is_osc: false,
             private: 0,
@@ -121,6 +131,18 @@ impl Terminal {
                 0x1B => self.state = State::StringEsc,
                 _ if self.state == State::Osc && self.osc.len() < MAX_STRING => self.osc.push(b),
                 _ => {}
+            },
+            State::Music => match b {
+                0x0E => {
+                    self.state = State::Ground;
+                    let tones = music::parse(&self.osc);
+                    if !tones.is_empty() {
+                        self.events.push(TermEvent::Music(tones));
+                    }
+                }
+                _ if self.osc.len() < MAX_STRING => self.osc.push(b),
+                // Too long to be music: give up on it.
+                _ => self.state = State::Ground,
             },
             State::StringEsc => {
                 if b == b'\\' {
@@ -291,6 +313,12 @@ impl Terminal {
                 log::debug!("unhandled private CSI {:?}{:?} {:?}", self.private as char, b as char, self.params);
                 return;
             }
+        }
+        let no_params = self.params.is_empty();
+        if b == b'|' || no_params && (b == b'N' || b == b'M' && self.music_on_csi_m) {
+            self.state = State::Music;
+            self.osc.clear();
+            return;
         }
         let n = self.p(0, 1) as usize;
         let s = &mut self.screen;
@@ -528,5 +556,22 @@ mod tests {
         let mut t = term();
         t.feed(b"\x1b[5;5H\x1b[s\x1b[1;1H\x1b[uX");
         assert_eq!(t.screen.row(4)[4].ch, b'X');
+    }
+
+    #[test]
+    fn ansi_music() {
+        let mut t = term();
+        t.feed(b"Hi\x1b[NMLO3A\x0e there\x1b[|MLO3A8\x0e");
+        assert_eq!(line(&t, 0), "Hi there");
+        let a = Tone { hz: 440, ms: 500 };
+        assert_eq!(t.take_events(), [TermEvent::Music(vec![a]), TermEvent::Music(vec![Tone { ms: 250, ..a }])]);
+
+        // ESC [ M is delete-line unless music is wanted there.
+        t.feed(b"\x1b[2;1Hx\x1b[1;1H\x1b[M");
+        assert_eq!(line(&t, 0), "x");
+        t.music_on_csi_m = true;
+        t.feed(b"\x1b[MMLO3A\x0e\x1b[1M");
+        assert_eq!(t.take_events(), [TermEvent::Music(vec![a])]);
+        assert_eq!(line(&t, 0), "");
     }
 }

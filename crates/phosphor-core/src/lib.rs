@@ -7,6 +7,7 @@ pub mod ansi;
 pub mod cp437;
 pub mod dialer;
 pub mod export;
+pub mod music;
 pub mod palette;
 pub mod screen;
 pub mod session;

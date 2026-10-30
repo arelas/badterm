@@ -19,6 +19,7 @@ mod render;
 mod secrets;
 mod selection;
 mod settings;
+mod sound;
 mod ui;
 
 use std::path::PathBuf;
