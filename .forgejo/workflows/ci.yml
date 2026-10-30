@@ -83,10 +83,13 @@ jobs:
           PHOSPHOR_REQUIRE_LRZSZ: '1'
         run: cargo test --locked
 
+      # Against glibc 2.28 (cargo-zigbuild), not the runner's own, which is
+      # far newer (2.43): a package built against that would not install
+      # on Ubuntu 24.04 or Debian 13.
       - name: Release build
         run: |
-          cargo clean --release -p phosphor -p phosphor-core
-          cargo build --release --locked
+          cargo clean --release --target x86_64-unknown-linux-gnu -p phosphor -p phosphor-core
+          packaging/linux/build-release.sh
 
       # Named after the ref: the version tag for releases, the branch otherwise.
       # A tarball (with the desktop file and icon, for installing by hand), an
@@ -97,12 +100,12 @@ jobs:
           set -e
           name="phosphor-${GITHUB_REF_NAME}-linux-x64"
           rm -rf dist && mkdir -p "dist/$name"
-          cp target/release/phosphor README.md LICENSE packaging/linux/phosphor.desktop "dist/$name/"
+          cp target/x86_64-unknown-linux-gnu/release/phosphor README.md LICENSE packaging/linux/phosphor.desktop "dist/$name/"
           cp crates/phosphor/assets/icon/phosphor-256.png "dist/$name/phosphor.png"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
-          packaging/linux/build-appimage.sh target/release/phosphor "${GITHUB_REF_NAME#v}" "dist/$name.AppImage"
+          packaging/linux/build-appimage.sh target/x86_64-unknown-linux-gnu/release/phosphor "${GITHUB_REF_NAME#v}" "dist/$name.AppImage"
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
-          packaging/linux/build-packages.sh target/release/phosphor "$version" "dist/$name"
+          packaging/linux/build-packages.sh target/x86_64-unknown-linux-gnu/release/phosphor "$version" "dist/$name"
           dpkg-deb --info "dist/$name.deb"
           dpkg-deb --contents "dist/$name.deb"
 

@@ -95,8 +95,9 @@ Downloads are on the [website](https://badcluster.dev/phosphor/) and the
   once it has been run.
 - **Linux**: install `phosphor-…-linux-x64.deb` (Debian, Ubuntu) or
   `phosphor-…-linux-x64.rpm` (Fedora, RHEL, openSUSE), for example with
-  `sudo apt install ./phosphor-…-linux-x64.deb`. Or use the AppImage, which
-  runs on most distributions: `chmod +x` it and run it. The tarball has the
+  `sudo apt install ./phosphor-…-linux-x64.deb`. They, the AppImage and the
+  tarball need glibc 2.28 or newer: Debian 10, Ubuntu 20.04, RHEL 8 and
+  later. Or use the AppImage, which runs on most distributions: `chmod +x` it and run it. The tarball has the
   bare program, plus `phosphor.desktop` and `phosphor.png` for adding it to
   your menus by hand (copy them to `~/.local/share/applications/` and
   `~/.local/share/icons/hicolor/256x256/apps/`).
