@@ -35,3 +35,14 @@ releases them under the GPL with the font exception
 
 The Kickstart 2.x Topaz is the one used for CTerm's "Topaz" and "Topaz
 Plus"; the 1.x versions are kept for a future font menu.
+
+## c64_upper.bin, c64_lower.bin and atari.bin
+
+8x8 fonts for Commodore 64 (PETSCII) and Atari 8-bit (ATASCII) BBSes: the
+C64's upper case/graphics and lower/upper case sets in screen-code order,
+and the Atari's in ATASCII order, each 128 glyphs followed by the same 128
+inverted. They are Phosphor's own, made by `make_retro_fonts.py`, not
+copies of those machines' character ROMs: the letters, digits and
+punctuation are the VGA 8x8 font's above, and the graphics characters are
+drawn by rules in the script. Which character goes where follows Rebecca
+Bettencourt's mapping tables (https://github.com/kreativekorp/charset).

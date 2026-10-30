@@ -71,6 +71,7 @@ The next things to do, in order.
 - [x] ANSI viewer with SAUCE (Alt-F, or a file on the command line)
 - [x] NetRunner phone book import
 - [x] ZMODEM crash recovery: interrupted downloads resume
+- [x] PETSCII (Commodore 64) and ATASCII (Atari 8-bit) emulation with their own fonts
 
 ## Connections
 
@@ -85,7 +86,7 @@ The next things to do, in order.
       extensions are supported)
 - [ ] More screen modes: 40-column, resizable
 - [ ] Avatar/0+ emulation
-- [ ] PETSCII (C64/C128) and ATASCII (Atari) emulation with their fonts
+- [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
 - [ ] Sixel graphics
 - [ ] RIPscrip graphics
 - [ ] Visual and audible bell options

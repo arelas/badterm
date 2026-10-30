@@ -4,12 +4,14 @@
 //! (telnet, raw TCP and SSH) with ZMODEM file transfers.
 
 pub mod ansi;
+pub mod atascii;
 pub mod autologin;
 pub mod cp437;
 pub mod dialer;
 pub mod export;
 pub mod music;
 pub mod palette;
+pub mod petscii;
 pub mod sauce;
 pub mod screen;
 pub mod session;

@@ -56,6 +56,12 @@ fonts and colors of a host terminal.
   window when not in a call): scroll through art in its own width, font and
   colors, with its SAUCE title, artist, group, date and comments (`I`)
 - **CP437 and UTF-8** sessions, switchable per entry or live with `Alt-E`
+- **Commodore 64 (PETSCII) and Atari 8-bit (ATASCII)** BBSes, set by the
+  entry's encoding: their 40-column screens, colors, character sets (the
+  C64's two, switched by the BBS), reverse video and screen-editor codes,
+  and their keys (Enter, DEL, the cursor keys, the C64's F1 to F8 and
+  RUN/STOP on `Esc`). The fonts are Phosphor's own, in those machines'
+  style
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
 - **Session capture** to `.ans` files (`Alt-C`)

@@ -1,2 +1,3 @@
 /target
 *.cap
+__pycache__/

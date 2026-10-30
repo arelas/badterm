@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use crate::ansi::{Encoding, TermEvent, Terminal};
+use crate::ansi::{TermEvent, Terminal};
 use crate::autologin::{AutoLogin, Step};
 use crate::dialer::Entry;
 use crate::screen::Screen;
@@ -112,6 +112,8 @@ impl Session {
         term.screen.base_ice = entry.ice.unwrap_or(false);
         term.screen.ice_colors = term.screen.base_ice;
         term.screen.look.fonts[0] = entry.font;
+        // A C64 or Atari system: its colors and font.
+        term.start_emulation();
         let telnet = entry.protocol.is_telnet().then(|| Telnet::new(&entry.term_type, cols as u16, rows as u16));
         Session {
             entry,
@@ -276,11 +278,7 @@ impl Session {
             Step::User(u) => (u, "user name"),
             Step::Password(p) => (p, "password"),
         };
-        let mut bytes = match self.term.encoding {
-            Encoding::Utf8 => text.into_bytes(),
-            Encoding::Cp437 => crate::cp437::encode(&text),
-        };
-        bytes.push(b'\r');
+        let bytes = self.term.encoding.encode_text(&format!("{text}\r"));
         self.send(&bytes);
         self.events.push(SessionEvent::Notice(format!("Sent your {what}")));
     }

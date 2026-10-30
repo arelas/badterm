@@ -93,8 +93,14 @@ pub fn translate(event: &KeyEvent) -> Option<Key> {
     })
 }
 
-/// Encode a key for the remote system using ANSI-BBS conventions.
+/// Encode a key for the remote system using ANSI-BBS conventions (or a
+/// C64's or Atari's).
 pub fn encode(key: Key, mods: Mods, encoding: Encoding) -> Vec<u8> {
+    match encoding {
+        Encoding::Petscii => return encode_petscii(key, mods),
+        Encoding::Atascii => return encode_atascii(key, mods),
+        _ => {}
+    }
     let seq: &[u8] = match key {
         Key::Char(c) => {
             if mods.ctrl {
@@ -110,8 +116,8 @@ pub fn encode(key: Key, mods: Mods, encoding: Encoding) -> Vec<u8> {
                 };
             }
             return match encoding {
-                Encoding::Cp437 => cp437::from_unicode(c).map(|b| vec![b]).unwrap_or_default(),
                 Encoding::Utf8 => c.to_string().into_bytes(),
+                _ => cp437::from_unicode(c).map(|b| vec![b]).unwrap_or_default(),
             };
         }
         Key::Enter => b"\r",
@@ -144,4 +150,47 @@ pub fn encode(key: Key, mods: Mods, encoding: Encoding) -> Vec<u8> {
         Key::F(_) => b"",
     };
     seq.to_vec()
+}
+
+/// Keys on a C64: its cursor keys, DEL, INST, HOME, RUN/STOP (Esc) and F1
+/// to F8.
+fn encode_petscii(key: Key, mods: Mods) -> Vec<u8> {
+    let b: u8 = match key {
+        Key::Char(c) if mods.ctrl && c.is_ascii_alphabetic() => c.to_ascii_lowercase() as u8 - b'a' + 1,
+        Key::Char(c) => return phosphor_core::petscii::encode_char(c).map(|b| vec![b]).unwrap_or_default(),
+        Key::Enter => 0x0D,
+        Key::Backspace | Key::Delete => 0x14,
+        Key::Insert => 0x94,
+        Key::Up => 0x91,
+        Key::Down => 0x11,
+        Key::Left => 0x9D,
+        Key::Right => 0x1D,
+        Key::Home if mods.shift => 0x93,
+        Key::Home => 0x13,
+        Key::Escape => 0x03,
+        Key::F(n @ 1..=8) => [0x85, 0x89, 0x86, 0x8A, 0x87, 0x8B, 0x88, 0x8C][n as usize - 1],
+        _ => return Vec::new(),
+    };
+    vec![b]
+}
+
+/// Keys on an Atari: RETURN is EOL, and its cursor and editing keys.
+fn encode_atascii(key: Key, mods: Mods) -> Vec<u8> {
+    let b: u8 = match key {
+        Key::Char(c) if mods.ctrl && c.is_ascii_alphabetic() => c.to_ascii_lowercase() as u8 - b'a' + 1,
+        Key::Char(c) => return phosphor_core::atascii::encode_char(c).map(|b| vec![b]).unwrap_or_default(),
+        Key::Enter => 0x9B,
+        Key::Backspace => 0x7E,
+        Key::Delete => 0xFE,
+        Key::Insert => 0xFF,
+        Key::Up => 0x1C,
+        Key::Down => 0x1D,
+        Key::Left => 0x1E,
+        Key::Right => 0x1F,
+        Key::Tab => 0x7F,
+        Key::Escape => 0x1B,
+        Key::Home if mods.shift => 0x7D,
+        _ => return Vec::new(),
+    };
+    vec![b]
 }

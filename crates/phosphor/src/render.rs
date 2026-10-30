@@ -42,6 +42,17 @@ impl Font {
     /// mode's font). IDs Phosphor lacks, and every font in 8-pixel modes
     /// (the Amiga fonts are 8x16 only), give `base`.
     pub fn cterm(id: u8, base: Font) -> Font {
+        // The C64 and Atari fonts are 8x8 whatever the mode: their screens
+        // are laid out for them (see `Font::eight_only`).
+        let eight: Option<&'static [u8]> = match id {
+            32 => Some(include_bytes!("../assets/fonts/c64_upper.bin")),
+            33 => Some(include_bytes!("../assets/fonts/c64_lower.bin")),
+            36 => Some(include_bytes!("../assets/fonts/atari.bin")),
+            _ => None,
+        };
+        if let Some(data) = eight {
+            return Font { height: 8, data, id };
+        }
         let data: &'static [u8] = match (id, base.height) {
             (42, 16) => include_bytes!("../assets/fonts/amiga/topaz_a1200.bin"),
             (40, 16) => include_bytes!("../assets/fonts/amiga/topazplus_a1200.bin"),
@@ -52,6 +63,12 @@ impl Font {
             _ => return base,
         };
         Font { height: 16, data, id }
+    }
+
+    /// Fonts that exist only at 8x8 (the C64's and Atari's): a screen in
+    /// one is laid out in 8x8 cells.
+    pub fn eight_only(id: u8) -> bool {
+        matches!(id, 32 | 33 | 36)
     }
 
     fn row(&self, ch: u8, y: usize) -> u8 {
@@ -544,6 +561,29 @@ mod tests {
 
         crate::ui::splash::draw(&mut ps);
         page(&mut r, &ps, "splash.ppm");
+
+        // A C64 (PETSCII) and an Atari (ATASCII) screen.
+        let retro = |enc: phosphor_core::Encoding, bytes: &[u8], name: &str, r: &mut Renderer| {
+            let (cols, rows) = enc.screen_size().unwrap();
+            let mut t = Terminal::new(cols, rows, 0);
+            t.encoding = enc;
+            t.start_emulation();
+            t.feed(bytes);
+            let lines: Vec<&[Cell]> = (0..rows).map(|y| t.screen.row(y)).collect();
+            r.set_layout(Font::vga_8x8(), 8, cols, rows);
+            r.draw(&Frame { look: &t.screen.look, look_rows: rows, ..Frame::plain(lines, None, true) }, true, true);
+            write_ppm(r, &dir.join(name));
+        };
+        let mut c64 =
+            b"\x93\x05    **** COMMODORE 64 BASIC V2 ****\r\r\x9a 64K RAM SYSTEM  38911 BASIC BYTES FREE\r\r".to_vec();
+        c64.extend_from_slice(b"READY.\r\x1c\x12 RED \x92 \x1eGREEN \x1fBLUE \x9eYELLOW \x9fCYAN \x9cPURPLE\r\r\x05");
+        c64.extend((0xA0u8..=0xBF).chain(0xC0..=0xDF));
+        c64.extend_from_slice(b"\r\r\x9a\x0eLower case: Hello, World! \x8e");
+        retro(phosphor_core::Encoding::Petscii, &c64, "petscii.ppm", &mut r);
+        let mut atari = b"\x7dREADY\x9bATARI BBS \xc1\xd4\xc1\xd2\xc9 (inverse)\x9b\x9b".to_vec();
+        atari.extend(0x00u8..0x1B);
+        atari.extend_from_slice(b"\x1b\x1c\x1b\x1d\x1b\x1e\x1b\x1f\x9b`abcdefg{|\x1b}\x1b~\x1b\x7f\x9b");
+        retro(phosphor_core::Encoding::Atascii, &atari, "atascii.ppm", &mut r);
 
         // The ANSI viewer, with its SAUCE box.
         let art_path = dir.join("viewer-test.ans");

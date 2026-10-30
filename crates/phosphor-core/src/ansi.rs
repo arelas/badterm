@@ -18,13 +18,52 @@ pub enum Encoding {
     #[default]
     Cp437,
     Utf8,
+    /// Commodore 64 (see [`crate::petscii`]).
+    Petscii,
+    /// Atari 8-bit (see [`crate::atascii`]).
+    Atascii,
 }
 
 impl Encoding {
+    pub const ALL: [Encoding; 4] = [Encoding::Cp437, Encoding::Utf8, Encoding::Petscii, Encoding::Atascii];
+
     pub fn name(self) -> &'static str {
         match self {
             Encoding::Cp437 => "CP437",
             Encoding::Utf8 => "UTF-8",
+            Encoding::Petscii => "PETSCII",
+            Encoding::Atascii => "ATASCII",
+        }
+    }
+
+    /// A C64 or Atari system, with its own screen size and font.
+    pub fn is_retro(self) -> bool {
+        matches!(self, Encoding::Petscii | Encoding::Atascii)
+    }
+
+    /// The screen such a system has, if it has its own.
+    pub fn screen_size(self) -> Option<(usize, usize)> {
+        match self {
+            Encoding::Petscii => Some((crate::petscii::COLS, crate::petscii::ROWS)),
+            Encoding::Atascii => Some((crate::atascii::COLS, crate::atascii::ROWS)),
+            _ => None,
+        }
+    }
+
+    /// Typed or pasted text as the remote expects it. A CR (Enter) becomes
+    /// the system's own end of line.
+    pub fn encode_text(self, text: &str) -> Vec<u8> {
+        match self {
+            Encoding::Cp437 => cp437::encode(text),
+            Encoding::Utf8 => text.as_bytes().to_vec(),
+            Encoding::Petscii => text
+                .chars()
+                .filter_map(|c| if c == '\r' { Some(0x0D) } else { crate::petscii::encode_char(c) })
+                .collect(),
+            Encoding::Atascii => text
+                .chars()
+                .filter_map(|c| if c == '\r' { Some(0x9B) } else { crate::atascii::encode_char(c) })
+                .collect(),
         }
     }
 }
@@ -77,6 +116,8 @@ pub struct Terminal {
     utf8_need: usize,
     replies: Vec<u8>,
     events: Vec<TermEvent>,
+    petscii: crate::petscii::Petscii,
+    atascii: crate::atascii::Atascii,
 }
 
 impl Terminal {
@@ -97,6 +138,18 @@ impl Terminal {
             utf8_need: 0,
             replies: Vec::new(),
             events: Vec::new(),
+            petscii: Default::default(),
+            atascii: Default::default(),
+        }
+    }
+
+    /// Set up the screen for the encoding: a C64 or Atari system gets that
+    /// machine's colors and font.
+    pub fn start_emulation(&mut self) {
+        match self.encoding {
+            Encoding::Petscii => self.petscii.start(&mut self.screen),
+            Encoding::Atascii => self.atascii.start(&mut self.screen),
+            _ => {}
         }
     }
 
@@ -110,8 +163,22 @@ impl Terminal {
     }
 
     pub fn feed(&mut self, data: &[u8]) {
-        for &b in data {
-            self.byte(b);
+        match self.encoding {
+            Encoding::Petscii => {
+                for &b in data {
+                    self.petscii.byte(&mut self.screen, b, &mut self.events);
+                }
+            }
+            Encoding::Atascii => {
+                for &b in data {
+                    self.atascii.byte(&mut self.screen, b, &mut self.events);
+                }
+            }
+            _ => {
+                for &b in data {
+                    self.byte(b);
+                }
+            }
         }
     }
 
@@ -184,7 +251,7 @@ impl Terminal {
             _ => match self.encoding {
                 // Like ANSI.SYS, every other byte is a glyph, including the
                 // "graphic" control characters (☺, ♥, ►, ...).
-                Encoding::Cp437 => self.screen.put(b),
+                Encoding::Cp437 | Encoding::Petscii | Encoding::Atascii => self.screen.put(b),
                 Encoding::Utf8 => match b {
                     0x01..=0x1F => {}
                     0x20..=0x7E => self.screen.put(b),

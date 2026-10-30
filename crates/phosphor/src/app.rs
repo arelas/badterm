@@ -13,7 +13,7 @@ use phosphor_core::export::{self, AnsiOptions};
 use phosphor_core::screen::{Cell, Screen};
 use phosphor_core::session::{NetEvent, Session, SessionConfig, SessionEvent, State};
 use phosphor_core::transfer::{Direction, Outcome};
-use phosphor_core::{Encoding, TermEvent, cp437};
+use phosphor_core::{Encoding, TermEvent};
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
@@ -382,7 +382,10 @@ impl App {
             ssh_agent: true,
             ssh_key_dir: self.paths.ssh_keys.clone(),
         };
-        let (cols, rows) = entry.screen_mode();
+        let (cols, rows) = match entry.encoding.screen_size() {
+            Some((c, r)) => (c as u16, r as u16),
+            None => entry.screen_mode(),
+        };
         let mut session = Session::new(entry, cols as usize, rows as usize, config);
         session.term.music_on_csi_m = self.settings.music == Music::All;
         self.dialer_open = false;
@@ -832,9 +835,11 @@ impl App {
             }
             KeyCode::KeyE => {
                 let t = &mut session.term;
+                // Between the PC's two; a C64 or Atari system stays as it is.
                 t.encoding = match t.encoding {
                     Encoding::Cp437 => Encoding::Utf8,
                     Encoding::Utf8 => Encoding::Cp437,
+                    e => e,
                 };
                 let msg = format!("Encoding: {}", t.encoding.name());
                 self.notify(msg);
@@ -1132,7 +1137,8 @@ impl App {
             SaveFormat::Text => (export::text(&all).into_bytes(), format!("{} lines", all.len())),
             SaveFormat::Png => {
                 let mut r = Renderer::new(Font::vga_8x16(), sc.cols(), sc.rows());
-                r.set_layout(Self::font_for(sc.rows()), self.cell_width(), sc.cols(), sc.rows());
+                let font = if Font::eight_only(sc.look.fonts[0]) { Font::vga_8x8() } else { Self::font_for(sc.rows()) };
+                r.set_layout(font, self.cell_width(), sc.cols(), sc.rows());
                 let rows = terminal_rows(session, self.scroll);
                 let look_rows = rows.len();
                 let frame = Frame { look: &sc.look, look_rows, ..Frame::plain(rows, None, sc.ice_colors) };
@@ -1244,10 +1250,7 @@ impl App {
         while let Some(step) = self.macro_steps.pop_front() {
             match step {
                 crate::macros::Step::Send(text) => {
-                    let bytes = match session.term.encoding {
-                        Encoding::Utf8 => text.into_bytes(),
-                        Encoding::Cp437 => cp437::encode(&text),
-                    };
+                    let bytes = session.term.encoding.encode_text(&text);
                     session.send(&bytes);
                 }
                 crate::macros::Step::Pause => {
@@ -1326,10 +1329,7 @@ impl App {
             Err(e) => return self.notify(format!("Paste failed: {e}")),
         };
         let text = text.replace("\r\n", "\r").replace('\n', "\r");
-        let bytes = match session.term.encoding {
-            Encoding::Cp437 => cp437::encode(&text),
-            Encoding::Utf8 => text.into_bytes(),
-        };
+        let bytes = session.term.encoding.encode_text(&text);
         session.send(&bytes);
     }
 
@@ -1613,7 +1613,13 @@ impl App {
         let text_rows = frame.rows.len() - 1;
         let cols = frame.rows.first().map_or(COLS, |r| r.len());
         let cell_w = if self.settings.nine_dot { 9 } else { 8 };
-        self.renderer.set_layout(Self::font_for(text_rows), cell_w, cols, text_rows + 1);
+        // A C64 or Atari screen is laid out in its 8x8 font.
+        let base = if frame.look_rows > 0 && Font::eight_only(frame.look.fonts[0]) {
+            Font::vga_8x8()
+        } else {
+            Self::font_for(text_rows)
+        };
+        self.renderer.set_layout(base, cell_w, cols, text_rows + 1);
         self.renderer.draw(&frame, (self.tick / 2).is_multiple_of(2), self.tick.is_multiple_of(2));
 
         if let Err(e) = gfx.surface.resize(w, h) {

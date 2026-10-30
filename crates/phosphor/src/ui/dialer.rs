@@ -399,10 +399,10 @@ impl DialerUi {
                     form.crt = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_ENCODING => {
-                    form.encoding = match form.encoding {
-                        Encoding::Cp437 => Encoding::Utf8,
-                        Encoding::Utf8 => Encoding::Cp437,
-                    };
+                    let all = Encoding::ALL;
+                    let i = all.iter().position(|&e| e == form.encoding).unwrap_or(0);
+                    let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
+                    form.encoding = all[next];
                 }
                 Key::Char(c) if form.focus == F_PORT && !c.is_ascii_digit() => {}
                 _ => {
@@ -681,7 +681,15 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 let v = format!("\u{25C4} {:<7} \u{25BA}", form.protocol.name());
                 text(s, fx, yy, fw, &v, fg, bg);
             }
-            F_ENCODING => text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg),
+            F_ENCODING => {
+                text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg);
+                let note = match form.encoding {
+                    Encoding::Petscii => "(Commodore 64: 40x25, its font)",
+                    Encoding::Atascii => "(Atari 8-bit: 40x24, its font)",
+                    _ => "",
+                };
+                label(s, fx + 12, yy, note, t.note.fg(), bg);
+            }
             F_ROWS => {
                 let (c, r) = form.mode;
                 text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", format!("{c}x{r}")), fg, bg);
