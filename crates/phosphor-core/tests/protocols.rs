@@ -98,7 +98,9 @@ fn telnet_over_tls_trusts_a_self_signed_certificate_once() {
 
     let (mut session, rx) = dial(entry.clone(), cfg.clone());
     let mut events = Vec::new();
-    pump_until(&mut session, &rx, &mut events, |s, _| row(s, 0) == "Secure BBS");
+    // Until the server has its answer: the greeting and the telnet request
+    // can arrive in separate reads.
+    pump_until(&mut session, &rx, &mut events, |s, _| row(s, 0) == "Secure BBS" && server.is_finished());
     let got = server.join().unwrap();
     // Telnet runs inside the TLS connection.
     assert!(got.windows(3).any(|w| w == [IAC, WILL, opt::TTYPE]), "{got:?}");
