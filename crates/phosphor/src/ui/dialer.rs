@@ -33,7 +33,7 @@ pub enum Action {
     Close,
 }
 
-const FIELDS: [&str; 14] = [
+const FIELDS: [&str; 15] = [
     "Name",
     "Address",
     "Port",
@@ -42,6 +42,7 @@ const FIELDS: [&str; 14] = [
     "Screen mode",
     "Font",
     "Phosphor mode",
+    "Baud rate",
     "Terminal type",
     "User name",
     "Password",
@@ -55,20 +56,21 @@ const F_ENCODING: usize = 4;
 const F_ROWS: usize = 5;
 const F_FONT: usize = 6;
 const F_CRT: usize = 7;
-const F_TERM: usize = 8;
-const F_USER: usize = 9;
-const F_PASSWORD: usize = 10;
-const F_AUTO_LOGIN: usize = 11;
-const F_KEY_FILE: usize = 12;
-const F_COMMENT: usize = 13;
+const F_BAUD: usize = 8;
+const F_TERM: usize = 9;
+const F_USER: usize = 10;
+const F_PASSWORD: usize = 11;
+const F_AUTO_LOGIN: usize = 12;
+const F_KEY_FILE: usize = 13;
+const F_COMMENT: usize = 14;
 /// The fields changed with Space or the arrow keys rather than typed into.
-const OPTION_FIELDS: [usize; 6] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_CRT, F_AUTO_LOGIN];
+const OPTION_FIELDS: [usize; 7] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_CRT, F_BAUD, F_AUTO_LOGIN];
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 14],
+    text: [TextField; 15],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
@@ -80,6 +82,7 @@ struct Form {
     font: u8,
     /// None: the global phosphor mode (Alt-P).
     crt: Option<CrtMode>,
+    baud: u32,
     auto_login: bool,
     focus: usize,
     error: Option<String>,
@@ -103,6 +106,7 @@ impl Form {
                 TextField::default(),
                 TextField::default(),
                 TextField::default(),
+                TextField::default(),
                 t(&e.term_type),
                 t(&e.username),
                 t(&password),
@@ -116,6 +120,7 @@ impl Form {
             mode: e.screen_mode(),
             font: e.font,
             crt: e.crt,
+            baud: e.baud,
             auto_login: e.auto_login,
             focus: 0,
             error: problem.clone(),
@@ -157,6 +162,7 @@ impl Form {
             rows: self.mode.1,
             font: self.font,
             crt: self.crt,
+            baud: self.baud,
             auto_login: self.auto_login,
             username: self.text[F_USER].value.clone(),
             password,
@@ -358,6 +364,12 @@ impl DialerUi {
                     let i = all.iter().position(|&f| f == form.font).unwrap_or(0);
                     let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
                     form.font = all[next];
+                }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_BAUD => {
+                    let all = dialer::BAUD_RATES;
+                    let i = all.iter().position(|&b| b == form.baud).unwrap_or(0);
+                    let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
+                    form.baud = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_AUTO_LOGIN => {
                     form.auto_login = !form.auto_login;
@@ -625,7 +637,8 @@ impl DialerUi {
 }
 
 fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
-    let (w, h) = (64, FIELDS.len() + 6);
+    // The title, a blank row, the fields, the error line and the border.
+    let (w, h) = (64, FIELDS.len() + 4);
     let (x, y) = ((COLS - w) / 2, (ROWS - h) / 2);
     let title = if form.index.is_some() { "Edit Entry" } else { "New Entry" };
     frame(s, x, y, w, h, title, WHITE, BLUE);
@@ -651,6 +664,13 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 text(s, fx, yy, fw, &format!("\u{25C4} {:<16} \u{25BA}", font_name(form.font)), fg, bg);
                 if form.font != 0 {
                     label(s, fx + 21, yy, "(Amiga)", DARK_GRAY, bg);
+                }
+            }
+            F_BAUD => {
+                let v = if form.baud == 0 { "Unlimited".to_string() } else { format!("{} bps", form.baud) };
+                text(s, fx, yy, fw, &format!("\u{25C4} {v:<10} \u{25BA}"), fg, bg);
+                if form.baud != 0 {
+                    label(s, fx + 15, yy, "(as over a modem)", DARK_GRAY, bg);
                 }
             }
             F_AUTO_LOGIN => {

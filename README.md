@@ -70,8 +70,11 @@ fonts and colors of a host terminal.
   monitor, for every BBS or chosen per directory entry
 - **VGA-accurate display options**: 9-dot character cells, where the
   line-drawing characters join up as they did on a VGA (`Alt-W`), and the
-  4:3 shape of a CRT instead of square pixels (`Alt-A`). An entry can use
-  80x50 with the 8x8 font.
+  4:3 shape of a CRT instead of square pixels (`Alt-A`). Entries can use
+  80x43, 80x50 and 132-column screen modes.
+- **Baud rate emulation**, per entry (300 to 115200 bps): text arrives at
+  the speed it was drawn for, so ANSI animations play as intended.
+  ZMODEM transfers still run at full speed.
 - Clipboard paste. A normal window scales by whole numbers so every pixel
   is exact; fullscreen (`Alt-Enter`) and maximized windows fill the screen,
   keeping the shape and keeping the pixels sharp.

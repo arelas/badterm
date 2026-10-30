@@ -193,3 +193,33 @@ fn busy_and_unreachable_calls_are_worth_redialing() {
     pump_until(&mut session, &rx, &mut events, |s, _| s.state == phosphor_core::session::State::Closed);
     assert!(session.should_redial(), "{:?}", session.error);
 }
+
+#[test]
+fn baud_rate_emulation_paces_the_screen() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        // 240 bytes: one second at 2400 baud.
+        sock.write_all(&[b'x'; 240]).unwrap();
+        thread::sleep(Duration::from_secs(3));
+    });
+    let entry = Entry { baud: 2400, ..telnet_entry(port) };
+    let (mut session, rx) = dial(entry, config("baud"));
+    let shown = |s: &phosphor_core::Session| (0..25).map(|y| row(s, y).len()).sum::<usize>();
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |s, _| shown(s) > 0);
+    let start = std::time::Instant::now();
+    let mut halfway = None;
+    pump_until(&mut session, &rx, &mut events, |s, _| {
+        if halfway.is_none() && start.elapsed() >= Duration::from_millis(400) {
+            halfway = Some(shown(s));
+        }
+        shown(s) == 240
+    });
+    let took = start.elapsed();
+    assert!(took >= Duration::from_millis(800) && took < Duration::from_secs(3), "{took:?}");
+    let halfway = halfway.unwrap();
+    assert!((40..200).contains(&halfway), "{halfway} bytes shown after 0.4 s");
+    drop(server);
+}

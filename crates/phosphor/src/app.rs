@@ -44,6 +44,8 @@ const NOTICE_TIME: Duration = Duration::from_secs(4);
 /// Between redials of a busy or unreachable BBS.
 const REDIAL_DELAY: Duration = Duration::from_secs(15);
 const MAX_REDIALS: u32 = 10;
+/// How often the screen updates while baud rate emulation holds text back.
+const PACE_FRAME: Duration = Duration::from_millis(16);
 
 pub enum UserEvent {
     /// A network event for the session with this id.
@@ -1056,6 +1058,9 @@ impl App {
                 if session.capture_path().is_some() {
                     flags.push_str(" CAP");
                 }
+                if e.baud > 0 {
+                    flags.push_str(&format!(" {}bps", e.baud));
+                }
                 let right = notice.unwrap_or_else(|| format!("{HOTKEY}: D Dir H Hangup B Back U Upload X Exit"));
                 format!(
                     " {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
@@ -1268,7 +1273,15 @@ impl ApplicationHandler<UserEvent> for App {
             }
             self.request_redraw();
         }
-        event_loop.set_control_flow(ControlFlow::WaitUntil(self.next_tick));
+        // Baud rate emulation shows text a few characters at a time.
+        let mut wake = self.next_tick;
+        if let Some(s) = self.session.as_mut().filter(|s| s.pacing()) {
+            s.pump();
+            self.session_events();
+            self.request_redraw();
+            wake = wake.min(now + PACE_FRAME);
+        }
+        event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 }
 

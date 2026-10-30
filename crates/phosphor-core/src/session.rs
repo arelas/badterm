@@ -1,6 +1,7 @@
 //! A live connection to a BBS: protocol decoding, terminal state, ZMODEM
 //! transfers and session capture. Networking lives in [`crate::transport`].
 
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -87,6 +88,11 @@ pub struct Session {
     login: AutoLogin,
     /// When data last arrived, until a login prompt check has looked at it.
     quiet_since: Option<Instant>,
+    /// Baud rate emulation: received data waiting to be shown, how many
+    /// bytes may go now, and when that was worked out.
+    paced: VecDeque<u8>,
+    pace_credit: f64,
+    pace_at: Instant,
     /// The end of the last data chunk, so a ZMODEM header split across two
     /// reads is still recognized.
     scan_tail: Vec<u8>,
@@ -119,6 +125,9 @@ impl Session {
             auth_prompt: None,
             login,
             quiet_since: None,
+            paced: VecDeque::new(),
+            pace_credit: 0.0,
+            pace_at: Instant::now(),
             scan_tail: Vec::new(),
             trailer: None,
             started: Instant::now(),
@@ -180,8 +189,50 @@ impl Session {
             }
             None => bytes.to_vec(),
         };
-        self.process(data);
-        self.quiet_since = Some(Instant::now());
+        // Transfers are not slowed down.
+        if self.entry.baud == 0 || self.transfer.is_some() && self.paced.is_empty() {
+            self.process(data);
+            self.quiet_since = Some(Instant::now());
+        } else {
+            if self.paced.is_empty() {
+                self.pace_at = Instant::now();
+            }
+            self.paced.extend(data);
+            self.pump();
+        }
+    }
+
+    /// Whether received data is waiting for baud rate emulation: call
+    /// [`Session::pump`] often (every frame) while it is.
+    pub fn pacing(&self) -> bool {
+        !self.paced.is_empty()
+    }
+
+    /// Show as much paced data as the emulated baud rate allows by now: ten
+    /// bits per byte, as with a modem's start and stop bits.
+    pub fn pump(&mut self) {
+        if self.paced.is_empty() {
+            return;
+        }
+        let now = Instant::now();
+        self.pace_credit += now.duration_since(self.pace_at).as_secs_f64() * self.entry.baud as f64 / 10.0;
+        self.pace_at = now;
+        let n = (self.pace_credit as usize).min(self.paced.len());
+        if n == 0 {
+            return;
+        }
+        self.pace_credit -= n as f64;
+        let chunk: Vec<u8> = self.paced.drain(..n).collect();
+        self.process(chunk);
+        // A transfer that started in that chunk gets the rest at once.
+        if self.transfer.is_some() {
+            let rest: Vec<u8> = self.paced.drain(..).collect();
+            self.process(rest);
+        }
+        if self.paced.is_empty() {
+            self.pace_credit = 0.0;
+        }
+        self.quiet_since = Some(now);
     }
 
     /// Answer a login prompt, once the BBS has been quiet for a moment (so
@@ -370,6 +421,7 @@ impl Session {
 
     /// Call periodically (a few times a second) to drive transfer timeouts.
     pub fn tick(&mut self) {
+        self.pump();
         if let Some(t) = &mut self.transfer {
             let mut out = Vec::new();
             t.tick(Instant::now(), &mut out);

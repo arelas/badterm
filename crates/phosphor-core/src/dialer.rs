@@ -96,6 +96,10 @@ pub struct Entry {
     /// Amiga BBSes.
     #[serde(skip_serializing_if = "is_zero")]
     pub font: u8,
+    /// Baud rate emulation: show what the BBS sends at this speed, as over
+    /// a modem (0: as fast as it arrives).
+    #[serde(skip_serializing_if = "is_zero_u32")]
+    pub baud: u32,
     /// Phosphor mode for this system; None follows the global setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crt: Option<CrtMode>,
@@ -131,6 +135,7 @@ impl Default for Entry {
             cols: 80,
             rows: 25,
             font: 0,
+            baud: 0,
             crt: None,
             key_file: String::new(),
             comment: String::new(),
@@ -201,6 +206,13 @@ fn is_true(b: &bool) -> bool {
 fn is_zero(n: &u8) -> bool {
     *n == 0
 }
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
+
+/// The baud rates an entry can emulate; 0 is no limit.
+pub const BAUD_RATES: [u32; 11] = [0, 300, 1200, 2400, 9600, 14400, 19200, 28800, 33600, 57600, 115200];
 
 fn is_80(n: &u16) -> bool {
     *n == 80
