@@ -207,6 +207,38 @@ fn cancelling_a_download_stops_sz() {
     pump_until(&mut session, &rx, &mut events, |_, _| server.is_finished());
     assert!(!server.join().unwrap().success(), "sz should exit with an error after a cancel");
     assert!(started.elapsed() < Duration::from_secs(15));
+    let _ = std::fs::remove_dir_all(&src);
+}
+
+#[test]
+fn an_interrupted_download_resumes() {
+    let Some(sz) = lrzsz("sz") else { return };
+    let src = temp_dir("lrz-resume-src");
+    let (file, data) = test_file(&src, "PART2.ZIP", 400_000);
+    let mut cmd = Command::new(sz);
+    cmd.arg(&file);
+
+    let (listener, port) = listen();
+    let server = bbs(listener, cmd, b"", b"");
+    let (mut session, rx, downloads) = connect(port, "lrz-resume");
+    // The first 150,000 bytes came down before the line dropped.
+    std::fs::create_dir_all(&downloads).unwrap();
+    std::fs::write(downloads.join("PART2.ZIP.part"), &data[..150_000]).unwrap();
+    let mut events = Vec::new();
+    let mut resumed = None;
+    pump_until(&mut session, &rx, &mut events, |s, ev| {
+        if let Some(t) = s.transfer() {
+            resumed = resumed.or(t.progress().resumed_at);
+        }
+        finished(ev).is_some()
+    });
+    assert!(server.join().unwrap().success(), "sz failed");
+    let saved = downloads.join("PART2.ZIP");
+    assert_eq!(finished(&events), Some(&Outcome::Completed(vec![saved.clone()])));
+    assert_eq!(resumed, Some(150_000));
+    assert_eq!(std::fs::read(&saved).unwrap(), data);
+    assert!(!downloads.join("PART2.ZIP.part").exists());
+    let _ = std::fs::remove_dir_all(&src);
 }
 
 // XMODEM and YMODEM, against lrzsz's sx/sb (send) and rx/rb (receive).

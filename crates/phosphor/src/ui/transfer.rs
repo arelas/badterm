@@ -54,6 +54,9 @@ pub fn draw_progress(s: &mut Screen, p: &Progress) {
     text(s, x + 3, y + 4, inner, &line, t.window_text.fg(), t.window_text.bg());
 
     let mut files = format!("Files done: {}", p.files_done);
+    if let Some(at) = p.resumed_at {
+        files.push_str(&format!("   resumed at {}", format_bytes(at)));
+    }
     if p.files_queued > 0 {
         files.push_str(&format!("   queued: {}", p.files_queued));
     }

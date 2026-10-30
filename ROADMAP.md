@@ -70,6 +70,7 @@ The next things to do, in order.
 - [x] Keyboard macros (Alt-1 to Alt-0); EtherTerm, MagiTerm and Telnet BBS Guide imports
 - [x] ANSI viewer with SAUCE (Alt-F, or a file on the command line)
 - [x] NetRunner phone book import
+- [x] ZMODEM crash recovery: interrupted downloads resume
 
 ## Connections
 
@@ -91,7 +92,6 @@ The next things to do, in order.
 
 ## File transfer
 
-- [ ] ZMODEM crash recovery (resume partial downloads)
 - [ ] Kermit
 - [ ] Per-entry upload/download directories
 

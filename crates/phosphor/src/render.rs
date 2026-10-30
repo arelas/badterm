@@ -391,6 +391,7 @@ mod tests {
             files_done: 1,
             files_queued: 0,
             file_started: std::time::Instant::now() - std::time::Duration::from_secs(4),
+            resumed_at: None,
         };
         crate::ui::transfer::draw_progress(&mut over, &progress);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();

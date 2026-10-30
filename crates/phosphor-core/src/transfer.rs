@@ -55,6 +55,8 @@ pub struct Progress {
     /// Files still waiting to be sent (uploads only).
     pub files_queued: usize,
     pub file_started: Instant,
+    /// Where a resumed download picked up, if it was resumed.
+    pub resumed_at: Option<u64>,
 }
 
 impl Progress {
@@ -67,13 +69,16 @@ impl Progress {
             files_done: 0,
             files_queued: 0,
             file_started: Instant::now(),
+            resumed_at: None,
         }
     }
 
-    /// Average speed of the current file in bytes per second.
+    /// Average speed of the current file in bytes per second (of what
+    /// came this time, for a resumed download).
     pub fn rate(&self) -> f64 {
         let secs = self.file_started.elapsed().as_secs_f64();
-        if secs > 0.0 { self.file_bytes as f64 / secs } else { 0.0 }
+        let bytes = self.file_bytes.saturating_sub(self.resumed_at.unwrap_or(0));
+        if secs > 0.0 { bytes as f64 / secs } else { 0.0 }
     }
 }
 
@@ -129,10 +134,18 @@ impl Common {
     }
 }
 
+/// Downloads are written under this suffix until they are complete, so an
+/// interrupted one can be resumed when the BBS sends the file again.
+pub const PARTIAL_SUFFIX: &str = ".part";
+
 pub struct Download {
     rx: Receiver,
     dir: PathBuf,
-    file: Option<(BufWriter<File>, PathBuf)>,
+    /// The file being written (`name.part`), and its name once complete.
+    file: Option<(BufWriter<File>, PathBuf, String)>,
+    /// Where to ask the sender to start the file just announced, once the
+    /// receiver has room to say so.
+    accept: Option<u32>,
     saved: Vec<PathBuf>,
     c: Common,
 }
@@ -141,8 +154,10 @@ impl Download {
     pub fn new(dir: PathBuf) -> Result<Download> {
         // TCP and SSH are reliable and flow-controlled, so let the sender
         // stream without per-buffer acknowledgements.
-        let rx = Receiver::with_flow_control(0, true).map_err(|e| anyhow::anyhow!("{e}"))?;
-        Ok(Download { rx, dir, file: None, saved: Vec::new(), c: Common::new(Direction::Download) })
+        let mut rx = Receiver::with_flow_control(0, true).map_err(|e| anyhow::anyhow!("{e}"))?;
+        // Decide where each file starts: a partial one is resumed.
+        rx.set_manual_file_accept(true);
+        Ok(Download { rx, dir, file: None, accept: None, saved: Vec::new(), c: Common::new(Direction::Download) })
     }
 
     fn fail(&mut self, msg: String) {
@@ -150,31 +165,59 @@ impl Download {
         let _ = self.rx.abort();
     }
 
-    fn open(&mut self, wire_name: &[u8], size: Option<u64>) {
+    /// Open the file the sender announced, as `name.part`: appending to
+    /// one left by an interrupted download of it (when its size says there
+    /// is more to come), or new. Returns where the sender should start.
+    fn open(&mut self, wire_name: &[u8], size: Option<u64>) -> Option<u32> {
         self.close();
         let name = sanitize_file_name(wire_name);
+        let part = self.dir.join(format!("{name}{PARTIAL_SUFFIX}"));
+        let have = fs::metadata(&part).map(|m| m.len()).unwrap_or(0);
+        let resume = size.is_some_and(|s| have > 0 && have < s && have <= u32::MAX as u64);
         let result = fs::create_dir_all(&self.dir)
-            .and_then(|()| unique_path(&self.dir, &name))
-            .and_then(|path| File::create(&path).map(|f| (f, path)));
+            .and_then(|()| if resume { fs::OpenOptions::new().append(true).open(&part) } else { File::create(&part) });
         match result {
-            Ok((f, path)) => {
-                self.file = Some((BufWriter::new(f), path));
+            Ok(f) => {
+                let offset = if resume { have } else { 0 };
+                self.file = Some((BufWriter::new(f), part, name.clone()));
                 let p = &mut self.c.progress;
                 p.file_name = name;
                 p.file_size = size;
-                p.file_bytes = 0;
+                p.file_bytes = offset;
+                p.resumed_at = resume.then_some(offset);
                 p.file_started = Instant::now();
+                Some(offset as u32)
             }
-            Err(e) => self.fail(format!("creating {name} in {}: {e}", self.dir.display())),
+            Err(e) => {
+                self.fail(format!("creating {} in {}: {e}", part.display(), self.dir.display()));
+                None
+            }
+        }
+    }
+
+    /// Finish writing the current file. A complete one gets its own name
+    /// (never replacing a file); an incomplete one stays as `name.part`.
+    fn close_file(&mut self, complete: bool) -> Option<PathBuf> {
+        let (mut f, part, name) = self.file.take()?;
+        if let Err(e) = f.flush() {
+            self.fail(format!("writing {}: {e}", part.display()));
+            return None;
+        }
+        drop(f);
+        if !complete {
+            return None;
+        }
+        match unique_path(&self.dir, &name).and_then(|dest| fs::rename(&part, &dest).map(|()| dest)) {
+            Ok(dest) => Some(dest),
+            Err(e) => {
+                self.fail(format!("saving {name}: {e}"));
+                None
+            }
         }
     }
 
     fn close(&mut self) {
-        if let Some((mut f, path)) = self.file.take()
-            && let Err(e) = f.flush()
-        {
-            self.fail(format!("writing {}: {e}", path.display()));
-        }
+        self.close_file(false);
     }
 
     fn pump(&mut self, out: &mut Vec<u8>) {
@@ -188,7 +231,7 @@ impl Download {
                 Action::WriteFile(b) => {
                     let n = b.len();
                     let written = match &mut self.file {
-                        Some((f, _)) => f.write_all(b),
+                        Some((f, _, _)) => f.write_all(b),
                         None => Ok(()),
                     };
                     if let Err(e) = written {
@@ -203,11 +246,10 @@ impl Download {
                 Action::Event(Event::FileStarted(info)) => {
                     let name = info.name.to_vec();
                     let size = info.size.map(|s| u64::from(s.get()));
-                    self.open(&name, size);
+                    self.accept = self.open(&name, size);
                 }
                 Action::Event(Event::FileCompleted) => {
-                    let path = self.file.as_ref().map(|(_, p)| p.clone());
-                    self.close();
+                    let path = self.close_file(true);
                     self.saved.extend(path);
                     self.c.progress.files_done += 1;
                 }
@@ -220,6 +262,20 @@ impl Download {
                     self.c.aborted();
                 }
                 Action::Idle => {
+                    if let Some(offset) = self.accept {
+                        match self.rx.accept_file_at(offset) {
+                            Ok(()) => {
+                                self.accept = None;
+                                continue;
+                            }
+                            // Outgoing bytes first.
+                            Err(zmodem2::Error::Backpressure) => {}
+                            Err(e) => {
+                                self.accept = None;
+                                self.fail(format!("starting {}: {e}", self.c.progress.file_name));
+                            }
+                        }
+                    }
                     if self.c.outcome.is_some() || self.c.pending.is_empty() {
                         break;
                     }

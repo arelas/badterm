@@ -43,7 +43,9 @@ fonts and colors of a host terminal.
 - **ZMODEM** downloads start automatically when the BBS sends a file. Uploads
   start with `Alt-U`, by dropping files on the window, or automatically when
   the BBS starts receiving. Batches, progress, speed and ETA are shown, and
-  `Esc` cancels. Downloads never overwrite existing files.
+  `Esc` cancels. Downloads never overwrite existing files. An interrupted
+  download is kept as `name.part` and resumes where it stopped when the BBS
+  sends the file again (ZMODEM crash recovery).
 - **YMODEM, YMODEM-G and XMODEM** (CRC, 1K or the original checksum), for
   BBSes and doors that offer them: start the BBS's side, then `Alt-G` to
   download or `Alt-U` to upload. YMODEM keeps file names and sizes and sends
