@@ -209,8 +209,10 @@ figcaption {
   gap: 14px;
 }
 
-.downloads .button {
-  align-self: flex-start;
+.downloads .buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-top: auto;
 }
 

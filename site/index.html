@@ -89,24 +89,35 @@
 
     <section class="wrap" id="download">
       <h2>Download</h2>
+      <p class="section-lede">Version <span data-version>0.1</span>. Free, with no account needed.</p>
       <div class="downloads">
         <article>
           <h3>Windows</h3>
-          <p>A zip with <code>phosphor.exe</code>. Unzip it and run it; nothing to install.</p>
-          <a class="button primary" href="https://git.badcluster.dev/arelas/phosphor/releases">Windows (x64)</a>
+          <p><span data-needs="windows-x64-setup.exe">The installer adds Phosphor to the Start menu and opens <code>telnet://</code> links with it. The zip has just <code>phosphor.exe</code>, to run from anywhere.<span data-else>A zip with <code>phosphor.exe</code>. Unzip it and run it; nothing to install.</span></span></p>
+          <div class="buttons">
+            <a class="button primary" data-asset="windows-x64-setup.exe" href="https://git.badcluster.dev/arelas/phosphor/releases">Installer (x64)</a>
+            <a class="button" data-asset="windows-x64.zip" href="https://git.badcluster.dev/arelas/phosphor/releases">Zip</a>
+          </div>
         </article>
         <article>
           <h3>macOS</h3>
           <p>A disk image: drag Phosphor to Applications. The first time, Control-click it and choose Open, as it isn't notarized yet.</p>
-          <a class="button primary" href="https://git.badcluster.dev/arelas/phosphor/releases">macOS (Apple silicon)</a>
+          <div class="buttons">
+            <a class="button primary" data-asset="macos-arm64.dmg" href="https://git.badcluster.dev/arelas/phosphor/releases">Disk image (Apple silicon)</a>
+          </div>
         </article>
         <article>
           <h3>Linux</h3>
-          <p>An AppImage that runs on most distributions (<code>chmod +x</code> it), or a tarball with the bare program.</p>
-          <a class="button primary" href="https://git.badcluster.dev/arelas/phosphor/releases">Linux (x64)</a>
+          <p><span data-needs="linux-x64.deb">Packages for Debian and Ubuntu (.deb) and Fedora, RHEL and openSUSE (.rpm), or an AppImage that runs on most distributions (<code>chmod +x</code> it).<span data-else>An AppImage that runs on most distributions (<code>chmod +x</code> it), or a tarball with the bare program.</span></span></p>
+          <div class="buttons">
+            <a class="button primary" data-asset="linux-x64.deb" href="https://git.badcluster.dev/arelas/phosphor/releases">.deb</a>
+            <a class="button primary" data-asset="linux-x64.rpm" href="https://git.badcluster.dev/arelas/phosphor/releases">.rpm</a>
+            <a class="button" data-asset="linux-x64.AppImage" href="https://git.badcluster.dev/arelas/phosphor/releases">AppImage</a>
+            <a class="button" data-asset="linux-x64.tar.gz" href="https://git.badcluster.dev/arelas/phosphor/releases">Tarball</a>
+          </div>
         </article>
       </div>
-      <p class="note">All downloads are on the releases page, with SHA-256 checksums. Or build it yourself: <code>cargo build --release</code>.</p>
+      <p class="note">Every version is on the <a href="https://git.badcluster.dev/arelas/phosphor/releases">releases page</a>, with <a data-asset="SHA256SUMS" href="https://git.badcluster.dev/arelas/phosphor/releases">SHA-256 checksums</a>. Or build it yourself: <code>cargo build --release</code>.</p>
     </section>
 
     <section class="wrap vortex">

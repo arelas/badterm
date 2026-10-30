@@ -1,7 +1,20 @@
 # Website
 
-A static page: `index.html`, `style.css` and `img/`. No build step;
-serve the folder from any web server.
+A static page: `index.html`, `style.css` and `img/`, published at
+<https://badcluster.dev/phosphor/>.
+
+## Publishing
+
+```sh
+site/deploy.py            # or --dry-run to build without uploading
+```
+
+It points the download buttons at the newest release's files, leaving out
+any that release lacks (along with text marked `data-needs` for them), and
+rsyncs the result to `/var/www/phosphor` on oracle1. nginx serves that
+folder at `/phosphor/` through a `location ^~ /phosphor/` block in the
+`badcluster.dev` site; the rest of badcluster.dev is a separate repository.
+Rerun it after each release.
 
 ## Screenshots
 

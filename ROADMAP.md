@@ -11,8 +11,8 @@ The next things to do, in order.
       0.1.4: calling Vortex, Alt-D while connected, Alt-Enter. Still to try:
       Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
       mouse copy, Alt-S, directory search and sort
-- [ ] Publish the website (`site/`): choose hosting, and make the
-      downloads public (the repository is private)
+- [ ] Give the website its permanent home (it is at
+      badcluster.dev/phosphor for now), and redeploy it from CI on release
 
 ## Done (0.1)
 
