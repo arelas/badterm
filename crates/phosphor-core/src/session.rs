@@ -109,6 +109,8 @@ impl Session {
         let mut term = Terminal::new(cols, rows, config.scrollback);
         term.encoding = entry.encoding;
         term.screen.base_font = entry.font;
+        term.screen.base_ice = entry.ice.unwrap_or(false);
+        term.screen.ice_colors = term.screen.base_ice;
         term.screen.look.fonts[0] = entry.font;
         let telnet = entry.protocol.is_telnet().then(|| Telnet::new(&entry.term_type, cols as u16, rows as u16));
         Session {

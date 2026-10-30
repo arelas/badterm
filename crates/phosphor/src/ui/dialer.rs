@@ -35,7 +35,7 @@ pub enum Action {
     Settings,
 }
 
-const FIELDS: [&str; 15] = [
+const FIELDS: [&str; 16] = [
     "Name",
     "Address",
     "Port",
@@ -43,6 +43,7 @@ const FIELDS: [&str; 15] = [
     "Encoding",
     "Screen mode",
     "Font",
+    "iCE colors",
     "Phosphor mode",
     "Baud rate",
     "Terminal type",
@@ -57,22 +58,23 @@ const F_PROTOCOL: usize = 3;
 const F_ENCODING: usize = 4;
 const F_ROWS: usize = 5;
 const F_FONT: usize = 6;
-const F_CRT: usize = 7;
-const F_BAUD: usize = 8;
-const F_TERM: usize = 9;
-const F_USER: usize = 10;
-const F_PASSWORD: usize = 11;
-const F_AUTO_LOGIN: usize = 12;
-const F_KEY_FILE: usize = 13;
-const F_COMMENT: usize = 14;
+const F_ICE: usize = 7;
+const F_CRT: usize = 8;
+const F_BAUD: usize = 9;
+const F_TERM: usize = 10;
+const F_USER: usize = 11;
+const F_PASSWORD: usize = 12;
+const F_AUTO_LOGIN: usize = 13;
+const F_KEY_FILE: usize = 14;
+const F_COMMENT: usize = 15;
 /// The fields changed with Space or the arrow keys rather than typed into.
-const OPTION_FIELDS: [usize; 7] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_CRT, F_BAUD, F_AUTO_LOGIN];
+const OPTION_FIELDS: [usize; 8] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_ICE, F_CRT, F_BAUD, F_AUTO_LOGIN];
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 15],
+    text: [TextField; 16],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
@@ -82,6 +84,8 @@ struct Form {
     mode: (u16, u16),
     /// CTerm font ID.
     font: u8,
+    /// None: up to the BBS.
+    ice: Option<bool>,
     /// None: the global phosphor mode (Alt-P).
     crt: Option<CrtMode>,
     baud: u32,
@@ -109,6 +113,7 @@ impl Form {
                 TextField::default(),
                 TextField::default(),
                 TextField::default(),
+                TextField::default(),
                 t(&e.term_type),
                 t(&e.username),
                 t(&password),
@@ -121,6 +126,7 @@ impl Form {
             encoding: e.encoding,
             mode: e.screen_mode(),
             font: e.font,
+            ice: e.ice,
             crt: e.crt,
             baud: e.baud,
             auto_login: e.auto_login,
@@ -163,6 +169,7 @@ impl Form {
             cols: self.mode.0,
             rows: self.mode.1,
             font: self.font,
+            ice: self.ice,
             crt: self.crt,
             baud: self.baud,
             auto_login: self.auto_login,
@@ -367,6 +374,12 @@ impl DialerUi {
                     let i = all.iter().position(|&f| f == form.font).unwrap_or(0);
                     let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
                     form.font = all[next];
+                }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_ICE => {
+                    let all = [None, Some(true), Some(false)];
+                    let i = all.iter().position(|&v| v == form.ice).unwrap_or(0);
+                    let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
+                    form.ice = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_BAUD => {
                     let all = dialer::BAUD_RATES;
@@ -677,6 +690,15 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                     label(s, fx + 21, yy, "(Amiga)", t.note.fg(), bg);
                 }
             }
+            F_ICE => {
+                let (v, hint) = match form.ice {
+                    None => ("Auto", "(the BBS decides)"),
+                    Some(true) => ("On", "(bright backgrounds)"),
+                    Some(false) => ("Off", "(blinking text)"),
+                };
+                text(s, fx, yy, fw, &format!("\u{25C4} {v:<4} \u{25BA}"), fg, bg);
+                label(s, fx + 9, yy, hint, t.note.fg(), bg);
+            }
             F_BAUD => {
                 let v = if form.baud == 0 { "Unlimited".to_string() } else { format!("{} bps", form.baud) };
                 text(s, fx, yy, fw, &format!("\u{25C4} {v:<10} \u{25BA}"), fg, bg);
@@ -807,6 +829,23 @@ mod tests {
         ui.draw(&mut s, &d);
         let rows: Vec<String> = (0..ROWS).map(|y| s.row(y).iter().map(|c| c.ch as char).collect()).collect();
         assert!(rows.iter().any(|r| r.contains("Phosphor mode") && r.contains("color CRT")), "{rows:#?}");
+    }
+
+    #[test]
+    fn ice_colors_per_entry() {
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
+        key(&mut ui, &mut d, Key::Char('e'));
+        let Mode::Edit(form) = &mut ui.mode else { panic!() };
+        assert_eq!(form.ice, None);
+        form.focus = F_ICE;
+        key(&mut ui, &mut d, Key::Right);
+        let mut s = Screen::new(COLS, ROWS, 0);
+        ui.draw(&mut s, &d);
+        let rows: Vec<String> = (0..ROWS).map(|y| Screen::row_text(s.row(y))).collect();
+        assert!(rows.iter().any(|r| r.contains("iCE colors") && r.contains("On")), "{rows:#?}");
+        key(&mut ui, &mut d, Key::Right);
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Changed));
+        assert_eq!(d.entries[0].ice, Some(false));
     }
 
     #[test]

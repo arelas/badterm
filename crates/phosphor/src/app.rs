@@ -725,7 +725,18 @@ impl App {
             KeyCode::KeyI => {
                 let s = &mut session.term.screen;
                 s.ice_colors = !s.ice_colors;
-                let msg = if s.ice_colors { "iCE colors on" } else { "iCE colors off (blinking)" };
+                let on = s.ice_colors;
+                let mut msg = if on { "iCE colors on" } else { "iCE colors off (blinking)" }.to_string();
+                // A BBS with its own setting keeps the change.
+                if session.entry.ice.is_some() {
+                    session.entry.ice = Some(on);
+                    session.term.screen.base_ice = on;
+                    if let Some(e) = self.session_entry_mut() {
+                        e.ice = Some(on);
+                        msg = format!("{msg} for {}", e.name);
+                        self.save_directory();
+                    }
+                }
                 self.notify(msg);
             }
             KeyCode::KeyE => {

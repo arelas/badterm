@@ -667,4 +667,14 @@ mod tests {
         assert_eq!(parse_color("rgb:ffff/0000/8080"), Some(0xFF0080));
         assert_eq!(parse_color("rgb:1/2"), None);
     }
+
+    #[test]
+    fn reset_returns_to_the_entrys_ice_setting() {
+        let mut t = Terminal::new(80, 25, 0);
+        t.screen.base_ice = true;
+        t.feed(b"\x1b[?33l");
+        assert!(!t.screen.ice_colors);
+        t.feed(b"\x1bc");
+        assert!(t.screen.ice_colors);
+    }
 }

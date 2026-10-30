@@ -96,7 +96,7 @@ The next things to do, in order.
 
 ## Dialer and UI
 
-- [ ] More per-entry settings: iCE default, capture/log files, hide status line
+- [ ] More per-entry settings: capture/log files, hide status line
 - [ ] Multiple directories / groups
 - [ ] Import more formats: NetRunner, mTelnet, Telnet BBS Guide lists, qodem
 - [ ] SAUCE record reading for captured/viewed files; built-in ANSI viewer

@@ -180,6 +180,8 @@ pub struct Screen {
     pub look: Look,
     /// The font (CTerm ID) a reset returns to: the entry's choice.
     pub base_font: u8,
+    /// Whether a reset leaves iCE colors on: the entry's choice.
+    pub base_ice: bool,
     scrollback: VecDeque<Vec<Cell>>,
     scrollback_limit: usize,
 }
@@ -204,6 +206,7 @@ impl Screen {
             ice_colors: false,
             look: Look::default(),
             base_font: 0,
+            base_ice: false,
             scrollback: VecDeque::new(),
             scrollback_limit,
         }
@@ -254,7 +257,7 @@ impl Screen {
         self.scroll_bottom = self.rows - 1;
         self.autowrap = true;
         self.cursor_visible = true;
-        self.ice_colors = false;
+        self.ice_colors = self.base_ice;
         self.look = Look::default();
         self.look.fonts[0] = self.base_font;
     }

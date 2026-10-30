@@ -188,7 +188,9 @@ directory, and are remembered in `settings.toml`. An entry's "Screen mode"
 can be 80x25, 80x43, 80x50, 132x25, 132x37 or 132x52 (43 lines or more in
 the 8x8 font), and its "Phosphor mode" can override `Alt-P` for that
 BBS. While connected to a BBS with its own phosphor mode, `Alt-P` changes
-that BBS's mode rather than the global one.
+that BBS's mode rather than the global one. Its "iCE colors" setting is Auto (the BBS
+turns them on with `CSI ?33h`, as before), On or Off; with On or Off, `Alt-I`
+changes that BBS's setting too.
 
 `Alt-O` (or `O` in the dialing directory) opens the settings: phosphor
 mode, character cells, pixel shape, ANSI music, redialing, and the colors

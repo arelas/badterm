@@ -96,6 +96,10 @@ pub struct Entry {
     /// Amiga BBSes.
     #[serde(skip_serializing_if = "is_zero")]
     pub font: u8,
+    /// iCE colors (the blink bit as a bright background) from the start:
+    /// None leaves it to the BBS (`CSI ?33h`), as before.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ice: Option<bool>,
     /// Baud rate emulation: show what the BBS sends at this speed, as over
     /// a modem (0: as fast as it arrives).
     #[serde(skip_serializing_if = "is_zero_u32")]
@@ -135,6 +139,7 @@ impl Default for Entry {
             cols: 80,
             rows: 25,
             font: 0,
+            ice: None,
             baud: 0,
             crt: None,
             key_file: String::new(),
