@@ -2772,7 +2772,7 @@ dependencies = [
 
 [[package]]
 name = "phosphor"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2796,7 +2796,7 @@ dependencies = [
 
 [[package]]
 name = "phosphor-core"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "anyhow",
  "csv",
