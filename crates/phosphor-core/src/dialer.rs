@@ -87,7 +87,9 @@ pub struct Entry {
     #[serde(skip_serializing_if = "is_true")]
     pub auto_login: bool,
     pub term_type: String,
-    /// Screen height: 25 lines, or 50 (with the 8x8 font).
+    /// Screen size: one of [`SCREEN_MODES`].
+    #[serde(skip_serializing_if = "is_80")]
+    pub cols: u16,
     #[serde(skip_serializing_if = "is_25")]
     pub rows: u16,
     /// The font, as a CTerm font ID: 0 for CP437, or an Amiga font for
@@ -126,6 +128,7 @@ impl Default for Entry {
             password: String::new(),
             auto_login: true,
             term_type: "ANSI".into(),
+            cols: 80,
             rows: 25,
             font: 0,
             crt: None,
@@ -141,6 +144,13 @@ impl Default for Entry {
 }
 
 impl Entry {
+    /// The screen size, (columns, rows): the entry's, if it is one Phosphor
+    /// has, or 80x25.
+    pub fn screen_mode(&self) -> (u16, u16) {
+        let mode = (self.cols, self.rows);
+        if SCREEN_MODES.contains(&mode) { mode } else { SCREEN_MODES[0] }
+    }
+
     /// Parse `telnet://host:port`, `ssh://user@host`, `host:port` or `host`
     /// into an entry.
     pub fn from_address(addr: &str) -> Option<Entry> {
@@ -192,12 +202,17 @@ fn is_zero(n: &u8) -> bool {
     *n == 0
 }
 
+fn is_80(n: &u16) -> bool {
+    *n == 80
+}
+
 fn is_25(n: &u16) -> bool {
     *n == 25
 }
 
-/// The screen heights an entry can ask for.
-pub const SCREEN_ROWS: [u16; 2] = [25, 50];
+/// The screen sizes (columns, rows) an entry can ask for. Modes of 43 rows
+/// or more use the 8x8 font.
+pub const SCREEN_MODES: [(u16, u16); 6] = [(80, 25), (80, 43), (80, 50), (132, 25), (132, 37), (132, 52)];
 
 /// "Phosphor mode": the look of a CRT, drawn by the front end.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]

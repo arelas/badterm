@@ -486,6 +486,19 @@ mod tests {
             "80x50.png",
         );
 
+        // 132x37, with a dialog centered over it.
+        let mut t132 = Terminal::new(132, 37, 0);
+        t132.feed(&ans);
+        for y in 10..37 {
+            t132.feed(format!("\x1b[{};1H\x1b[0;3{}m{}", y + 1, y % 7 + 1, "132 columns. ".repeat(10)).as_bytes());
+        }
+        let prompt = crate::ui::save::SavePrompt::new(std::path::Path::new("/tmp/phosphor-scrollback.ans"));
+        let cursor = prompt.draw(&mut t132.screen);
+        let rows: Vec<&[Cell]> = (0..37).map(|y| t132.screen.row(y)).collect();
+        let mut r132 = Renderer::new(Font::vga_8x16(), 132, 37);
+        r132.draw(&Frame::plain(rows, Some(cursor), true), true, true);
+        write_ppm(&mut r132, &dir.join("132x37.ppm"));
+
         // Fullscreen on a 1920x1080 monitor.
         let (w, h) = (1920, 1080);
         let mut out = vec![0u32; w * h];

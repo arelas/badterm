@@ -179,7 +179,8 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 
 `Alt-P`, `Alt-A`, `Alt-W` and `Alt-M` work anywhere, including in the dialing
 directory, and are remembered in `settings.toml`. An entry's "Screen mode"
-can be 80x25 or 80x50, and its "Phosphor mode" can override `Alt-P` for that
+can be 80x25, 80x43, 80x50, 132x25, 132x37 or 132x52 (43 lines or more in
+the 8x8 font), and its "Phosphor mode" can override `Alt-P` for that
 BBS. While connected to a BBS with its own phosphor mode, `Alt-P` changes
 that BBS's mode rather than the global one.
 

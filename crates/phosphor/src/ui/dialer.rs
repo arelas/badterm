@@ -74,7 +74,8 @@ struct Form {
     keychain_unread: bool,
     protocol: Protocol,
     encoding: Encoding,
-    rows: u16,
+    /// (columns, rows)
+    mode: (u16, u16),
     /// CTerm font ID.
     font: u8,
     /// None: the global phosphor mode (Alt-P).
@@ -112,7 +113,7 @@ impl Form {
             keychain_unread: problem.is_some(),
             protocol: e.protocol,
             encoding: e.encoding,
-            rows: if dialer::SCREEN_ROWS.contains(&e.rows) { e.rows } else { 25 },
+            mode: e.screen_mode(),
             font: e.font,
             crt: e.crt,
             auto_login: e.auto_login,
@@ -152,7 +153,8 @@ impl Form {
             protocol: self.protocol,
             encoding: self.encoding,
             term_type: self.text[F_TERM].value.trim().to_string(),
-            rows: self.rows,
+            cols: self.mode.0,
+            rows: self.mode.1,
             font: self.font,
             crt: self.crt,
             auto_login: self.auto_login,
@@ -346,9 +348,10 @@ impl DialerUi {
                     form.protocol = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_ROWS => {
-                    let all = dialer::SCREEN_ROWS;
-                    let i = all.iter().position(|&r| r == form.rows).unwrap_or(0);
-                    form.rows = all[(i + 1) % all.len()];
+                    let all = dialer::SCREEN_MODES;
+                    let i = all.iter().position(|&m| m == form.mode).unwrap_or(0);
+                    let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
+                    form.mode = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_FONT => {
                     let all: Vec<u8> = std::iter::once(0).chain(EXTRA_FONTS.iter().map(|&(id, _)| id)).collect();
@@ -640,7 +643,10 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 text(s, fx, yy, fw, &v, fg, bg);
             }
             F_ENCODING => text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg),
-            F_ROWS => text(s, fx, yy, fw, &format!("\u{25C4} 80x{:<4} \u{25BA}", form.rows), fg, bg),
+            F_ROWS => {
+                let (c, r) = form.mode;
+                text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", format!("{c}x{r}")), fg, bg);
+            }
             F_FONT => {
                 text(s, fx, yy, fw, &format!("\u{25C4} {:<16} \u{25BA}", font_name(form.font)), fg, bg);
                 if form.font != 0 {

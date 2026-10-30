@@ -307,8 +307,8 @@ impl App {
             ssh_agent: true,
             ssh_key_dir: self.paths.ssh_keys.clone(),
         };
-        let rows = if dialer::SCREEN_ROWS.contains(&entry.rows) { entry.rows as usize } else { ROWS };
-        let mut session = Session::new(entry, COLS, rows, config);
+        let (cols, rows) = entry.screen_mode();
+        let mut session = Session::new(entry, cols as usize, rows as usize, config);
         session.term.music_on_csi_m = self.settings.music == Music::All;
         self.dialer_open = false;
         self.session_id += 1;
@@ -757,8 +757,19 @@ impl App {
     }
 
     /// The font for a screen this many rows high: 8x8 for 50 lines.
+    /// The font for a screen this many rows high: 8x8 from 43 lines, as on
+    /// an EGA or VGA.
     fn font_for(rows: usize) -> Font {
-        if rows > 25 { Font::vga_8x8() } else { Font::vga_8x16() }
+        if rows >= 43 { Font::vga_8x8() } else { Font::vga_8x16() }
+    }
+
+    /// The width of what is on screen: the session's (80 or 132 columns),
+    /// or 80 for the dialer and the idle screen.
+    fn view_cols(&self) -> usize {
+        match &self.session {
+            Some(s) if !self.dialer_open => s.term.screen.cols(),
+            _ => COLS,
+        }
     }
 
     fn cell_width(&self) -> usize {
@@ -801,8 +812,8 @@ impl App {
             }
             SaveFormat::Text => (export::text(&all).into_bytes(), format!("{} lines", all.len())),
             SaveFormat::Png => {
-                let mut r = Renderer::new(Font::vga_8x16(), COLS, ROWS);
-                r.set_layout(Self::font_for(sc.rows()), self.cell_width(), COLS, sc.rows());
+                let mut r = Renderer::new(Font::vga_8x16(), sc.cols(), sc.rows());
+                r.set_layout(Self::font_for(sc.rows()), self.cell_width(), sc.cols(), sc.rows());
                 let rows = terminal_rows(session, self.scroll);
                 let look_rows = rows.len();
                 let frame = Frame { look: &sc.look, look_rows, ..Frame::plain(rows, None, sc.ice_colors) };
@@ -983,16 +994,20 @@ impl App {
 
     fn draw_status(&mut self) {
         let (fg, bg) = (ui::WHITE, ui::BLUE);
+        let cols = self.view_cols();
+        if self.status.cols() != cols {
+            self.status = Screen::new(cols, 1, 0);
+        }
         let s = &mut self.status;
-        s.fill_rect(0, 0, COLS, 1, Cell::new(b' ', fg, bg));
+        s.fill_rect(0, 0, cols, 1, Cell::new(b' ', fg, bg));
         let notice = self.notice.as_ref().filter(|(_, until)| Instant::now() < *until).map(|(m, _)| m.clone());
         if self.dialer_open {
             let help = notice.unwrap_or_else(|| self.dialer.status_help().to_string());
-            return ui::text(s, 0, 0, COLS, &format!(" {help}"), fg, bg);
+            return ui::text(s, 0, 0, cols, &format!(" {help}"), fg, bg);
         }
         let Some(session) = &self.session else {
             let help = notice.unwrap_or_else(|| format!("{HOTKEY}-D Dialing directory  {HOTKEY}-X Exit"));
-            return ui::text(s, 0, 0, COLS, &format!(" Not connected \u{2502} {help}"), fg, bg);
+            return ui::text(s, 0, 0, cols, &format!(" Not connected \u{2502} {help}"), fg, bg);
         };
         let screen = &session.term.screen;
         if self.scroll > 0 {
@@ -1001,16 +1016,16 @@ impl App {
                 self.scroll,
                 screen.scrollback_len()
             );
-            return ui::text(s, 0, 0, COLS, &line, ui::BLACK, ui::CYAN);
+            return ui::text(s, 0, 0, cols, &line, ui::BLACK, ui::CYAN);
         }
         let e = &session.entry;
         if session.transfer().is_some() {
             let line = format!(" {} \u{2502} ZMODEM transfer in progress \u{2502} Esc cancels", truncate(&e.name, 30));
-            return ui::text(s, 0, 0, COLS, &line, fg, bg);
+            return ui::text(s, 0, 0, cols, &line, fg, bg);
         }
         if self.login.is_some() {
             let line = format!(" Logging in to {} \u{2502} Enter log in  Esc cancel", truncate(&e.name, 40));
-            return ui::text(s, 0, 0, COLS, &line, fg, bg);
+            return ui::text(s, 0, 0, cols, &line, fg, bg);
         }
         if let Some(r) = self.redial.as_ref().filter(|_| session.state == State::Closed) {
             let why = if session.error.is_some() { "No connection" } else { "Busy" };
@@ -1019,7 +1034,7 @@ impl App {
                 " {why} \u{2502} Calling again in {secs}s (redial {} of {MAX_REDIALS}) \u{2502} Esc cancel  {HOTKEY}-R now",
                 r.attempt
             );
-            return ui::text(s, 0, 0, COLS, &line, fg, bg);
+            return ui::text(s, 0, 0, cols, &line, fg, bg);
         }
         let line = match session.state {
             State::Connecting if self.redials > 0 => {
@@ -1052,7 +1067,7 @@ impl App {
                 )
             }
         };
-        ui::text(s, 0, 0, COLS, &line, fg, bg);
+        ui::text(s, 0, 0, cols, &line, fg, bg);
     }
 
     fn redraw(&mut self) {
@@ -1066,10 +1081,11 @@ impl App {
 
         // Dialogs over the terminal are drawn on a copy of its screen.
         let mut overlay_cursor = None;
-        if let Some(session) = &self.session
-            && self.overlay.rows() != session.term.screen.rows()
-        {
-            self.overlay = Screen::new(COLS, session.term.screen.rows(), 0);
+        if let Some(session) = &self.session {
+            let sc = &session.term.screen;
+            if (self.overlay.cols(), self.overlay.rows()) != (sc.cols(), sc.rows()) {
+                self.overlay = Screen::new(sc.cols(), sc.rows(), 0);
+            }
         }
         let overlay = match &self.session {
             Some(session)
@@ -1132,8 +1148,9 @@ impl App {
         // The terminal's own height (and font) unless the dialer or the idle
         // screen is showing; one more row for the status bar.
         let text_rows = frame.rows.len() - 1;
+        let cols = frame.rows.first().map_or(COLS, |r| r.len());
         let cell_w = if self.settings.nine_dot { 9 } else { 8 };
-        self.renderer.set_layout(Self::font_for(text_rows), cell_w, COLS, text_rows + 1);
+        self.renderer.set_layout(Self::font_for(text_rows), cell_w, cols, text_rows + 1);
         self.renderer.draw(&frame, (self.tick / 2).is_multiple_of(2), self.tick.is_multiple_of(2));
 
         if let Err(e) = gfx.surface.resize(w, h) {
