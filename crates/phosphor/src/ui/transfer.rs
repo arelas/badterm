@@ -3,7 +3,10 @@
 use std::path::PathBuf;
 
 use phosphor_core::screen::Screen;
-use phosphor_core::transfer::{Direction, Progress};
+use phosphor_core::transfer::{Direction, Progress, XyProtocol};
+
+use super::files::{FilePicker, PickerAction};
+use crate::input::{Key, Mods};
 
 use super::*;
 
@@ -59,40 +62,166 @@ pub fn draw_progress(s: &mut Screen, p: &Progress) {
     label(s, x + (W - hint.len()) / 2, y + 7, hint, t.keys.fg(), t.keys.bg());
 }
 
-/// The "files to upload" prompt. `requested` is set when the BBS asked for
-/// the upload (it is waiting with ZRINIT).
+/// Upload protocols in the order offered: ZMODEM, then the others.
+pub const UPLOAD_PROTOCOLS: [Option<XyProtocol>; 6] = [
+    None,
+    Some(XyProtocol::Ymodem),
+    Some(XyProtocol::YmodemG),
+    Some(XyProtocol::Xmodem1k),
+    Some(XyProtocol::XmodemCrc),
+    Some(XyProtocol::Xmodem),
+];
+
+pub fn protocol_name(p: Option<XyProtocol>) -> &'static str {
+    p.map_or("ZMODEM", XyProtocol::name)
+}
+
+/// What the upload window decided.
+pub enum UploadAction {
+    None,
+    Cancel,
+    /// Send these, with this protocol (None: ZMODEM).
+    Send(Option<XyProtocol>, Vec<PathBuf>),
+}
+
+/// The upload window: a file picker and the protocol. `requested` is set
+/// when the BBS asked for a ZMODEM upload (it is waiting with ZRINIT), which
+/// fixes the protocol.
 pub struct UploadPrompt {
-    pub field: TextField,
+    pub picker: FilePicker,
+    pub protocol: usize,
     pub requested: bool,
 }
 
 impl UploadPrompt {
-    pub fn new(requested: bool) -> UploadPrompt {
-        UploadPrompt { field: TextField::new("", 1000), requested }
+    pub fn new(requested: bool, dir: PathBuf, protocol: usize) -> UploadPrompt {
+        let protocol = if requested { 0 } else { protocol.min(UPLOAD_PROTOCOLS.len() - 1) };
+        UploadPrompt { picker: FilePicker::new(dir, true, &[]), protocol, requested }
     }
 
-    /// The paths typed, separated by `;`, with quotes and `~/` handled.
-    pub fn paths(&self) -> Vec<PathBuf> {
-        self.field
-            .value
-            .split(';')
-            .map(|p| p.trim().trim_matches('"').trim())
-            .filter(|p| !p.is_empty())
-            .map(expand_home)
-            .collect()
+    pub fn protocol(&self) -> Option<XyProtocol> {
+        UPLOAD_PROTOCOLS[self.protocol]
     }
 
-    /// Draw the prompt; returns the text cursor position.
-    pub fn draw(&self, s: &mut Screen) -> (usize, usize) {
-        let (x, y, w) = ((s.cols() - 70) / 2, 9, 70);
-        let title = if self.requested { "The BBS is ready to receive" } else { "ZMODEM Upload" };
+    pub fn handle_key(&mut self, key: Key, mods: Mods) -> UploadAction {
+        match key {
+            Key::Escape => return UploadAction::Cancel,
+            Key::Left | Key::Right if !self.requested => {
+                let n = UPLOAD_PROTOCOLS.len();
+                self.protocol = if key == Key::Left { (self.protocol + n - 1) % n } else { (self.protocol + 1) % n };
+            }
+            _ => {
+                if let PickerAction::Chosen(paths) = self.picker.handle_key(key, mods) {
+                    return UploadAction::Send(self.protocol(), paths);
+                }
+            }
+        }
+        UploadAction::None
+    }
+
+    /// Draw the window; returns the text cursor, if a path is being typed.
+    pub fn draw(&mut self, s: &mut Screen) -> Option<(usize, usize)> {
+        let (w, h) = (74, 21);
+        let (x, y) = ((s.cols() - w) / 2, (s.rows().saturating_sub(h)) / 2);
+        let title = if self.requested { "The BBS is ready to receive" } else { "Upload" };
         let t = theme::current();
-        let (dim_fg, dim_bg) = (t.window_text.fg(), t.window_text.bg());
-        frame(s, x, y, w, 7, title, t.window.fg(), t.window.bg());
-        label(s, x + 2, y + 1, "File(s) to send; separate several with ;", dim_fg, dim_bg);
-        label(s, x + 2, y + 2, "Tip: you can also drop files onto the window.", dim_fg, dim_bg);
-        let cursor = self.field.draw(s, x + 2, y + 4, w - 4, false, t.input.fg(), t.input.bg());
-        label(s, x + 2, y + 5, "Enter send   Esc cancel", t.keys.fg(), t.keys.bg());
+        frame(s, x, y, w, h, title, t.window.fg(), t.window.bg());
+        let name_attr = if self.requested { t.field_name } else { t.keys };
+        label(s, x + 2, y + 1, "Protocol:", name_attr.fg(), name_attr.bg());
+        let v = format!("\u{25C4} {:<10} \u{25BA}", protocol_name(self.protocol()));
+        label(s, x + 12, y + 1, &v, t.field_value.fg(), t.field_value.bg());
+        let note = match self.protocol() {
+            None if self.requested => "(the BBS started ZMODEM)",
+            Some(p) if !p.batch() => "(one file; start the BBS's receive first)",
+            Some(_) => "(start the BBS's receive first)",
+            None => "(drop files on the window, too)",
+        };
+        label(s, x + 28, y + 1, note, t.note.fg(), t.note.bg());
+        let cursor = self.picker.draw(s, x + 2, y + 3, w - 4, h - 6);
+        let marked = self.picker.marked();
+        let keys = if marked > 0 {
+            format!("Enter send {marked} marked  Space mark  Bksp up  Tab path  Esc cancel")
+        } else {
+            "Enter send  Space mark  \u{2190}\u{2192} protocol  Bksp up  Tab path  Esc cancel".to_string()
+        };
+        label(s, x + 2, y + h - 2, &truncate(&keys, w - 4), t.keys.fg(), t.keys.bg());
+        cursor
+    }
+}
+
+/// Download protocols that need starting (ZMODEM starts by itself).
+pub const DOWNLOAD_PROTOCOLS: [XyProtocol; 5] = XyProtocol::ALL;
+
+pub enum DownloadAction {
+    None,
+    Cancel,
+    /// Receive with this protocol; the name is for XMODEM.
+    Receive(XyProtocol, Option<String>),
+}
+
+/// The window that starts an XMODEM or YMODEM download.
+pub struct DownloadPrompt {
+    pub protocol: usize,
+    /// What an XMODEM file is saved as.
+    pub name: TextField,
+}
+
+impl DownloadPrompt {
+    pub fn new(protocol: usize) -> DownloadPrompt {
+        DownloadPrompt { protocol: protocol.min(DOWNLOAD_PROTOCOLS.len() - 1), name: TextField::new("", 200) }
+    }
+
+    fn proto(&self) -> XyProtocol {
+        DOWNLOAD_PROTOCOLS[self.protocol]
+    }
+
+    pub fn handle_key(&mut self, key: Key, mods: Mods) -> DownloadAction {
+        let n = DOWNLOAD_PROTOCOLS.len();
+        match key {
+            Key::Escape => return DownloadAction::Cancel,
+            Key::Up => self.protocol = (self.protocol + n - 1) % n,
+            Key::Down | Key::Tab => self.protocol = (self.protocol + 1) % n,
+            Key::Enter => {
+                let name = self.name.value.trim().to_string();
+                if !self.proto().batch() && name.is_empty() {
+                    return DownloadAction::None;
+                }
+                let name = (!self.proto().batch()).then_some(name);
+                return DownloadAction::Receive(self.proto(), name);
+            }
+            _ if !self.proto().batch() => {
+                self.name.handle_key(key, mods);
+            }
+            _ => {}
+        }
+        DownloadAction::None
+    }
+
+    pub fn draw(&self, s: &mut Screen) -> Option<(usize, usize)> {
+        let (w, h) = (60, 13);
+        let (x, y) = ((s.cols() - w) / 2, (s.rows().saturating_sub(h)) / 2);
+        let t = theme::current();
+        frame(s, x, y, w, h, "Download", t.window.fg(), t.window.bg());
+        label(s, x + 2, y + 1, "Start the BBS's send first, then choose:", t.window_text.fg(), t.window_text.bg());
+        for (i, p) in DOWNLOAD_PROTOCOLS.iter().enumerate() {
+            let a = if i == self.protocol { t.selected } else { t.field_value };
+            let what = match p {
+                XyProtocol::Ymodem => "names and sizes, several files",
+                XyProtocol::YmodemG => "YMODEM without waiting: fastest",
+                XyProtocol::Xmodem1k => "1K blocks, one file",
+                XyProtocol::XmodemCrc => "128-byte blocks, one file",
+                XyProtocol::Xmodem => "the original, one file",
+            };
+            text(s, x + 3, y + 3 + i, w - 6, &format!(" {:<11} {what}", p.name()), a.fg(), a.bg());
+        }
+        let mut cursor = None;
+        if self.proto().batch() {
+            label(s, x + 2, y + 9, "Files keep the names the BBS sends.", t.note.fg(), t.note.bg());
+        } else {
+            label(s, x + 2, y + 9, "Save as:", t.field_name.fg(), t.field_name.bg());
+            cursor = Some(self.name.draw(s, x + 11, y + 9, w - 13, false, t.input.fg(), t.input.bg()));
+        }
+        label(s, x + 2, y + 11, "\u{2191}\u{2193} protocol   Enter start   Esc cancel", t.keys.fg(), t.keys.bg());
         cursor
     }
 }
@@ -120,12 +249,5 @@ mod tests {
         assert_eq!(format_bytes(512), "512 B");
         assert_eq!(format_bytes(1536), "1.5 KiB");
         assert_eq!(format_bytes(5 * 1024 * 1024), "5.0 MiB");
-    }
-
-    #[test]
-    fn prompt_paths() {
-        let mut p = UploadPrompt::new(false);
-        p.field.value = r#" "/tmp/a b.zip" ; /tmp/c.txt;; "#.into();
-        assert_eq!(p.paths(), [PathBuf::from("/tmp/a b.zip"), PathBuf::from("/tmp/c.txt")]);
     }
 }

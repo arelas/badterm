@@ -29,8 +29,9 @@ const LEFT: [Group; 3] = [
     Group {
         heading: "Files",
         keys: &[
-            ("@-U", "Upload with ZMODEM"),
-            ("", "(downloads are automatic)"),
+            ("@-U", "Upload (ZMODEM, Y/XMODEM)"),
+            ("@-G", "Download with Y/XMODEM"),
+            ("", "(ZMODEM starts by itself)"),
             ("@-C", "Capture session to a file"),
             ("@-S", "Save scrollback or screen"),
         ],

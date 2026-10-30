@@ -44,6 +44,12 @@ fonts and colors of a host terminal.
   start with `Alt-U`, by dropping files on the window, or automatically when
   the BBS starts receiving. Batches, progress, speed and ETA are shown, and
   `Esc` cancels. Downloads never overwrite existing files.
+- **YMODEM, YMODEM-G and XMODEM** (CRC, 1K or the original checksum), for
+  BBSes and doors that offer them: start the BBS's side, then `Alt-G` to
+  download or `Alt-U` to upload. YMODEM keeps file names and sizes and sends
+  several files; XMODEM asks what to save a download as.
+- **A file picker** for uploads: browse folders, mark several files with
+  `Space`, or press `Tab` to type a path
 - **CP437 and UTF-8** sessions, switchable per entry or live with `Alt-E`
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
@@ -172,7 +178,8 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-C` | Start/stop capturing to a file |
 | `Alt-S` | Save the scrollback (`.ans`, `.txt`) or the screen (`.png`) |
 | drag with the mouse | Copy the selected text (`Shift` on release: as ANSI) |
-| `Alt-U` | Upload files with ZMODEM (or drop files on the window) |
+| `Alt-U` | Upload files: ZMODEM, YMODEM or XMODEM (or drop files on the window) |
+| `Alt-G` | Download with YMODEM or XMODEM (ZMODEM downloads start by themselves) |
 | `Alt-V`, `Shift-Ins` | Paste from the clipboard |
 | `Alt-Enter` | Toggle fullscreen (fills the screen, keeping the shape) |
 | `Alt-P` | Phosphor mode: off, color CRT, green screen, amber screen |

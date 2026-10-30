@@ -33,7 +33,7 @@ use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::save::{SaveFormat, SavePrompt};
 use crate::ui::settings::{self as settings_ui, SettingsUi};
 use crate::ui::theme::{self, ThemeFile};
-use crate::ui::transfer::{self as transfer_ui, UploadPrompt};
+use crate::ui::transfer::{self as transfer_ui, DownloadAction, DownloadPrompt, UploadAction, UploadPrompt};
 use crate::ui::{self, HOTKEY, format_date};
 
 const COLS: usize = 80;
@@ -173,6 +173,12 @@ pub struct App {
     /// The terminal with a dialog drawn over it.
     overlay: Screen,
     upload_prompt: Option<UploadPrompt>,
+    /// Alt-G: starting an XMODEM or YMODEM download.
+    download_prompt: Option<DownloadPrompt>,
+    /// Where the last upload came from, and its protocol, for the next.
+    upload_dir: PathBuf,
+    upload_protocol: usize,
+    download_protocol: usize,
     /// Alt-S: where to save the scrollback.
     save_prompt: Option<SavePrompt>,
     /// Terminal text selected with the mouse.
@@ -256,6 +262,10 @@ impl App {
             status: Screen::new(COLS, 1, 0),
             overlay: Screen::new(COLS, ROWS, 0),
             upload_prompt: None,
+            download_prompt: None,
+            upload_dir: std::env::home_dir().unwrap_or_else(|| PathBuf::from(".")),
+            upload_protocol: 0,
+            download_protocol: 0,
             save_prompt: None,
             selection: None,
             dragging: false,
@@ -491,13 +501,14 @@ impl App {
                 SessionEvent::UploadRequested => {
                     self.dialer_open = false;
                     self.scroll = 0;
-                    self.upload_prompt = Some(UploadPrompt::new(true));
+                    self.open_upload(true);
                     self.attention();
                 }
                 SessionEvent::TransferStarted => {
                     self.dialer_open = false;
                     self.scroll = 0;
                     self.upload_prompt = None;
+                    self.download_prompt = None;
                     self.transfer_direction =
                         self.session.as_ref().and_then(|s| s.transfer()).map(|t| t.progress().direction);
                 }
@@ -534,6 +545,17 @@ impl App {
         }
     }
 
+    fn start_xy_upload(&mut self, protocol: phosphor_core::transfer::XyProtocol, paths: Vec<PathBuf>) {
+        let Some(session) = self.session.as_mut() else { return };
+        if session.state != State::Connected {
+            return self.notify("Not connected");
+        }
+        if let Err(e) = session.start_xy_upload(protocol, paths) {
+            self.notify(format!("Upload failed: {e:#}"));
+        }
+        self.session_events();
+    }
+
     fn start_upload(&mut self, paths: Vec<PathBuf>) {
         let Some(session) = self.session.as_mut() else { return };
         if session.state != State::Connected {
@@ -567,6 +589,8 @@ impl App {
             self.save_key(key, mods);
         } else if self.upload_prompt.is_some() {
             self.prompt_key(key, mods);
+        } else if self.download_prompt.is_some() {
+            self.download_key(key, mods);
         } else if self.session.as_ref().is_some_and(|s| s.transfer().is_some()) {
             if key == Key::Escape
                 && let Some(s) = self.session.as_mut()
@@ -762,7 +786,11 @@ impl App {
                     && session.transfer().is_none_or(|t| t.progress().direction == Direction::Upload) =>
             {
                 let requested = session.upload_requested();
-                self.upload_prompt = Some(UploadPrompt::new(requested));
+                self.open_upload(requested);
+            }
+            KeyCode::KeyG if session.state == State::Connected && session.transfer().is_none() => {
+                self.upload_prompt = None;
+                self.download_prompt = Some(DownloadPrompt::new(self.download_protocol));
             }
             _ => return false,
         }
@@ -1075,26 +1103,49 @@ impl App {
         self.notify(msg);
     }
 
+    fn open_upload(&mut self, requested: bool) {
+        self.download_prompt = None;
+        self.upload_prompt = Some(UploadPrompt::new(requested, self.upload_dir.clone(), self.upload_protocol));
+    }
+
     fn prompt_key(&mut self, key: Key, mods: Mods) {
         let Some(prompt) = self.upload_prompt.as_mut() else { return };
-        match key {
-            Key::Escape => {
+        match prompt.handle_key(key, mods) {
+            UploadAction::None => {}
+            UploadAction::Cancel => {
                 self.upload_prompt = None;
                 // A BBS waiting for the upload is told to give up.
                 if let Some(s) = self.session.as_mut() {
                     s.decline_upload();
                 }
             }
-            Key::Enter => {
-                let paths = prompt.paths();
-                if paths.is_empty() {
-                    return;
+            UploadAction::Send(protocol, paths) => {
+                self.upload_dir = prompt.picker.dir().to_path_buf();
+                if !prompt.requested {
+                    self.upload_protocol = prompt.protocol;
                 }
                 self.upload_prompt = None;
-                self.start_upload(paths);
+                match protocol {
+                    None => self.start_upload(paths),
+                    Some(p) => self.start_xy_upload(p, paths),
+                }
             }
-            _ => {
-                prompt.field.handle_key(key, mods);
+        }
+    }
+
+    fn download_key(&mut self, key: Key, mods: Mods) {
+        let Some(prompt) = self.download_prompt.as_mut() else { return };
+        match prompt.handle_key(key, mods) {
+            DownloadAction::None => {}
+            DownloadAction::Cancel => self.download_prompt = None,
+            DownloadAction::Receive(protocol, name) => {
+                self.download_protocol = prompt.protocol;
+                self.download_prompt = None;
+                let Some(session) = self.session.as_mut() else { return };
+                if let Err(e) = session.start_xy_download(protocol, name) {
+                    self.notify(format!("Download failed: {e:#}"));
+                }
+                self.session_events();
             }
         }
     }
@@ -1289,6 +1340,7 @@ impl App {
                 if self.login.is_some()
                     || self.save_prompt.is_some()
                     || self.upload_prompt.is_some()
+                    || self.download_prompt.is_some()
                     || session.transfer().is_some() =>
             {
                 let sc = &session.term.screen;
@@ -1303,8 +1355,10 @@ impl App {
                     overlay_cursor = Some(login.draw(&mut self.overlay));
                 } else if let Some(prompt) = &self.save_prompt {
                     overlay_cursor = Some(prompt.draw(&mut self.overlay));
-                } else if let Some(prompt) = &self.upload_prompt {
-                    overlay_cursor = Some(prompt.draw(&mut self.overlay));
+                } else if let Some(prompt) = &mut self.upload_prompt {
+                    overlay_cursor = prompt.draw(&mut self.overlay);
+                } else if let Some(prompt) = &self.download_prompt {
+                    overlay_cursor = prompt.draw(&mut self.overlay);
                 } else if let Some(t) = session.transfer() {
                     transfer_ui::draw_progress(&mut self.overlay, t.progress());
                 }

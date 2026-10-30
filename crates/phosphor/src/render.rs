@@ -397,13 +397,17 @@ mod tests {
         r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("transfer.ppm"));
 
-        let mut prompt = crate::ui::transfer::UploadPrompt::new(true);
-        prompt.field.value = "~/Uploads/MYART.ANS".into();
-        prompt.field.cursor = prompt.field.value.len();
+        let mut prompt = crate::ui::transfer::UploadPrompt::new(false, std::env::current_dir().unwrap(), 1);
         let cursor = prompt.draw(&mut over);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
-        r.draw(&Frame::plain(rows, Some(cursor), true), true, true);
+        r.draw(&Frame::plain(rows, cursor, true), true, true);
         write_ppm(&mut r, &dir.join("upload.ppm"));
+
+        let prompt = crate::ui::transfer::DownloadPrompt::new(3);
+        let cursor = prompt.draw(&mut over);
+        let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
+        r.draw(&Frame::plain(rows, cursor, true), true, true);
+        write_ppm(&mut r, &dir.join("download.ppm"));
 
         let mut ui = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
         let mut s = phosphor_core::Screen::new(80, 25, 0);

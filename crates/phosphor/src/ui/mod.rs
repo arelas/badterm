@@ -2,6 +2,7 @@
 //! [`Screen`] so it renders exactly like BBS content.
 
 pub mod dialer;
+pub mod files;
 pub mod help;
 pub mod login;
 pub mod save;
