@@ -18,6 +18,13 @@ fonts and colors of a host terminal.
 - **ANSI-BBS emulation**: cursor movement, erase/insert/delete, scroll regions,
   save/restore cursor, cursor position reports (used by BBSes to detect ANSI),
   CP437 "graphic" control characters, form feed clears the screen
+- **Fonts**: the IBM VGA fonts, and the Amiga fonts (Topaz, Topaz Plus,
+  MicroKnight, MicroKnight Plus, P0T-NOoDLE, mO'sOul) for Amiga BBSes: set
+  per directory entry, or by the BBS with CTerm's font selection
+  (`CSI n ; m SP D`, including the bright and blink font slots of
+  `CSI ?31h` / `?34h`)
+- **Palette changes** from the BBS (`OSC 4`, reset with `OSC 104`), as
+  SyncTERM does
 - **Colors**: 16-color VGA palette with bold-as-bright, **iCE colors** (blink
   bit selects a bright background; toggle with `Alt-I`, or by the server with
   `CSI ?33h`), real blinking text when iCE is off, xterm 256-color, and 24-bit

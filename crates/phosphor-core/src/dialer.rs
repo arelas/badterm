@@ -90,6 +90,10 @@ pub struct Entry {
     /// Screen height: 25 lines, or 50 (with the 8x8 font).
     #[serde(skip_serializing_if = "is_25")]
     pub rows: u16,
+    /// The font, as a CTerm font ID: 0 for CP437, or an Amiga font for
+    /// Amiga BBSes.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub font: u8,
     /// Phosphor mode for this system; None follows the global setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crt: Option<CrtMode>,
@@ -123,6 +127,7 @@ impl Default for Entry {
             auto_login: true,
             term_type: "ANSI".into(),
             rows: 25,
+            font: 0,
             crt: None,
             key_file: String::new(),
             comment: String::new(),
@@ -181,6 +186,10 @@ fn is_false(b: &bool) -> bool {
 
 fn is_true(b: &bool) -> bool {
     *b
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
 }
 
 fn is_25(n: &u16) -> bool {

@@ -51,6 +51,8 @@ Options:
     --crt MODE      phosphor mode: color, green or amber
     --nine-dot      9-dot characters
     --aspect        4:3, as on a CRT
+    --font NAME     topaz, topaz-plus, microknight, microknight-plus,
+                    p0t-noodle or mosoul (Amiga art)
   -h, --help      Show this help
   -V, --version   Show the version";
 
@@ -89,6 +91,15 @@ fn parse_args() -> Result<Command, String> {
             "--screen" => render.screen_only = true,
             "--nine-dot" => render.nine_dot = true,
             "--aspect" => render.aspect = true,
+            "--font" => {
+                let name = args.next().ok_or("--font needs a font name")?;
+                let slug = |n: &str| n.to_ascii_lowercase().replace(' ', "-").replace('\'', "");
+                render.font = render::EXTRA_FONTS
+                    .iter()
+                    .find(|(_, n)| slug(n) == slug(&name))
+                    .map(|&(id, _)| id)
+                    .ok_or_else(|| format!("unknown font {name}"))?;
+            }
             "--crt" => {
                 render.crt = match args.next().as_deref() {
                     Some("off") => crt::CrtMode::Off,

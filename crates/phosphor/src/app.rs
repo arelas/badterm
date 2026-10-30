@@ -804,7 +804,9 @@ impl App {
                 let mut r = Renderer::new(Font::vga_8x16(), COLS, ROWS);
                 r.set_layout(Self::font_for(sc.rows()), self.cell_width(), COLS, sc.rows());
                 let rows = terminal_rows(session, self.scroll);
-                r.draw(&Frame { rows, cursor: None, ice: sc.ice_colors, selection: None }, true, false);
+                let look_rows = rows.len();
+                let frame = Frame { look: &sc.look, look_rows, ..Frame::plain(rows, None, sc.ice_colors) };
+                r.draw(&frame, true, false);
                 (crate::png::encode(r.pixels(), r.native_width(), r.native_height()), "the screen".into())
             }
         };
@@ -1102,12 +1104,15 @@ impl App {
             _ if self.dialer_open => {
                 let mut rows: Vec<&[Cell]> = (0..dialer_ui::ROWS).map(|y| self.dialer_screen.row(y)).collect();
                 rows.push(self.status.row(0));
-                Frame { rows, cursor: dialer_cursor, ice: true, selection: None }
+                Frame::plain(rows, dialer_cursor, true)
             }
             Some(session) if overlay => {
                 let mut rows: Vec<&[Cell]> = (0..self.overlay.rows()).map(|y| self.overlay.row(y)).collect();
                 rows.push(self.status.row(0));
-                Frame { rows, cursor: overlay_cursor, ice: session.term.screen.ice_colors, selection: None }
+                // Dialogs are drawn in the BBS's look too, so the screen
+                // behind them keeps its fonts and colors.
+                let sc = &session.term.screen;
+                Frame { look: &sc.look, look_rows: sc.rows(), ..Frame::plain(rows, overlay_cursor, sc.ice_colors) }
             }
             Some(session) => {
                 let sc = &session.term.screen;
@@ -1115,12 +1120,13 @@ impl App {
                 rows.push(self.status.row(0));
                 let live = self.scroll == 0 || sc.scrollback_len() == 0;
                 let cursor = (live && sc.cursor_visible && session.state == State::Connected).then(|| sc.cursor());
-                Frame { rows, cursor, ice: sc.ice_colors, selection: self.selection }
+                let selection = self.selection;
+                Frame { selection, look: &sc.look, look_rows: sc.rows(), ..Frame::plain(rows, cursor, sc.ice_colors) }
             }
             None => {
                 let mut rows: Vec<&[Cell]> = (0..ROWS).map(|y| self.idle_screen.row(y)).collect();
                 rows.push(self.status.row(0));
-                Frame { rows, cursor: None, ice: true, selection: None }
+                Frame::plain(rows, None, true)
             }
         };
         // The terminal's own height (and font) unless the dialer or the idle

@@ -2,26 +2,56 @@
 //! native-resolution frame, then scales it into the window buffer, with an
 //! optional CRT look (see [`crate::crt`]).
 
-use phosphor_core::screen::{Cell, flags};
+use phosphor_core::screen::{Cell, Look, flags};
 
 use crate::crt::{Crt, CrtMode};
 use crate::selection::Selection;
 
-/// An 8-pixel-wide bitmap font with 256 CP437 glyphs.
+/// An 8-pixel-wide bitmap font with 256 glyphs, indexed by byte (CP437 for
+/// the VGA fonts, ISO-8859-1 for the Amiga ones).
 #[derive(Clone, Copy)]
 pub struct Font {
     pub height: usize,
     data: &'static [u8],
+    /// The CTerm font ID.
+    pub id: u8,
 }
+
+/// The fonts Phosphor has besides CP437, by CTerm font ID (as SyncTERM
+/// numbers them), with their names. All are 8x16.
+pub const EXTRA_FONTS: [(u8, &str); 6] = [
+    (42, "Topaz"),
+    (40, "Topaz Plus"),
+    (41, "MicroKnight"),
+    (39, "MicroKnight Plus"),
+    (37, "P0T-NOoDLE"),
+    (38, "mO'sOul"),
+];
 
 impl Font {
     pub fn vga_8x16() -> Font {
-        Font { height: 16, data: include_bytes!("../assets/fonts/vga_8x16.bin") }
+        Font { height: 16, data: include_bytes!("../assets/fonts/vga_8x16.bin"), id: 0 }
     }
 
     /// For 50-line modes.
     pub fn vga_8x8() -> Font {
-        Font { height: 8, data: include_bytes!("../assets/fonts/vga_8x8.bin") }
+        Font { height: 8, data: include_bytes!("../assets/fonts/vga_8x8.bin"), id: 0 }
+    }
+
+    /// The font with this CTerm ID, at the height of `base` (the screen
+    /// mode's font). IDs Phosphor lacks, and every font in 8-pixel modes
+    /// (the Amiga fonts are 8x16 only), give `base`.
+    pub fn cterm(id: u8, base: Font) -> Font {
+        let data: &'static [u8] = match (id, base.height) {
+            (42, 16) => include_bytes!("../assets/fonts/amiga/topaz_a1200.bin"),
+            (40, 16) => include_bytes!("../assets/fonts/amiga/topazplus_a1200.bin"),
+            (41, 16) => include_bytes!("../assets/fonts/amiga/microknight.bin"),
+            (39, 16) => include_bytes!("../assets/fonts/amiga/microknightplus.bin"),
+            (37, 16) => include_bytes!("../assets/fonts/amiga/p0t-noodle.bin"),
+            (38, 16) => include_bytes!("../assets/fonts/amiga/mosoul.bin"),
+            _ => return base,
+        };
+        Font { height: 16, data, id }
     }
 
     fn row(&self, ch: u8, y: usize) -> u8 {
@@ -64,6 +94,17 @@ pub struct Frame<'a> {
     pub ice: bool,
     /// Text selected with the mouse, drawn in inverse.
     pub selection: Option<Selection>,
+    /// The palette and fonts for the first `look_rows` rows (the BBS's
+    /// screen); the rest (the status bar) are drawn in the standard look.
+    pub look: &'a Look,
+    pub look_rows: usize,
+}
+
+impl<'a> Frame<'a> {
+    /// Rows drawn in the standard look.
+    pub fn plain(rows: Vec<&'a [Cell]>, cursor: Option<(usize, usize)>, ice: bool) -> Frame<'a> {
+        Frame { rows, cursor, ice, selection: None, look: Look::standard(), look_rows: 0 }
+    }
 }
 
 pub struct Renderer {
@@ -121,7 +162,12 @@ impl Renderer {
             let row = frame.rows.get(y).copied().unwrap_or(&[]);
             for x in 0..self.cols {
                 let cell = row.get(x).unwrap_or(&blank);
-                let (mut fg, mut bg, blinks) = cell.resolve(frame.ice);
+                let look = if y < frame.look_rows { frame.look } else { Look::standard() };
+                let (mut fg, mut bg, blinks) = cell.resolve_with(frame.ice, look);
+                let font = match look.font_for(cell) {
+                    0 => self.font,
+                    id => Font::cterm(id, self.font),
+                };
                 if frame.selection.is_some_and(|s| s.contains(x, y)) {
                     std::mem::swap(&mut fg, &mut bg);
                 }
@@ -129,9 +175,9 @@ impl Renderer {
                 let cursor_here = cursor_on && frame.cursor == Some((x, y));
                 // A VGA's ninth column repeats the eighth for the line-drawing
                 // glyphs, so their lines join up; otherwise it is background.
-                let extend = (0xC0..=0xDF).contains(&cell.ch);
+                let extend = font.id == 0 && (0xC0..=0xDF).contains(&cell.ch);
                 for gy in 0..fh {
-                    let mut bits = if hide { 0 } else { self.font.row(cell.ch, gy) as u16 };
+                    let mut bits = if hide { 0 } else { font.row(cell.ch, gy) as u16 };
                     if cell.flags & flags::UNDERLINE != 0 && gy == fh - 1 && !hide {
                         bits = 0x1FF;
                     }
@@ -301,7 +347,7 @@ mod tests {
 
         let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
         let rows: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
-        r.draw(&Frame { rows, cursor: Some(t.screen.cursor()), ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, Some(t.screen.cursor()), true), true, true);
         write_ppm(&mut r, &dir.join("terminal.ppm"));
 
         let mut d = Directory::default();
@@ -332,7 +378,7 @@ mod tests {
         };
         crate::ui::transfer::draw_progress(&mut over, &progress);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("transfer.ppm"));
 
         let mut prompt = crate::ui::transfer::UploadPrompt::new(true);
@@ -340,14 +386,14 @@ mod tests {
         prompt.field.cursor = prompt.field.value.len();
         let cursor = prompt.draw(&mut over);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
-        r.draw(&Frame { rows, cursor: Some(cursor), ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, Some(cursor), true), true, true);
         write_ppm(&mut r, &dir.join("upload.ppm"));
 
         let mut ui = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
         let mut s = phosphor_core::Screen::new(80, 25, 0);
         ui.draw(&mut s, &d);
         let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("dialer.ppm"));
 
         let mut edit = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
@@ -357,18 +403,18 @@ mod tests {
         let mut es = phosphor_core::Screen::new(80, 25, 0);
         let cursor = edit.draw(&mut es, &ed);
         let rows: Vec<&[Cell]> = (0..25).map(|y| es.row(y)).collect();
-        r.draw(&Frame { rows, cursor, ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, cursor, true), true, true);
         write_ppm(&mut r, &dir.join("edit.ppm"));
 
         ui.confirm_hang_up("Example BBS", "another.example.com");
         ui.draw(&mut s, &d);
         let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("hangup.ppm"));
 
         let idle = crate::app::idle_screen();
         let rows: Vec<&[Cell]> = (0..25).map(|y| idle.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("idle.ppm"));
 
         for y in 0..25 {
@@ -382,13 +428,13 @@ mod tests {
         login.remember = true;
         let cursor = login.draw(&mut over);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
-        r.draw(&Frame { rows, cursor: Some(cursor), ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, Some(cursor), true), true, true);
         write_ppm(&mut r, &dir.join("login.ppm"));
 
         // A mouse selection over the terminal, and the same screen as a PNG.
         let rows: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
         let selection = Some(crate::selection::Selection { anchor: (20, 0), head: (9, 4) });
-        r.draw(&Frame { rows, cursor: None, ice: true, selection }, true, true);
+        r.draw(&Frame { selection, ..Frame::plain(rows, None, true) }, true, true);
         write_ppm(&mut r, &dir.join("selection.ppm"));
         let png = crate::png::encode(r.pixels(), r.native_width(), r.native_height());
         std::fs::write(dir.join("selection.png"), png).unwrap();
@@ -400,7 +446,7 @@ mod tests {
         }
         ui.draw(&mut s, &d);
         let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
-        r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
+        r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("find.ppm"));
 
         // Phosphor mode, 9-dot cells and 4:3, fullscreen on 1920x1080.
@@ -413,7 +459,7 @@ mod tests {
         let rows: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
         let mut crt = Renderer::new(Font::vga_8x16(), 80, 25);
         crt.set_layout(Font::vga_8x16(), 9, 80, 25);
-        crt.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
+        crt.draw(&Frame::plain(rows, None, true), true, true);
         for (mode, name) in [
             (crate::crt::CrtMode::Off, "aspect.png"),
             (crate::crt::CrtMode::Color, "crt-color.png"),
@@ -433,7 +479,7 @@ mod tests {
         }
         let rows: Vec<&[Cell]> = (0..50).map(|y| t50.screen.row(y)).collect();
         let mut r50 = Renderer::new(Font::vga_8x8(), 80, 50);
-        r50.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
+        r50.draw(&Frame::plain(rows, None, true), true, true);
         write_png(
             &mut r50,
             &Display { scaling: Scaling::Fill, pixel_aspect: 1.2, crt: crate::crt::CrtMode::Off },

@@ -10,6 +10,7 @@ use phosphor_core::screen::{Cell, Screen};
 
 use super::*;
 use crate::input::{Key, Mods};
+use crate::render::EXTRA_FONTS;
 use crate::secrets::{self, Store};
 
 pub const COLS: usize = 80;
@@ -32,13 +33,14 @@ pub enum Action {
     Close,
 }
 
-const FIELDS: [&str; 13] = [
+const FIELDS: [&str; 14] = [
     "Name",
     "Address",
     "Port",
     "Protocol",
     "Encoding",
     "Screen mode",
+    "Font",
     "Phosphor mode",
     "Terminal type",
     "User name",
@@ -51,27 +53,30 @@ const F_PORT: usize = 2;
 const F_PROTOCOL: usize = 3;
 const F_ENCODING: usize = 4;
 const F_ROWS: usize = 5;
-const F_CRT: usize = 6;
-const F_TERM: usize = 7;
-const F_USER: usize = 8;
-const F_PASSWORD: usize = 9;
-const F_AUTO_LOGIN: usize = 10;
-const F_KEY_FILE: usize = 11;
-const F_COMMENT: usize = 12;
+const F_FONT: usize = 6;
+const F_CRT: usize = 7;
+const F_TERM: usize = 8;
+const F_USER: usize = 9;
+const F_PASSWORD: usize = 10;
+const F_AUTO_LOGIN: usize = 11;
+const F_KEY_FILE: usize = 12;
+const F_COMMENT: usize = 13;
 /// The fields changed with Space or the arrow keys rather than typed into.
-const OPTION_FIELDS: [usize; 5] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_CRT, F_AUTO_LOGIN];
+const OPTION_FIELDS: [usize; 6] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_CRT, F_AUTO_LOGIN];
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 13],
+    text: [TextField; 14],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
     protocol: Protocol,
     encoding: Encoding,
     rows: u16,
+    /// CTerm font ID.
+    font: u8,
     /// None: the global phosphor mode (Alt-P).
     crt: Option<CrtMode>,
     auto_login: bool,
@@ -96,6 +101,7 @@ impl Form {
                 TextField::default(),
                 TextField::default(),
                 TextField::default(),
+                TextField::default(),
                 t(&e.term_type),
                 t(&e.username),
                 t(&password),
@@ -107,6 +113,7 @@ impl Form {
             protocol: e.protocol,
             encoding: e.encoding,
             rows: if dialer::SCREEN_ROWS.contains(&e.rows) { e.rows } else { 25 },
+            font: e.font,
             crt: e.crt,
             auto_login: e.auto_login,
             focus: 0,
@@ -146,6 +153,7 @@ impl Form {
             encoding: self.encoding,
             term_type: self.text[F_TERM].value.trim().to_string(),
             rows: self.rows,
+            font: self.font,
             crt: self.crt,
             auto_login: self.auto_login,
             username: self.text[F_USER].value.clone(),
@@ -341,6 +349,12 @@ impl DialerUi {
                     let all = dialer::SCREEN_ROWS;
                     let i = all.iter().position(|&r| r == form.rows).unwrap_or(0);
                     form.rows = all[(i + 1) % all.len()];
+                }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_FONT => {
+                    let all: Vec<u8> = std::iter::once(0).chain(EXTRA_FONTS.iter().map(|&(id, _)| id)).collect();
+                    let i = all.iter().position(|&f| f == form.font).unwrap_or(0);
+                    let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
+                    form.font = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_AUTO_LOGIN => {
                     form.auto_login = !form.auto_login;
@@ -627,6 +641,12 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
             }
             F_ENCODING => text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg),
             F_ROWS => text(s, fx, yy, fw, &format!("\u{25C4} 80x{:<4} \u{25BA}", form.rows), fg, bg),
+            F_FONT => {
+                text(s, fx, yy, fw, &format!("\u{25C4} {:<16} \u{25BA}", font_name(form.font)), fg, bg);
+                if form.font != 0 {
+                    label(s, fx + 21, yy, "(Amiga)", DARK_GRAY, bg);
+                }
+            }
             F_AUTO_LOGIN => {
                 let v = if form.auto_login { "On " } else { "Off" };
                 text(s, fx, yy, fw, &format!("\u{25C4} {v} \u{25BA}"), fg, bg);
@@ -655,6 +675,10 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
         text(s, x + 2, y + h - 2, w - 4, err, LIGHT_RED, BLUE);
     }
     cursor
+}
+
+fn font_name(id: u8) -> &'static str {
+    EXTRA_FONTS.iter().find(|&&(f, _)| f == id).map_or("CP437 (IBM PC)", |&(_, name)| name)
 }
 
 fn message_box(s: &mut Screen, title: &str, msg: &str) {

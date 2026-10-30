@@ -17,6 +17,8 @@ pub struct RenderOptions {
     /// Only the final 80x25 screen (for captured BBS sessions) rather than
     /// the whole file as one tall picture (for art).
     pub screen_only: bool,
+    /// The font to start in (a CTerm font ID), e.g. Topaz for Amiga art.
+    pub font: u8,
 }
 
 /// The tallest picture drawn from one file.
@@ -31,6 +33,8 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
     let rows = if opts.screen_only { 25 } else { MAX_ROWS };
     let mut term = Terminal::new(80, rows, 0);
     term.screen.ice_colors = ice;
+    term.screen.base_font = opts.font;
+    term.screen.look.fonts[0] = opts.font;
     term.feed(content);
     let ice = term.screen.ice_colors;
     let used = if opts.screen_only {
@@ -44,7 +48,9 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
     let cell_w = if opts.nine_dot { 9 } else { 8 };
     let mut r = Renderer::new(Font::vga_8x16(), 80, used);
     r.set_layout(Font::vga_8x16(), cell_w, 80, used);
-    r.draw(&Frame { rows: lines, cursor: None, ice, selection: None }, true, false);
+    // The art's own palette and fonts (CTerm sequences), if it sets any.
+    let look = &term.screen.look;
+    r.draw(&Frame { look, look_rows: used, ..Frame::plain(lines, None, ice) }, true, false);
 
     let (nw, nh) = (r.native_width(), r.native_height());
     let (w, h, pixels) = if opts.crt == CrtMode::Off && !opts.aspect {

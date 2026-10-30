@@ -102,6 +102,8 @@ impl Session {
         let login = AutoLogin::new(&entry);
         let mut term = Terminal::new(cols, rows, config.scrollback);
         term.encoding = entry.encoding;
+        term.screen.base_font = entry.font;
+        term.screen.look.fonts[0] = entry.font;
         let telnet = entry.protocol.is_telnet().then(|| Telnet::new(&entry.term_type, cols as u16, rows as u16));
         Session {
             entry,

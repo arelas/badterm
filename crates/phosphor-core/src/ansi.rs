@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::cp437;
 use crate::music::{self, Tone};
 use crate::palette::{ANSI_TO_VGA, rgb};
-use crate::screen::{Cell, Color, DEFAULT_BG, DEFAULT_FG, Screen, flags};
+use crate::screen::{Cell, Color, DEFAULT_BG, DEFAULT_FG, Look, Screen, flags};
 
 /// Character set used to interpret incoming bytes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,12 +242,42 @@ impl Terminal {
         if !self.string_is_osc {
             return;
         }
-        // OSC 0 / OSC 2: set window title.
         let s = String::from_utf8_lossy(&self.osc).into_owned();
-        if let Some((code, title)) = s.split_once(';')
-            && (code == "0" || code == "2")
-        {
-            self.events.push(TermEvent::Title(title.to_string()));
+        let (code, rest) = s.split_once(';').unwrap_or((s.as_str(), ""));
+        match code {
+            // Set the window title.
+            "0" | "2" => self.events.push(TermEvent::Title(rest.to_string())),
+            "4" => self.set_palette(rest),
+            "104" => self.reset_palette(rest),
+            _ => log::debug!("unhandled OSC {code}"),
+        }
+    }
+
+    /// `OSC 4 ; index ; color [; index ; color ...]`, where a color is
+    /// `rgb:R/G/B` (1-4 hex digits each), `#RRGGBB`, or `?` to ask for it.
+    fn set_palette(&mut self, args: &str) {
+        let mut parts = args.split(';');
+        while let (Some(i), Some(spec)) = (parts.next(), parts.next()) {
+            let Ok(i) = i.trim().parse::<u8>() else { continue };
+            if spec == "?" {
+                let c = self.screen.look.palette[i as usize];
+                let reply = format!("\x1b]4;{i};rgb:{:02x}/{:02x}/{:02x}\x1b\\", c >> 16, (c >> 8) & 0xFF, c & 0xFF);
+                self.replies.extend_from_slice(reply.as_bytes());
+            } else if let Some(c) = parse_color(spec) {
+                self.screen.look.palette[i as usize] = c;
+            }
+        }
+    }
+
+    /// `OSC 104` resets the whole palette; `OSC 104 ; index ...` just those.
+    fn reset_palette(&mut self, args: &str) {
+        let standard = &Look::standard().palette;
+        if args.trim().is_empty() {
+            self.screen.look.palette = *standard;
+            return;
+        }
+        for i in args.split(';').filter_map(|i| i.trim().parse::<u8>().ok()) {
+            self.screen.look.palette[i as usize] = standard[i as usize];
         }
     }
 
@@ -302,7 +332,15 @@ impl Terminal {
 
     fn dispatch_csi(&mut self, b: u8) {
         if self.intermediate != 0 {
-            // e.g. CTerm font selection `CSI n ; m SP D`; not yet supported.
+            // CTerm font selection: `CSI slot ; font SP D`.
+            if self.intermediate == b' ' && b == b'D' && self.private == 0 {
+                let slot = self.params.first().copied().unwrap_or(0) as usize;
+                let font = self.params.get(1).copied().unwrap_or(0);
+                if slot < 4 && font <= 255 {
+                    self.screen.look.fonts[slot] = font as u8;
+                }
+                return;
+            }
             log::debug!("unhandled CSI with intermediate {:?} {:?}", self.intermediate as char, b as char);
             return;
         }
@@ -401,7 +439,13 @@ impl Terminal {
                 7 => self.screen.autowrap = on,
                 25 => self.screen.cursor_visible = on,
                 // CTerm: blink attribute selects bright background (iCE colors).
+                // CTerm: bright and blink select fonts, and need not
+                // brighten or blink.
+                31 => self.screen.look.bright_font = on,
+                32 => self.screen.look.bright_plain = on,
                 33 => self.screen.ice_colors = on,
+                34 => self.screen.look.blink_font = on,
+                35 => self.screen.look.blink_steady = on,
                 _ => log::debug!("unhandled DEC mode {mode} {on}"),
             }
         }
@@ -460,6 +504,22 @@ impl Terminal {
             i += 1;
         }
     }
+}
+
+/// An X11-style color: `rgb:R/G/B` with 1-4 hex digits per channel, or
+/// `#RRGGBB`.
+fn parse_color(spec: &str) -> Option<crate::palette::Rgb> {
+    let spec = spec.trim();
+    if let Some(hex) = spec.strip_prefix('#') {
+        return (hex.len() == 6).then(|| u32::from_str_radix(hex, 16).ok()).flatten();
+    }
+    let mut channels = spec.strip_prefix("rgb:")?.split('/').map(|c| {
+        let v = u32::from_str_radix(c, 16).ok().filter(|_| (1..=4).contains(&c.len()))?;
+        // Scale to 8 bits: "f" and "ffff" are both full.
+        Some((v * 255 / ((1 << (4 * c.len())) - 1)) as u8)
+    });
+    let (r, g, b) = (channels.next()??, channels.next()??, channels.next()??);
+    channels.next().is_none().then(|| rgb(r, g, b))
 }
 
 #[cfg(test)]
@@ -573,5 +633,38 @@ mod tests {
         t.feed(b"\x1b[MMLO3A\x0e\x1b[1M");
         assert_eq!(t.take_events(), [TermEvent::Music(vec![a])]);
         assert_eq!(line(&t, 0), "");
+    }
+
+    #[test]
+    fn cterm_palette_and_fonts() {
+        let mut t = Terminal::new(80, 25, 0);
+        // Red (ANSI 1, VGA 4) becomes orange; bright blue (ANSI 12) too.
+        t.feed(b"\x1b]4;1;rgb:ff/80/00;12;#123456\x1b\\");
+        assert_eq!(t.screen.look.palette[1], 0xFF8000);
+        assert_eq!(t.screen.look.rgb(Color::Pc(4)), 0xFF8000);
+        assert_eq!(t.screen.look.rgb(Color::Pc(9)), 0x123456);
+        t.feed(b"\x1b[31mX");
+        assert_eq!(t.screen.row(0)[0].resolve_with(false, &t.screen.look).0, 0xFF8000);
+        // Queried, then reset.
+        t.feed(b"\x1b]4;1;?\x07");
+        assert_eq!(t.take_replies(), b"\x1b]4;1;rgb:ff/80/00\x1b\\");
+        t.feed(b"\x1b]104;1\x07");
+        assert_eq!(t.screen.look.palette[1], 0xAA0000);
+        assert_eq!(t.screen.look.palette[12], 0x123456);
+        t.feed(b"\x1b]104\x07");
+        assert_eq!(t.screen.look, *Look::standard());
+
+        // Font slots, and bright text in slot 1 without brightening.
+        t.feed(b"\x1b[0;42 D\x1b[1;40 D\x1b[?31h\x1b[?32h\x1b[1;32mB");
+        let cell = t.screen.row(0)[1];
+        assert_eq!(t.screen.look.fonts, [42, 40, 0, 0]);
+        assert_eq!(t.screen.look.font_for(&cell), 40);
+        assert_eq!(cell.resolve_with(false, &t.screen.look).0, 0x00AA00);
+        t.feed(b"\x1b[?31l\x1b[?32l");
+        assert_eq!(t.screen.look.font_for(&cell), 42);
+        assert_eq!(cell.resolve_with(false, &t.screen.look).0, 0x55FF55);
+        assert_eq!(parse_color("rgb:f/0/8"), Some(0xFF0088));
+        assert_eq!(parse_color("rgb:ffff/0000/8080"), Some(0xFF0080));
+        assert_eq!(parse_color("rgb:1/2"), None);
     }
 }

@@ -11,3 +11,27 @@ DOSBox Staging v0.80.0 (<https://github.com/dosbox-staging/dosbox-staging>),
 Copyright (C) 2002-2021 The DOSBox Team, distributed under the GNU General
 Public License version 2 or (at your option) any later version. It is used here
 under the terms of GPL version 3 or later.
+
+## amiga/*.bin
+
+Amiga fonts for Amiga BBSes and art, chosen per directory entry or by the
+BBS with CTerm's `CSI n ; m SP D` (IDs as SyncTERM numbers them: 37
+P0T-NOoDLE, 38 mO'sOul, 39 MicroKnight Plus, 40 Topaz Plus, 41 MicroKnight,
+42 Topaz). Each is 256 glyphs x 16 bytes in ISO-8859-1 order, like the VGA
+files.
+
+The `raw/` files of TrueSchool's "Multi Platform Amiga Fonts" v1.02 by dMG
+of TrueSchool and Divine Stylers (<https://github.com/rewtnull/amigafonts>,
+commit d42987535d94ebbfb51e64fee76f9974c6ae145a), renamed. Its README
+releases them under the GPL with the font exception
+(<https://www.gnu.org/licenses/gpl-faq.html#FontException>) and credits:
+
+- Topaz (Kickstart 1.x: `topaz_a500`, 2.x: `topaz_a1200`), © Amiga Inc.;
+  these versions and Topaz Plus © dMG/t!s^dS!
+- P0T-NOoDLE © Leo "Nudel" Davidson
+- MicroKnight © Niels Krogh "Nölb/Grafictive" Mortensen; MicroKnight Plus
+  © dMG/t!s^dS!
+- mO'sOul © Desoto/Mo'Soul
+
+The Kickstart 2.x Topaz is the one used for CTerm's "Topaz" and "Topaz
+Plus"; the 1.x versions are kept for a future font menu.

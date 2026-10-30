@@ -59,15 +59,20 @@ impl Cell {
     /// With `ice` set, the blink attribute selects a high-intensity background
     /// instead of blinking text, as on a VGA with blink disabled.
     pub fn resolve(&self, ice: bool) -> (Rgb, Rgb, bool) {
-        let bold = self.flags & flags::BOLD != 0;
+        self.resolve_with(ice, Look::standard())
+    }
+
+    /// [`Cell::resolve`] with the palette and modes the BBS has set.
+    pub fn resolve_with(&self, ice: bool, look: &Look) -> (Rgb, Rgb, bool) {
+        let bold = self.flags & flags::BOLD != 0 && !look.bright_plain;
         let blink = self.flags & flags::BLINK != 0;
         let mut fg = match self.fg {
-            Color::Pc(i) if bold && i < 8 => VGA[i as usize + 8],
-            c => color_rgb(c),
+            Color::Pc(i) if bold && i < 8 => look.rgb(Color::Pc(i + 8)),
+            c => look.rgb(c),
         };
         let mut bg = match self.bg {
-            Color::Pc(i) if blink && ice && i < 8 => VGA[i as usize + 8],
-            c => color_rgb(c),
+            Color::Pc(i) if blink && ice && i < 8 => look.rgb(Color::Pc(i + 8)),
+            c => look.rgb(c),
         };
         if self.flags & flags::REVERSE != 0 {
             std::mem::swap(&mut fg, &mut bg);
@@ -75,7 +80,67 @@ impl Cell {
         if self.flags & flags::CONCEAL != 0 {
             fg = bg;
         }
-        (fg, bg, blink && !ice)
+        (fg, bg, blink && !ice && !look.blink_steady)
+    }
+}
+
+/// What a BBS can change about how cells are drawn, beyond their own
+/// attributes: CTerm's palette (`OSC 4`) and font slots (`CSI n;m SP D`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Look {
+    /// In xterm order: the 16 ANSI colors (black, red, green, ...), the
+    /// 6x6x6 cube and the grays.
+    pub palette: [Rgb; 256],
+    /// CTerm font IDs for the normal, bright, blink and bright-blink slots.
+    pub fonts: [u8; 4],
+    /// `CSI ?31h`: bright text is drawn in font slot 1.
+    pub bright_font: bool,
+    /// `CSI ?32h`: bold does not brighten the color.
+    pub bright_plain: bool,
+    /// `CSI ?34h`: blinking text is drawn in font slot 2.
+    pub blink_font: bool,
+    /// `CSI ?35h`: blink does not make text blink.
+    pub blink_steady: bool,
+}
+
+impl Default for Look {
+    fn default() -> Look {
+        Look::standard().clone()
+    }
+}
+
+impl Look {
+    /// The VGA palette and font, with no CTerm modes set.
+    pub fn standard() -> &'static Look {
+        static STANDARD: std::sync::LazyLock<Look> = std::sync::LazyLock::new(|| Look {
+            palette: std::array::from_fn(|i| palette::xterm256(i as u8)),
+            fonts: [0; 4],
+            bright_font: false,
+            bright_plain: false,
+            blink_font: false,
+            blink_steady: false,
+        });
+        &STANDARD
+    }
+
+    pub fn rgb(&self, c: Color) -> Rgb {
+        match c {
+            // VGA order to xterm order.
+            Color::Pc(i) => {
+                let i = i & 15;
+                let ansi = palette::ANSI_TO_VGA.iter().position(|&v| v == i & 7).unwrap_or(0) as u8;
+                self.palette[(ansi + (i & 8)) as usize]
+            }
+            Color::Xterm(i) => self.palette[i as usize],
+            Color::Rgb(rgb) => rgb,
+        }
+    }
+
+    /// The CTerm font a cell is drawn in.
+    pub fn font_for(&self, cell: &Cell) -> u8 {
+        let bright = self.bright_font && cell.flags & flags::BOLD != 0;
+        let blink = self.blink_font && cell.flags & flags::BLINK != 0;
+        self.fonts[bright as usize | (blink as usize) << 1]
     }
 }
 
@@ -111,6 +176,10 @@ pub struct Screen {
     pub autowrap: bool,
     pub cursor_visible: bool,
     pub ice_colors: bool,
+    /// The palette and fonts the BBS has chosen.
+    pub look: Look,
+    /// The font (CTerm ID) a reset returns to: the entry's choice.
+    pub base_font: u8,
     scrollback: VecDeque<Vec<Cell>>,
     scrollback_limit: usize,
 }
@@ -133,6 +202,8 @@ impl Screen {
             autowrap: true,
             cursor_visible: true,
             ice_colors: false,
+            look: Look::default(),
+            base_font: 0,
             scrollback: VecDeque::new(),
             scrollback_limit,
         }
@@ -184,6 +255,8 @@ impl Screen {
         self.autowrap = true;
         self.cursor_visible = true;
         self.ice_colors = false;
+        self.look = Look::default();
+        self.look.fonts[0] = self.base_font;
     }
 
     pub fn resize(&mut self, cols: usize, rows: usize) {
