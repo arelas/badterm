@@ -6,6 +6,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["network-programming", "emulators", "parser-implementations"]
 rust-version.workspace = true
 
 [dependencies]

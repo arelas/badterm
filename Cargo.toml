@@ -8,10 +8,13 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 authors = ["Bad Cluster"]
 repository = "https://git.badcluster.dev/arelas/badterm"
+homepage = "https://badterm.com/"
+readme = "README.md"
+keywords = ["bbs", "telnet", "ansi", "terminal", "zmodem"]
 rust-version = "1.89"
 
 [workspace.dependencies]
-badterm-core = { path = "crates/badterm-core" }
+badterm-core = { path = "crates/badterm-core", version = "0.1.17" }
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"
