@@ -24,8 +24,9 @@ pub struct RenderOptions {
     pub font: u8,
     /// A monitor bezel to draw around the screen.
     pub bezel: Option<Bezel>,
-    /// How strong phosphor mode's scanlines are.
+    /// How strong phosphor mode's scanlines are, and how curved its glass.
     pub scanlines: crate::crt::Scanlines,
+    pub curvature: crate::crt::Curvature,
 }
 
 /// The tallest picture drawn from one file.
@@ -95,7 +96,13 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
             w,
             h,
             frame.screen,
-            &Display { scaling: Scaling::Fill, pixel_aspect, crt: opts.crt, scanlines: opts.scanlines },
+            &Display {
+                scaling: Scaling::Fill,
+                pixel_aspect,
+                crt: opts.crt,
+                scanlines: opts.scanlines,
+                curvature: opts.curvature,
+            },
         );
         crate::bezel::composite(&mut out, &frame.pixels);
         (w, h, out)
@@ -110,7 +117,13 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
             &mut out,
             w,
             h,
-            &Display { scaling: Scaling::Fill, pixel_aspect, crt: opts.crt, scanlines: opts.scanlines },
+            &Display {
+                scaling: Scaling::Fill,
+                pixel_aspect,
+                crt: opts.crt,
+                scanlines: opts.scanlines,
+                curvature: opts.curvature,
+            },
         );
         (w, h, out)
     };

@@ -54,6 +54,7 @@ Options:
                     not the whole file
     --crt MODE      phosphor mode: color, green or amber
     --scanlines S   their strength: off, light, medium or strong
+    --curvature C   the glass: off, slight, medium or strong
     --nine-dot      9-dot characters
     --aspect        4:3, as on a CRT
     --font NAME     topaz, topaz-plus, microknight, microknight-plus,
@@ -114,6 +115,13 @@ fn parse_args() -> Result<Command, String> {
                     .find(|(_, n)| slug(n) == slug(&name))
                     .map(|&(id, _)| id)
                     .ok_or_else(|| format!("unknown font {name}"))?;
+            }
+            "--curvature" => {
+                let want = args.next().unwrap_or_default().to_ascii_lowercase();
+                render.curvature = crt::Curvature::ALL
+                    .into_iter()
+                    .find(|c| c.name().to_ascii_lowercase().starts_with(&want) && !want.is_empty())
+                    .ok_or("--curvature needs off, slight, medium or strong")?;
             }
             "--scanlines" => {
                 let want = args.next().unwrap_or_default().to_ascii_lowercase();

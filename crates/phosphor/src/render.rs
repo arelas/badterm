@@ -4,7 +4,7 @@
 
 use phosphor_core::screen::{Cell, Look, flags};
 
-use crate::crt::{Crt, CrtMode, Scanlines};
+use crate::crt::{Crt, CrtMode, Curvature, Scanlines};
 use crate::selection::Selection;
 
 /// An 8-pixel-wide bitmap font with 256 glyphs, indexed by byte (CP437 for
@@ -96,11 +96,18 @@ pub struct Display {
     pub pixel_aspect: f64,
     pub crt: CrtMode,
     pub scanlines: Scanlines,
+    pub curvature: Curvature,
 }
 
 impl Default for Display {
     fn default() -> Display {
-        Display { scaling: Scaling::Integer, pixel_aspect: 1.0, crt: CrtMode::Off, scanlines: Scanlines::Light }
+        Display {
+            scaling: Scaling::Integer,
+            pixel_aspect: 1.0,
+            crt: CrtMode::Off,
+            scanlines: Scanlines::Light,
+            curvature: Curvature::Slight,
+        }
     }
 }
 
@@ -261,7 +268,17 @@ impl Renderer {
         if display.crt == CrtMode::Off {
             scale_into(&self.native, nw, nh, out, width, (ox, oy, dw, dh));
         } else {
-            self.crt.present(display.crt, display.scanlines, &self.native, nw, nh, out, width, (ox, oy, dw, dh));
+            self.crt.present(
+                display.crt,
+                display.scanlines,
+                display.curvature,
+                &self.native,
+                nw,
+                nh,
+                out,
+                width,
+                (ox, oy, dw, dh),
+            );
         }
         (ox, oy, dw, dh)
     }

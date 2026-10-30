@@ -8,7 +8,7 @@ use phosphor_core::screen::{Cell, Screen};
 
 use super::theme::{self, Attr, SCHEMES, Theme};
 use super::*;
-use crate::crt::{CrtMode, Scanlines};
+use crate::crt::{CrtMode, Curvature, Scanlines};
 use crate::input::{Key, Mods};
 use crate::settings::{Music, Settings};
 
@@ -28,7 +28,7 @@ pub enum Action {
     Export(String),
 }
 
-const ITEMS: [&str; 18] = [
+const ITEMS: [&str; 19] = [
     "Phosphor mode",
     "Scanlines",
     "Character cells",
@@ -47,6 +47,7 @@ const ITEMS: [&str; 18] = [
     "Saved screens",
     "Uploads start in",
     "ANSI art starts in",
+    "Curvature",
 ];
 const I_CRT: usize = 0;
 const I_SCANLINES: usize = 1;
@@ -63,12 +64,13 @@ const I_IMPORT: usize = 11;
 const I_EXPORT: usize = 12;
 /// The folders, in `Folders::NAMES` order.
 const I_FOLDER: usize = 13;
+const I_CURVATURE: usize = 18;
 /// Items that open something rather than having a value.
 const ACTIONS: [usize; 4] = [I_MACROS, I_COLORS, I_IMPORT, I_EXPORT];
 
 /// The tabs, and the items on each.
 const TABS: [(&str, &[usize]); 4] = [
-    ("Display", &[I_CRT, I_SCANLINES, I_NINE_DOT, I_ASPECT, I_BEZEL]),
+    ("Display", &[I_CRT, I_SCANLINES, I_CURVATURE, I_NINE_DOT, I_ASPECT, I_BEZEL]),
     ("General", &[I_MUSIC, I_REDIAL, I_UPDATES, I_MACROS]),
     ("Folders", &[I_FOLDER, I_FOLDER + 1, I_FOLDER + 2, I_FOLDER + 3, I_FOLDER + 4]),
     ("Colors", &[I_SCHEME, I_COLORS, I_IMPORT, I_EXPORT]),
@@ -325,6 +327,11 @@ impl SettingsUi {
                 let i = all.iter().position(|&m| m == s.scanlines).unwrap_or(0);
                 s.scanlines = all[step(i, all.len())];
             }
+            I_CURVATURE => {
+                let all = Curvature::ALL;
+                let i = all.iter().position(|&m| m == s.curvature).unwrap_or(0);
+                s.curvature = all[step(i, all.len())];
+            }
             I_NINE_DOT => s.nine_dot = !s.nine_dot,
             I_ASPECT => s.aspect = !s.aspect,
             I_BEZEL => {
@@ -487,6 +494,7 @@ impl SettingsUi {
             (I_UPDATES, _, None) => "When on, asks git.badcluster.dev for the newest version".to_string(),
             (I_CRT, Some(own), _) => format!("This BBS has its own phosphor mode: {own}"),
             (I_SCANLINES, ..) => "In phosphor mode; they show from twice the size up".to_string(),
+            (I_CURVATURE, ..) => "How much phosphor mode's glass bulges".to_string(),
             (I_BEZEL, ..) => "Your own: a PNG with a see-through screen, in bezels/".to_string(),
             (I_SCHEME | I_IMPORT | I_EXPORT, ..) => {
                 "Themes are kept in the themes folder (phosphor --paths)".to_string()
@@ -502,6 +510,7 @@ impl SettingsUi {
         match item {
             I_CRT => s.crt.name().to_string(),
             I_SCANLINES => s.scanlines.name().into(),
+            I_CURVATURE => s.curvature.name().into(),
             I_NINE_DOT => if s.nine_dot { "9 dots, as on a VGA" } else { "8 dots" }.into(),
             I_ASPECT => if s.aspect { "4:3, as on a CRT" } else { "Square" }.into(),
             I_BEZEL if s.bezel.is_empty() => "None".into(),

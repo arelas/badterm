@@ -222,7 +222,8 @@ tabs (`Tab` and `Shift-Tab`, or `PgUp`/`PgDn`, move between them).
 **Folders** sets where downloads, captures and saved screens go and where
 the upload and ANSI-art pickers start (`Enter` to change, `Del` for the
 default). The others: phosphor
-mode and its scanlines (off, light, medium or strong), character cells, pixel shape, ANSI music, redialing, and the colors
+mode, its scanlines (off, light, medium or strong) and the curve of its
+glass (off for a flat screen, slight, medium or strong), character cells, pixel shape, ANSI music, redialing, and the colors
 of Phosphor's own screens. Pick one of the color schemes (Classic blue,
 Midnight, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit
 colors", give each part of the interface (title bar, selected entry,

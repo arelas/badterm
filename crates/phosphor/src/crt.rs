@@ -22,8 +22,6 @@ fn tint(mode: CrtMode) -> Option<(u32, u32, u32)> {
     }
 }
 
-/// How far the glass bulges: 0 is flat. Slight, so text stays straight.
-const CURVE: f64 = 0.012;
 /// How dark the edges get.
 const VIGNETTE: f64 = 0.2;
 /// How strong the scanlines are: the darkest point between them.
@@ -36,6 +34,42 @@ pub enum Scanlines {
     Light,
     Medium,
     Strong,
+}
+
+/// How far the glass bulges.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Curvature {
+    /// A flat screen.
+    Off,
+    /// Enough to look like glass while text stays straight.
+    #[default]
+    Slight,
+    Medium,
+    Strong,
+}
+
+impl Curvature {
+    pub const ALL: [Curvature; 4] = [Curvature::Off, Curvature::Slight, Curvature::Medium, Curvature::Strong];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Curvature::Off => "Off (flat)",
+            Curvature::Slight => "Slight",
+            Curvature::Medium => "Medium",
+            Curvature::Strong => "Strong",
+        }
+    }
+
+    /// The barrel distortion factor.
+    fn amount(self) -> f64 {
+        match self {
+            Curvature::Off => 0.0,
+            Curvature::Slight => 0.012,
+            Curvature::Medium => 0.03,
+            Curvature::Strong => 0.05,
+        }
+    }
 }
 
 impl Scanlines {
@@ -87,6 +121,7 @@ impl Crt {
         &mut self,
         mode: CrtMode,
         scanlines: Scanlines,
+        curvature: Curvature,
         native: &[u32],
         nw: usize,
         nh: usize,
@@ -105,9 +140,9 @@ impl Crt {
         self.flat.resize(dw * dh, 0);
         scale_into(&self.lit, nw, nh, &mut self.flat, dw, (0, 0, dw, dh));
 
-        let key = (nw, nh, dw, dh, scanlines as usize);
+        let key = (nw, nh, dw, dh, scanlines as usize * 8 + curvature as usize);
         if key != self.key || self.map.len() != dw * dh {
-            self.build(nh, dw, dh, scanlines.depth());
+            self.build(nh, dw, dh, scanlines.depth(), curvature.amount());
             self.key = key;
         }
         for y in 0..dh {
@@ -138,7 +173,7 @@ impl Crt {
     }
 
     /// Precompute where each output pixel samples from and how bright it is.
-    fn build(&mut self, nh: usize, dw: usize, dh: usize, depth: f64) {
+    fn build(&mut self, nh: usize, dw: usize, dh: usize, depth: f64, curve: f64) {
         self.map.resize(dw * dh, 0);
         self.shade.resize(dw * dh, 0);
         // Scanlines need about two output pixels per frame pixel to read as
@@ -153,8 +188,8 @@ impl Crt {
                 let u = (x as f64 + 0.5) / dw as f64 * 2.0 - 1.0;
                 // Barrel distortion: points move outward more toward the
                 // corners, so the picture bulges and its edges curve.
-                let su = u * (1.0 + CURVE * v * v);
-                let sv = v * (1.0 + CURVE * u * u);
+                let su = u * (1.0 + curve * v * v);
+                let sv = v * (1.0 + curve * u * u);
                 let i = y * dw + x;
                 let edge = (1.0 - su.abs()) * dw as f64 / 2.0;
                 let edge = edge.min((1.0 - sv.abs()) * dh as f64 / 2.0);
@@ -251,16 +286,20 @@ mod tests {
         let (w, h) = (160, 100);
         let mut out = vec![0x123456; w * h];
         let mut crt = Crt::default();
-        crt.present(CrtMode::Color, Scanlines::Light, &native, nw, nh, &mut out, w, (0, 0, w, h));
+        crt.present(CrtMode::Color, Scanlines::Light, Curvature::Slight, &native, nw, nh, &mut out, w, (0, 0, w, h));
         // The dot's neighbourhood glows; the corners are past the curve.
         assert!(out[50 * w + 84] & 0xFF > 0, "glow");
         assert_eq!(out[0], 0);
         assert_eq!(out[w * h - 1], 0);
         // A second frame of the same size reuses the cached map.
         let map = crt.map.clone();
-        crt.present(CrtMode::Green, Scanlines::Strong, &native, nw, nh, &mut out, w, (0, 0, w, h));
+        crt.present(CrtMode::Green, Scanlines::Light, Curvature::Slight, &native, nw, nh, &mut out, w, (0, 0, w, h));
         assert_eq!(crt.map, map);
         let px = out[50 * w + 80];
         assert!(px >> 8 & 0xFF > px >> 16 & 0xFF, "green, not white: {px:06x}");
+        // Another curvature is another map; flat glass reaches the corners.
+        crt.present(CrtMode::Color, Scanlines::Off, Curvature::Off, &native, nw, nh, &mut out, w, (0, 0, w, h));
+        assert_ne!(crt.map, map);
+        assert_ne!(crt.map[0], u32::MAX);
     }
 }
