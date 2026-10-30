@@ -1,4 +1,6 @@
-//! ZMODEM file transfers, driving the caller-owned state machines of the
+//! File transfers: ZMODEM here, and XMODEM and YMODEM in [`crate::xmodem`].
+//!
+//! ZMODEM transfers drive the caller-owned state machines of the
 //! `zmodem2` crate with file I/O, progress tracking and timeouts.
 //!
 //! A [`Transfer`] is fed raw (post-telnet) bytes from the remote and appends
@@ -14,6 +16,8 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use zmodem2::{Action, Event, FileInfo, Position, Receiver, Sender};
 
+pub use crate::xmodem::{XyProtocol, XyReceive, XySend};
+
 /// `ZPAD ZPAD ZDLE 'B' "00"`: the hex ZRQINIT header a sender (`sz`) opens with.
 pub const ZRQINIT: &[u8] = b"**\x18B00";
 /// `ZPAD ZPAD ZDLE 'B' "01"`: the hex ZRINIT header a waiting receiver (`rz`) sends.
@@ -22,10 +26,10 @@ pub const ZRINIT: &[u8] = b"**\x18B01";
 pub const CANCEL: &[u8] = b"\x18\x18\x18\x18\x18\x18\x18\x18\x18\x18\x08\x08\x08\x08\x08\x08\x08\x08\x08\x08";
 
 /// Wait this long for input before nudging the other side.
-const TIMEOUT: Duration = Duration::from_secs(10);
+pub(crate) const TIMEOUT: Duration = Duration::from_secs(10);
 /// Give up after this many consecutive timeouts.
-const MAX_TIMEOUTS: u32 = 6;
-const MAX_FILE_SIZE: u64 = u32::MAX as u64;
+pub(crate) const MAX_TIMEOUTS: u32 = 6;
+pub(crate) const MAX_FILE_SIZE: u64 = u32::MAX as u64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
@@ -54,7 +58,7 @@ pub struct Progress {
 }
 
 impl Progress {
-    fn new(direction: Direction) -> Progress {
+    pub(crate) fn new(direction: Direction) -> Progress {
         Progress {
             direction,
             file_name: String::new(),
@@ -74,17 +78,17 @@ impl Progress {
 }
 
 /// State shared by both directions.
-struct Common {
-    pending: Vec<u8>,
-    progress: Progress,
-    outcome: Option<Outcome>,
-    last_input: Instant,
-    timeouts: u32,
-    cancelled: bool,
+pub(crate) struct Common {
+    pub(crate) pending: Vec<u8>,
+    pub(crate) progress: Progress,
+    pub(crate) outcome: Option<Outcome>,
+    pub(crate) last_input: Instant,
+    pub(crate) timeouts: u32,
+    pub(crate) cancelled: bool,
 }
 
 impl Common {
-    fn new(direction: Direction) -> Common {
+    pub(crate) fn new(direction: Direction) -> Common {
         Common {
             pending: Vec::new(),
             progress: Progress::new(direction),
@@ -95,7 +99,7 @@ impl Common {
         }
     }
 
-    fn input(&mut self, data: &[u8]) {
+    pub(crate) fn input(&mut self, data: &[u8]) {
         self.pending.extend_from_slice(data);
         self.last_input = Instant::now();
         self.timeouts = 0;
@@ -114,7 +118,7 @@ impl Common {
         true
     }
 
-    fn aborted(&mut self) {
+    pub(crate) fn aborted(&mut self) {
         let outcome = if self.cancelled { Outcome::Cancelled } else { Outcome::Failed("cancelled by the BBS".into()) };
         self.outcome.get_or_insert(outcome);
     }
@@ -386,13 +390,13 @@ impl Upload {
     }
 }
 
-fn check_upload(p: &Path) -> Result<()> {
+pub(crate) fn check_upload(p: &Path) -> Result<()> {
     let meta = fs::metadata(p).with_context(|| format!("{}", p.display()))?;
     if !meta.is_file() {
         bail!("{} is not a file", p.display());
     }
     if meta.len() > MAX_FILE_SIZE {
-        bail!("{} is larger than ZMODEM's 4 GiB limit", p.display());
+        bail!("{} is larger than the 4 GiB limit", p.display());
     }
     Ok(())
 }
@@ -400,6 +404,9 @@ fn check_upload(p: &Path) -> Result<()> {
 pub enum Transfer {
     Download(Download),
     Upload(Upload),
+    /// XMODEM or YMODEM.
+    XyDownload(XyReceive),
+    XyUpload(XySend),
 }
 
 impl Transfer {
@@ -407,6 +414,8 @@ impl Transfer {
         match self {
             Transfer::Download(d) => &mut d.c,
             Transfer::Upload(u) => &mut u.c,
+            Transfer::XyDownload(d) => &mut d.c,
+            Transfer::XyUpload(u) => &mut u.c,
         }
     }
 
@@ -414,6 +423,8 @@ impl Transfer {
         match self {
             Transfer::Download(d) => d.pump(out),
             Transfer::Upload(u) => u.pump(out),
+            Transfer::XyDownload(d) => d.pump(out),
+            Transfer::XyUpload(u) => u.pump(out),
         }
     }
 
@@ -425,6 +436,18 @@ impl Transfer {
 
     /// Call periodically to drive timeouts and retries.
     pub fn tick(&mut self, now: Instant, out: &mut Vec<u8>) {
+        // X/YMODEM keep their own time: a receiver asks every few seconds.
+        match self {
+            Transfer::XyDownload(d) => {
+                d.tick(now, out);
+                return self.pump(out);
+            }
+            Transfer::XyUpload(u) => {
+                u.tick(now, out);
+                return self.pump(out);
+            }
+            _ => {}
+        }
         if !self.parts().timed_out(now) {
             return;
         }
@@ -440,6 +463,7 @@ impl Transfer {
             Transfer::Upload(u) => {
                 let _ = u.tx.timeout();
             }
+            Transfer::XyDownload(_) | Transfer::XyUpload(_) => {}
         }
         self.pump(out);
     }
@@ -452,6 +476,8 @@ impl Transfer {
                 let _ = d.rx.abort();
             }
             Transfer::Upload(u) => u.tx.abort(),
+            Transfer::XyDownload(d) => return d.cancel(out),
+            Transfer::XyUpload(u) => return u.cancel(out),
         }
         self.pump(out);
         // The abort is final whether or not the other side acknowledges it.
@@ -462,6 +488,8 @@ impl Transfer {
         match self {
             Transfer::Download(d) => &d.c.progress,
             Transfer::Upload(u) => &u.c.progress,
+            Transfer::XyDownload(d) => d.progress(),
+            Transfer::XyUpload(u) => u.progress(),
         }
     }
 
@@ -469,6 +497,8 @@ impl Transfer {
         match self {
             Transfer::Download(d) => d.c.outcome.is_some(),
             Transfer::Upload(u) => u.c.outcome.is_some(),
+            Transfer::XyDownload(d) => d.c.outcome.is_some(),
+            Transfer::XyUpload(u) => u.c.outcome.is_some(),
         }
     }
 
@@ -487,7 +517,8 @@ impl Transfer {
     pub fn enqueue(&mut self, path: PathBuf) -> Result<()> {
         match self {
             Transfer::Upload(u) => u.enqueue(path),
-            Transfer::Download(_) => bail!("a download is in progress"),
+            Transfer::XyUpload(u) => u.enqueue(path),
+            Transfer::Download(_) | Transfer::XyDownload(_) => bail!("a download is in progress"),
         }
     }
 }
@@ -506,7 +537,7 @@ pub fn sanitize_file_name(wire: &[u8]) -> String {
 }
 
 /// `dir/name`, or `dir/name (1).ext`, ... if that already exists.
-fn unique_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
+pub(crate) fn unique_path(dir: &Path, name: &str) -> std::io::Result<PathBuf> {
     let first = dir.join(name);
     if !first.exists() {
         return Ok(first);

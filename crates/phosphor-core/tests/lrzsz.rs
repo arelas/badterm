@@ -1,4 +1,5 @@
-//! ZMODEM interoperability with lrzsz, the `sz`/`rz` most Unix BBSes run.
+//! Interoperability with lrzsz, the `sz`/`rz` most Unix BBSes run, and its
+//! XMODEM and YMODEM programs (`sx`/`rx`, `sb`/`rb`).
 //!
 //! A fake telnet BBS bridges its socket to a real `sz` or `rz` process, so
 //! these exercise everything between the wire and the saved file: telnet
@@ -19,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use phosphor_core::session::{NetEvent, Session, SessionEvent};
 use phosphor_core::telnet::Telnet;
-use phosphor_core::transfer::Outcome;
+use phosphor_core::transfer::{Outcome, XyProtocol};
 
 mod common;
 use common::*;
@@ -206,4 +207,100 @@ fn cancelling_a_download_stops_sz() {
     pump_until(&mut session, &rx, &mut events, |_, _| server.is_finished());
     assert!(!server.join().unwrap().success(), "sz should exit with an error after a cancel");
     assert!(started.elapsed() < Duration::from_secs(15));
+}
+
+// XMODEM and YMODEM, against lrzsz's sx/sb (send) and rx/rb (receive).
+
+#[test]
+fn download_ymodem_batch_from_sb() {
+    let Some(sb) = lrzsz("sb") else { return };
+    let src = temp_dir("lrz-sb-src");
+    let (big, big_data) = test_file(&src, "GAME.ZIP", 300_000);
+    let (small, small_data) = test_file(&src, "file_id.diz", 333);
+    let mut cmd = Command::new(sb);
+    cmd.arg(&big).arg(&small);
+
+    let (listener, port) = listen();
+    let server = bbs(listener, cmd, b"", b"\r\nBack at the menu");
+    let (mut session, rx, downloads) = connect(port, "lrz-sb");
+    session.start_xy_download(XyProtocol::Ymodem, None).unwrap();
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |_, ev| finished(ev).is_some());
+
+    let saved = [downloads.join("GAME.ZIP"), downloads.join("file_id.diz")];
+    assert_eq!(finished(&events), Some(&Outcome::Completed(saved.to_vec())));
+    assert!(server.join().unwrap().success(), "sb failed");
+    assert_eq!(std::fs::read(&saved[0]).unwrap(), big_data);
+    assert_eq!(std::fs::read(&saved[1]).unwrap(), small_data);
+}
+
+#[test]
+fn download_xmodem_from_sx() {
+    let Some(sx) = lrzsz("sx") else { return };
+    let src = temp_dir("lrz-sx-src");
+    // 1K blocks with CRC, then the original 128-byte blocks with a checksum.
+    for (proto, args) in [(XyProtocol::Xmodem1k, &["-k"][..]), (XyProtocol::Xmodem, &[][..])] {
+        let (file, data) = test_file(&src, "DOOR.EXE", 20_000);
+        let mut cmd = Command::new(&sx);
+        cmd.args(args).arg(&file);
+        let (listener, port) = listen();
+        let server = bbs(listener, cmd, b"", b"");
+        let (mut session, rx, downloads) = connect(port, &format!("lrz-sx-{}", proto.name()));
+        session.start_xy_download(proto, Some("door.exe".into())).unwrap();
+        let mut events = Vec::new();
+        pump_until(&mut session, &rx, &mut events, |_, ev| finished(ev).is_some());
+        let saved = downloads.join("door.exe");
+        assert_eq!(finished(&events), Some(&Outcome::Completed(vec![saved.clone()])), "{}", proto.name());
+        assert!(server.join().unwrap().success(), "sx failed ({})", proto.name());
+        // XMODEM pads the last block; Phosphor cuts the padding. This data
+        // doesn't end in SUB, so the file comes back exactly.
+        assert_eq!(std::fs::read(&saved).unwrap(), data, "{}", proto.name());
+    }
+}
+
+#[test]
+fn upload_ymodem_batch_to_rb() {
+    let Some(rb) = lrzsz("rb") else { return };
+    let inbox = temp_dir("lrz-rb-inbox");
+    let local = temp_dir("lrz-rb-local");
+    let (a, a_data) = test_file(&local, "upload.zip", 200_000);
+    let (b, b_data) = test_file(&local, "note.txt", 5);
+    let mut cmd = Command::new(rb);
+    cmd.current_dir(&inbox);
+
+    let (listener, port) = listen();
+    let server = bbs(listener, cmd, b"", b"\r\nThanks!");
+    let (mut session, rx, _) = connect(port, "lrz-rb");
+    session.start_xy_upload(XyProtocol::Ymodem, vec![a.clone(), b.clone()]).unwrap();
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |_, ev| finished(ev).is_some());
+
+    assert_eq!(finished(&events), Some(&Outcome::Completed(vec![a, b])));
+    assert!(server.join().unwrap().success(), "rb failed");
+    assert_eq!(std::fs::read(inbox.join("upload.zip")).unwrap(), a_data);
+    assert_eq!(std::fs::read(inbox.join("note.txt")).unwrap(), b_data);
+}
+
+#[test]
+fn upload_xmodem_to_rx() {
+    let Some(rx_bin) = lrzsz("rx") else { return };
+    let inbox = temp_dir("lrz-rx-inbox");
+    let local = temp_dir("lrz-rx-local");
+    let (a, a_data) = test_file(&local, "art.ans", 10_000);
+    let mut cmd = Command::new(rx_bin);
+    cmd.arg("-c").arg(inbox.join("art.ans"));
+
+    let (listener, port) = listen();
+    let server = bbs(listener, cmd, b"", b"");
+    let (mut session, rx, _) = connect(port, "lrz-rx");
+    session.start_xy_upload(XyProtocol::Xmodem1k, vec![a.clone()]).unwrap();
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |_, ev| finished(ev).is_some());
+
+    assert_eq!(finished(&events), Some(&Outcome::Completed(vec![a])));
+    assert!(server.join().unwrap().success(), "rx failed");
+    // XMODEM's receiver keeps the padding of the last block.
+    let got = std::fs::read(inbox.join("art.ans")).unwrap();
+    assert_eq!(&got[..a_data.len()], &a_data[..]);
+    assert!(got[a_data.len()..].iter().all(|&b| b == 0x1A), "{} bytes of padding", got.len() - a_data.len());
 }

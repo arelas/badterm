@@ -14,7 +14,7 @@ use crate::autologin::{AutoLogin, Step};
 use crate::dialer::Entry;
 use crate::screen::Screen;
 use crate::telnet::Telnet;
-use crate::transfer::{self, Download, Outcome, TrailerFilter, Transfer, Upload};
+use crate::transfer::{self, Download, Outcome, TrailerFilter, Transfer, Upload, XyProtocol, XyReceive, XySend};
 pub use crate::transport::{AuthPrompt, ConnectOptions, NetEvent, PromptKind, Writer, spawn_connection};
 
 /// How long the BBS must be quiet before the text at the cursor is taken
@@ -402,6 +402,33 @@ impl Session {
         // Replay what the BBS sent while waiting (its ZRINIT), if anything.
         let waiting = self.upload_wait.take().unwrap_or_default();
         self.process(waiting);
+        Ok(())
+    }
+
+    /// Send files with XMODEM or YMODEM, once the BBS's receiver starts.
+    pub fn start_xy_upload(&mut self, proto: XyProtocol, paths: Vec<PathBuf>) -> Result<()> {
+        if self.transfer.is_some() {
+            anyhow::bail!("a transfer is already in progress");
+        }
+        let up = XySend::new(proto, paths)?;
+        self.upload_wait = None;
+        self.transfer = Some(Transfer::XyUpload(up));
+        self.events.push(SessionEvent::TransferStarted);
+        Ok(())
+    }
+
+    /// Receive with XMODEM or YMODEM: asks the BBS's sender to start.
+    /// `name` is what an XMODEM file is saved as (YMODEM sends names).
+    pub fn start_xy_download(&mut self, proto: XyProtocol, name: Option<String>) -> Result<()> {
+        if self.transfer.is_some() {
+            anyhow::bail!("a transfer is already in progress");
+        }
+        let mut t = Transfer::XyDownload(XyReceive::new(proto, self.config.download_dir.clone(), name));
+        let mut out = Vec::new();
+        t.tick(Instant::now(), &mut out);
+        self.transfer = Some(t);
+        self.send(&out);
+        self.events.push(SessionEvent::TransferStarted);
         Ok(())
     }
 
