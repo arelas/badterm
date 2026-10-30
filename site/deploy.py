@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Publish the website to badcluster.dev/badterm.
+"""Publish the website to badterm.com.
 
 Points the download buttons at the newest release's files (links whose file
 that release lacks are left out), then copies the site to the web server
-with rsync. nginx serves /badterm/ from /var/www/badterm on oracle1.
+with rsync. nginx serves badterm.com from /var/www/badterm on oracle1.
 
     site/deploy.py            # build and upload
     site/deploy.py --dry-run  # build into a temporary folder and stop
@@ -88,7 +88,7 @@ def main():
     print(" ".join(cmd))
     subprocess.run(cmd, check=True)
     shutil.rmtree(out)
-    print("Published: https://badcluster.dev/badterm/")
+    print("Published: https://badterm.com/")
 
 
 if __name__ == "__main__":

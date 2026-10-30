@@ -48,7 +48,7 @@ pub fn draw(s: &mut Screen) {
         (format!("Version {}", env!("CARGO_PKG_VERSION")), Color::Pc(14)),
         ("The badass terminal, with the glow of a real CRT".into(), Color::Pc(11)),
         ("Copyright (C) 2026 Bad Cluster.  Free software under the GNU GPL v3+".into(), Color::Pc(7)),
-        ("badcluster.dev/badterm".into(), Color::Pc(10)),
+        ("badterm.com".into(), Color::Pc(10)),
     ];
     for (i, (text, fg)) in lines.iter().enumerate() {
         let x = (COLS - text.chars().count()) / 2;

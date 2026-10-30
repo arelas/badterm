@@ -16,7 +16,7 @@ use tokio_rustls::TlsConnector;
 const HOST: &str = "git.badcluster.dev";
 const PATH: &str = "/api/v1/repos/arelas/badterm/releases?limit=1";
 /// Where people download BadTerm.
-pub const DOWNLOAD_PAGE: &str = "https://badcluster.dev/badterm/";
+pub const DOWNLOAD_PAGE: &str = "https://badterm.com/";
 const TIMEOUT: Duration = Duration::from_secs(20);
 /// More than any release listing needs.
 const MAX_RESPONSE: usize = 1 << 20;

@@ -9,7 +9,7 @@ section: net
 priority: optional
 maintainer: Bad Cluster <noreply@badcluster.dev>
 vendor: Bad Cluster
-homepage: https://badcluster.dev/badterm/
+homepage: https://badterm.com/
 license: GPL-3.0-or-later
 # BadTerm was called Phosphor up to 0.1.16; this package takes its place.
 replaces:

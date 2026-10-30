@@ -11,8 +11,7 @@ The next things to do, in order.
       0.1.4: calling Vortex, Alt-D while connected, Alt-Enter. Still to try:
       Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
       mouse copy, Alt-S, directory search and sort
-- [ ] Give the website its permanent home (it is at
-      badcluster.dev/badterm for now), and redeploy it from CI on release
+- [ ] Redeploy the website from CI on release
 
 ## Done (0.1)
 
@@ -56,7 +55,7 @@ The next things to do, in order.
 - [x] `badterm --render`: ANSI file to PNG, with SAUCE iCE detection
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
-- [x] Website at badcluster.dev/badterm (site/deploy.py)
+- [x] Website at badterm.com (site/deploy.py)
 - [x] Linux .deb and .rpm (nfpm), Windows installer (Inno Setup)
 - [x] telnet://, telnets:// and rlogin:// links on Windows, macOS and Linux
 - [x] RLogin, telnet over TLS (pinned like SSH host keys)
