@@ -569,7 +569,7 @@ impl DialerUi {
                 2,
                 LIST_TOP + 2,
                 COLS - 4,
-                "or I to import a SyncTERM .lst, CSV, JSON or TOML directory.",
+                "or I to import a directory (SyncTERM, EtherTerm, the BBS Guide's CSV...).",
                 list_fg,
                 list_bg,
             );
@@ -631,7 +631,9 @@ impl DialerUi {
                     PromptKind::QuickConnect => {
                         ("Quick Connect", "host, host:port, telnet://host:port or raw://host:port")
                     }
-                    PromptKind::Import => ("Import Directory", "SyncTERM .lst, .csv, .json or .toml file"),
+                    PromptKind::Import => {
+                        ("Import Directory", "SyncTERM .lst, magiterm.ini, EtherTerm .xml, .csv, .json")
+                    }
                     PromptKind::Export => ("Export Directory", "Format follows extension: .lst .csv .json .toml"),
                 };
                 let (x, y, w) = (6, 9, 68);

@@ -128,7 +128,9 @@ phosphor bbs.example.org         connect directly (also host:port,
                                  telnet://host:port, telnets://host:port,
                                  rlogin://user@host, raw://host:port,
                                  ssh://user@host:port)
-phosphor --import syncterm.lst   add entries from a SyncTERM/CSV/JSON/TOML file
+phosphor --import syncterm.lst   add entries from a SyncTERM, MagiTerm or EtherTerm
+                                 directory, a CSV list (ours, or the Telnet BBS
+                                 Guide's bbslist.csv), JSON or TOML
 phosphor --export bbses.csv      write the directory (format from extension)
 phosphor --paths                 show where data is stored
 phosphor --render art.ans out.png

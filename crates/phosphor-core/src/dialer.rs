@@ -305,8 +305,14 @@ pub fn now() -> u64 {
 pub enum Format {
     Toml,
     Json,
+    /// Ours, or a list such as the Telnet BBS Guide's `bbslist.csv`.
     Csv,
     SyncTerm,
+    /// MagiTerm's `magiterm.ini`: SyncTERM's layout, but every entry SSH.
+    /// Import only.
+    MagiTerm,
+    /// EtherTerm's `dialdirectory.xml`. Import only.
+    EtherTerm,
 }
 
 impl Format {
@@ -316,7 +322,9 @@ impl Format {
             "toml" => Some(Format::Toml),
             "json" => Some(Format::Json),
             "csv" => Some(Format::Csv),
+            "ini" if path.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("magiterm")) => Some(Format::MagiTerm),
             "lst" | "ini" => Some(Format::SyncTerm),
+            "xml" => Some(Format::EtherTerm),
             _ => None,
         }
     }
@@ -473,6 +481,19 @@ pub fn import(path: &Path) -> Result<Vec<Entry>> {
         Some(Format::Json) => from_json(text)?,
         Some(Format::Csv) => from_csv(text)?,
         Some(Format::SyncTerm) => from_syncterm(text),
+        Some(Format::MagiTerm) => from_syncterm(text)
+            .into_iter()
+            .map(|mut e| {
+                if e.protocol == Protocol::Telnet {
+                    e.protocol = Protocol::Ssh;
+                    if e.port == Protocol::Telnet.default_port() {
+                        e.port = Protocol::Ssh.default_port();
+                    }
+                }
+                e
+            })
+            .collect(),
+        Some(Format::EtherTerm) => from_etherterm(text)?,
         None => bail!("unrecognized dialing directory format: {}", path.display()),
     };
     let stamp = now();
@@ -499,6 +520,7 @@ pub fn export(path: &Path, entries: &[Entry]) -> Result<()> {
         Format::Json => serde_json::to_string_pretty(entries)?,
         Format::Csv => to_csv(entries)?,
         Format::SyncTerm => to_syncterm(entries),
+        Format::MagiTerm | Format::EtherTerm => bail!("that format can be imported, not exported"),
     };
     fs::write(path, text).with_context(|| format!("writing {}", path.display()))
 }
@@ -507,6 +529,8 @@ fn sniff(text: &str) -> Option<Format> {
     let t = text.trim_start();
     if t.starts_with('{') || t.starts_with('[') && t[1..].trim_start().starts_with('{') {
         Some(Format::Json)
+    } else if t.starts_with("<?xml") || t.starts_with("<EtherTerm") {
+        Some(Format::EtherTerm)
     } else if t.starts_with("[[entry]]") {
         Some(Format::Toml)
     } else if t.starts_with('[') {
@@ -552,9 +576,14 @@ fn from_csv(text: &str) -> Result<Vec<Entry>> {
     let mut r = csv::ReaderBuilder::new().flexible(true).trim(csv::Trim::All).from_reader(text.as_bytes());
     let headers: Vec<String> = r.headers()?.iter().map(|h| h.to_ascii_lowercase()).collect();
     let col = |names: &[&str]| headers.iter().position(|h| names.contains(&h.as_str()));
-    let c_name = col(&["name", "bbs", "bbs name", "system"]);
-    let c_host = col(&["host", "address", "hostname", "telnet"]);
-    let c_port = col(&["port"]);
+    let c_name = col(&["name", "bbs", "bbs name", "system", "bbsname"]);
+    let c_host = col(&["host", "address", "hostname", "telnet", "telnetaddress"]);
+    let c_port = col(&["port", "bbsport"]);
+    // The Telnet BBS Guide's list: an SSH port, the new-user login, and
+    // details worth keeping as the comment.
+    let c_ssh_port = col(&["sshport"]);
+    let c_new_login = col(&["newlogin"]);
+    let c_details: Vec<usize> = ["software", "location", "bbssysop"].iter().filter_map(|n| col(&[n])).collect();
     let c_proto = col(&["protocol", "type", "connectiontype"]);
     let c_enc = col(&["encoding", "charset"]);
     let c_user = col(&["username", "user"]);
@@ -578,6 +607,11 @@ fn from_csv(text: &str) -> Result<Vec<Entry>> {
         }
         if let Ok(port) = get(c_port).parse() {
             e.port = port;
+        } else if let Ok(port) = get(c_ssh_port).parse() {
+            // Only SSH: log in as the BBS's new-user name, as it says.
+            e.protocol = Protocol::Ssh;
+            e.port = port;
+            e.username = get(c_new_login);
         }
         let name = get(c_name);
         if !name.is_empty() {
@@ -586,15 +620,103 @@ fn from_csv(text: &str) -> Result<Vec<Entry>> {
         if get(c_enc).to_ascii_lowercase().replace('-', "") == "utf8" {
             e.encoding = Encoding::Utf8;
         }
-        e.username = get(c_user);
+        if c_user.is_some() {
+            e.username = get(c_user);
+        }
         let tt = get(c_tt);
         if !tt.is_empty() {
             e.term_type = tt;
         }
         e.comment = get(c_comment);
+        if e.comment.is_empty() {
+            let details: Vec<String> = c_details.iter().map(|&c| get(Some(c))).filter(|d| !d.is_empty()).collect();
+            e.comment = details.join(", ");
+        }
         out.push(e);
     }
     Ok(out)
+}
+
+/// Parse EtherTerm's `dialdirectory.xml`: `<BBS name=".." ip=".."
+/// port=".." protocol="TELNET|ssh" login=".." password=".." font=".." />`.
+fn from_etherterm(text: &str) -> Result<Vec<Entry>> {
+    if !text.contains("<Phonebook") && !text.contains("<BBS") {
+        bail!("not an EtherTerm dialing directory");
+    }
+    let mut out = Vec::new();
+    for tag in text.split("<BBS").skip(1) {
+        let Some(end) = tag.find('>') else { continue };
+        let attrs = xml_attributes(&tag[..end]);
+        let get =
+            |k: &str| attrs.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| v.as_str()).unwrap_or("");
+        let Some(mut e) = Entry::from_address(get("ip")) else { continue };
+        if let Some(p) = Protocol::from_name(get("protocol")) {
+            e.protocol = p;
+            e.port = p.default_port();
+        }
+        if let Ok(port) = get("port").parse() {
+            e.port = port;
+        }
+        e.name = get("name").trim().to_string();
+        e.username = get("login").to_string();
+        e.password = get("password").to_string();
+        let font = get("font").to_ascii_lowercase();
+        e.font = match () {
+            _ if font.contains("topaz") && font.contains("plus") => 40,
+            _ if font.contains("topaz") => 42,
+            _ if font.contains("microknight") && font.contains("plus") => 39,
+            _ if font.contains("microknight") => 41,
+            _ if font.contains("noodle") => 37,
+            _ if font.contains("sooul") || font.contains("mosoul") => 38,
+            _ => 0,
+        };
+        out.push(e);
+    }
+    Ok(out)
+}
+
+/// The `name="value"` pairs of an XML tag, with entities decoded.
+fn xml_attributes(tag: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut rest = tag;
+    while let Some(eq) = rest.find('=') {
+        let name = rest[..eq].trim().rsplit(char::is_whitespace).next().unwrap_or("").to_string();
+        let after = rest[eq + 1..].trim_start();
+        let Some(quote) = after.chars().next().filter(|c| *c == '"' || *c == '\'') else { break };
+        let Some(close) = after[1..].find(quote) else { break };
+        out.push((name, xml_unescape(&after[1..1 + close])));
+        rest = &after[close + 2..];
+    }
+    out
+}
+
+fn xml_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(amp) = rest.find('&') {
+        out.push_str(&rest[..amp]);
+        let Some(semi) = rest[amp..].find(';') else { break };
+        let entity = &rest[amp + 1..amp + semi];
+        let decoded = match entity {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            _ => entity
+                .strip_prefix("#x")
+                .and_then(|h| u32::from_str_radix(h, 16).ok())
+                .or_else(|| entity.strip_prefix('#').and_then(|d| d.parse().ok()))
+                .and_then(char::from_u32),
+        };
+        match decoded {
+            Some(c) => out.push(c),
+            None => out.push_str(&rest[amp..amp + semi + 1]),
+        }
+        rest = &rest[amp + semi + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Parse a SyncTERM dialing directory (`syncterm.lst`): an INI file with one
@@ -821,5 +943,48 @@ mod tests {
         let t = toml::to_string_pretty(&d).unwrap();
         assert!(t.contains("sort = \"last_called\""), "{t}");
         assert_eq!(toml::from_str::<Directory>(&t).unwrap().sort, SortOrder::LastCalled);
+    }
+
+    #[test]
+    fn telnet_bbs_guide_csv() {
+        let text = "bbsName, bbsSysop, newLogin, TelnetAddress, bbsPort, sshPort, WebAddress, location, Modem, software\n\
+                    13th Floor BBS,Hoy Brothers,new,13th.hoyvision.com,6400,,,\"Oak Ridge, TN, USA\",,\"Image BBS\"\n\
+                    3D Realms,,NEW,172.0.79.226,,,,\"Cotati, CA, USA\",,\"Synchronet\"\n\
+                    4 Wheel Ham BBS,w7jpj,NEW,bbs.4wheelham.com,,2222,,\"Littleton, CO, USA\",,\"Synchronet\"\n";
+        let v = from_csv(text).unwrap();
+        assert_eq!((v[0].name.as_str(), v[0].host.as_str(), v[0].port), ("13th Floor BBS", "13th.hoyvision.com", 6400));
+        assert_eq!(v[0].comment, "Image BBS, Oak Ridge, TN, USA, Hoy Brothers");
+        assert_eq!((v[1].protocol, v[1].port), (Protocol::Telnet, 23));
+        assert_eq!((v[2].protocol, v[2].port, v[2].username.as_str()), (Protocol::Ssh, 2222, "NEW"));
+    }
+
+    #[test]
+    fn etherterm_and_magiterm() {
+        let xml = r#"<?xml version="1.0" ?>
+<EtherTerm>
+    <Phonebook version="1.0">
+        <BBS name="Tom &amp; Jerry&#39;s" ip="bbs.example.org" port="6523" protocol="TELNET" login="" password="" font="vga8x16.bmp" keyMap="ANSI" />
+        <BBS name="Amiga Land (ssh)" ip="amiga.example.org" port="2222" protocol="ssh" login="guest" password="pw" font="topaz-a1200.bmp" keyMap="ANSI" />
+    </Phonebook>
+</EtherTerm>"#;
+        assert_eq!(sniff(xml), Some(Format::EtherTerm));
+        let v = from_etherterm(xml).unwrap();
+        assert_eq!(v[0].name, "Tom & Jerry's");
+        assert_eq!((v[0].protocol, v[0].port), (Protocol::Telnet, 6523));
+        assert_eq!((v[1].protocol, v[1].port, v[1].username.as_str(), v[1].font), (Protocol::Ssh, 2222, "guest", 42));
+
+        let dir = std::env::temp_dir().join(format!("phosphor-magiterm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("magiterm.ini");
+        std::fs::write(
+            &path,
+            "[A-Net Online]\naddress = mystic-anet.online \nport = 22 \n\n[After Hours]\naddress = ah-bbs.com\n",
+        )
+        .unwrap();
+        let v = import(&path).unwrap();
+        assert_eq!((v[0].protocol, v[0].port), (Protocol::Ssh, 22));
+        assert_eq!((v[1].protocol, v[1].port), (Protocol::Ssh, 22));
+        assert!(export(&dir.join("out.xml"), &v).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
