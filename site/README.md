@@ -5,6 +5,9 @@ A static page: `index.html`, `style.css` and `img/`, published at
 
 ## Publishing
 
+CI publishes the site after each release (the last step of the release
+job in `.forgejo/workflows/ci.yml`). By hand:
+
 ```sh
 site/deploy.py            # or --dry-run to build without uploading
 ```
@@ -14,7 +17,11 @@ any that release lacks (along with text marked `data-needs` for them), and
 rsyncs the result to `/var/www/badterm` on oracle1, where nginx serves it
 as badterm.com (`/etc/nginx/sites-available/badterm.com`, behind
 Cloudflare). The old address, badcluster.dev/phosphor/, redirects there.
-Rerun it after each release.
+
+CI uses the `SITE_DEPLOY_KEY` secret, a key that `ubuntu`'s
+`authorized_keys` on oracle1 limits to `rrsync /var/www/badterm`, with
+`BADTERM_SITE_DEST=ubuntu@oracle1.badcluster.dev:` (the root of that
+folder).
 
 ## Screenshots
 

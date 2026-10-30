@@ -156,6 +156,24 @@ pub mod tests {
         assert!(store.map.borrow().is_empty());
     }
 
+    /// Against the real credential store, so ignored by default; CI runs it
+    /// on Windows and macOS (`cargo test -p badterm keychain -- --ignored`).
+    #[test]
+    #[ignore]
+    fn keychain_passwords_move_from_phosphor() {
+        let account = format!("ci-{}@telnet://upgrade.test:23", std::process::id());
+        let old = keyring::Entry::new(OLD_SERVICE, &account)
+            .unwrap_or_else(|e| panic!("no credential store ({e}): {:?}", keyring::Entry::store_status()));
+        old.set_password("from-phosphor").expect("the OS credential store");
+        let store = Keychain;
+        assert_eq!(store.get(&account).unwrap().as_deref(), Some("from-phosphor"));
+        // Moved: under the new name now, and gone from the old one.
+        assert!(matches!(old.get_password(), Err(keyring::Error::NoEntry)));
+        assert_eq!(Keychain::entry(&account).unwrap().get_password().unwrap(), "from-phosphor");
+        store.delete(&account).unwrap();
+        assert_eq!(store.get(&account).unwrap(), None);
+    }
+
     #[test]
     fn without_a_store_passwords_stay_in_the_file() {
         let store = Memory { broken: true, ..Memory::default() };

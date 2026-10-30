@@ -91,6 +91,9 @@ jobs:
           cargo clean --release --target x86_64-unknown-linux-gnu -p badterm -p badterm-core
           packaging/linux/build-release.sh
 
+      - name: Test the move from Phosphor's folders
+        run: packaging/test-folder-upgrade.sh target/x86_64-unknown-linux-gnu/release/badterm
+
       # Named after the ref: the version tag for releases, the branch otherwise.
       # A tarball (with the desktop file and icon, for installing by hand), an
       # AppImage, and .deb and .rpm packages. The scripts pin and checksum the
@@ -186,6 +189,41 @@ jobs:
           cargo build --release --locked
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+      # Passwords saved by Phosphor (up to 0.1.16) move to BadTerm's name in
+      # the Credential Manager.
+      - name: Test the move from Phosphor's passwords
+        shell: powershell
+        run: |
+          cargo test --locked -p badterm keychain -- --ignored
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # Phosphor's folders under %APPDATA% move to BadTerm's on first start.
+      # These are the runner's real folders: only ones holding this test's
+      # marker are touched.
+      - name: Test the move from Phosphor's folders
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $marker = 'ci-upgrade-marker'
+          $old = Join-Path $env:APPDATA 'Phosphor\Phosphor'
+          $new = Join-Path $env:APPDATA 'Bad Cluster\BadTerm'
+          foreach ($d in $old, $new) {
+            if (Test-Path $d) {
+              if (Test-Path "$d\config\$marker") { Remove-Item -Recurse -Force $d }
+              else { Write-Host "::warning::$d exists and is not this test's; skipping"; exit 0 }
+            }
+          }
+          New-Item -ItemType Directory -Force "$old\config", "$old\data\captures" | Out-Null
+          Set-Content "$old\config\$marker" 'from Phosphor'
+          $p = Start-Process -Wait -PassThru -NoNewWindow target\release\badterm.exe -ArgumentList '--paths'
+          $fail = $p.ExitCode -ne 0
+          if (-not (Test-Path "$new\config\$marker")) { Write-Host "::error::settings were not moved to $new\config"; $fail = $true }
+          if (-not (Test-Path "$new\data\captures")) { Write-Host "::error::captures were not moved to $new\data"; $fail = $true }
+          if (Test-Path "$old\config") { Write-Host "::error::$old\config is still there"; $fail = $true }
+          Remove-Item -Recurse -Force $new, (Join-Path $env:APPDATA 'Phosphor') -ErrorAction SilentlyContinue
+          if ($fail) { exit 1 }
+          Write-Host "Phosphor's folders moved to BadTerm's"
+
       - name: Package
         shell: powershell
         run: |
@@ -208,17 +246,44 @@ jobs:
           & $iscc /Qp "/DAppVersion=$version" "/DOutputName=$name-setup" packaging\windows\badterm.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      # Install for this user into a scratch folder, check the files and the
-      # telnet:// handler, then uninstall and check they are gone.
+      # Install Phosphor 0.1.16 (from before the rename) for this user into a
+      # scratch folder, upgrade it with this installer, and check that
+      # Phosphor's program, shortcuts and link registration are replaced by
+      # BadTerm's. Then uninstall and check BadTerm is gone.
       - name: Test the installer
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
           $setup = Get-ChildItem dist\*-setup.exe | Select-Object -First 1
           $dir = Join-Path $env:RUNNER_TEMP "badterm-install-test"
-          $p = Start-Process -Wait -PassThru $setup.FullName -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir", '/TASKS=links'
+          $quiet = '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir"
+          $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
+          $desktop = [Environment]::GetFolderPath('Desktop')
+
+          $phosphor = Join-Path $env:RUNNER_TEMP 'phosphor-v0.1.16-windows-x64-setup.exe'
+          if (-not (Test-Path $phosphor)) {
+            Invoke-WebRequest -UseBasicParsing -UserAgent 'badterm-ci' -OutFile $phosphor `
+              -Uri 'https://git.badcluster.dev/arelas/badterm/releases/download/v0.1.16/phosphor-v0.1.16-windows-x64-setup.exe'
+          }
+          $p = Start-Process -Wait -PassThru $phosphor -ArgumentList ($quiet + '/TASKS=links,desktopicon')
+          if ($p.ExitCode -ne 0) { Write-Host "::error::Phosphor's setup exited with $($p.ExitCode)"; exit 1 }
+          if (-not (Test-Path "$dir\phosphor.exe")) { Write-Host "::error::Phosphor 0.1.16 not installed"; exit 1 }
+          if (-not (Test-Path 'HKCU:\Software\Classes\Phosphor.URL')) { Write-Host "::error::Phosphor's links not registered"; exit 1 }
+
+          $p = Start-Process -Wait -PassThru $setup.FullName -ArgumentList ($quiet + '/TASKS=links')
           if ($p.ExitCode -ne 0) { Write-Host "::error::setup exited with $($p.ExitCode)"; exit 1 }
           if (-not (Test-Path "$dir\badterm.exe")) { Write-Host "::error::badterm.exe not installed"; exit 1 }
+          $fail = $false
+          foreach ($left in "$dir\phosphor.exe", "$programs\Phosphor.lnk", "$desktop\Phosphor.lnk",
+                            'HKCU:\Software\Classes\Phosphor.URL', 'HKCU:\Software\Phosphor') {
+            if (Test-Path $left) { Write-Host "::error::left over from Phosphor: $left"; $fail = $true }
+          }
+          if ((Get-ItemProperty 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue).Phosphor) {
+            Write-Host "::error::Phosphor still in RegisteredApplications"; $fail = $true
+          }
+          if (-not (Test-Path "$programs\BadTerm.lnk")) { Write-Host "::error::no BadTerm shortcut"; $fail = $true }
+          if (-not (Test-Path 'HKCU:\Software\Classes\BadTerm.URL')) { Write-Host "::error::BadTerm's links not registered"; $fail = $true }
+          if ($fail) { exit 1 }
           $cmd = (Get-ItemProperty 'HKCU:\Software\Classes\telnet\shell\open\command').'(default)'
           Write-Host "telnet:// opens: $cmd"
           if ($cmd -notlike "*$dir\badterm.exe*") { Write-Host "::error::telnet:// handler not registered"; exit 1 }
@@ -268,6 +333,14 @@ jobs:
         run: |
           cargo clean --release -p badterm -p badterm-core
           cargo build --release --locked
+
+      # Passwords saved by Phosphor (up to 0.1.16) move to BadTerm's name in
+      # the login keychain.
+      - name: Test the move from Phosphor's passwords
+        run: cargo test --locked -p badterm keychain -- --ignored
+
+      - name: Test the move from Phosphor's folders
+        run: packaging/test-folder-upgrade.sh target/release/badterm
 
       # BadTerm.app in a disk image. Architecture from the runner itself
       # rather than assumed.
@@ -343,3 +416,21 @@ jobs:
           repo: ${{ github.repository }}
           sha: ${{ github.sha }}
           release-notes-assistant: ''
+
+      # badterm.com, from site/deploy.py, which stamps the download links
+      # from the release just made. SITE_DEPLOY_KEY can only rsync into
+      # /var/www/badterm on oracle1 (rrsync in its authorized_keys), so the
+      # destination is that folder's root.
+      - name: Publish the website
+        env:
+          SITE_DEPLOY_KEY: ${{ secrets.SITE_DEPLOY_KEY }}
+        run: |
+          set -e
+          command -v rsync >/dev/null || sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq rsync
+          umask 077
+          ssh_dir=$(mktemp -d)
+          trap 'rm -rf "$ssh_dir"' EXIT
+          printf '%s\n' "$SITE_DEPLOY_KEY" > "$ssh_dir/key"
+          echo 'oracle1.badcluster.dev ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJJ08VfdW8Vgx8oSsD2kptTc5f/Cub+x8VsXqcOOMXgF' > "$ssh_dir/known_hosts"
+          export RSYNC_RSH="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes"
+          BADTERM_SITE_DEST=ubuntu@oracle1.badcluster.dev: python3 -I site/deploy.py
