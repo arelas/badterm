@@ -303,7 +303,7 @@ mod backend {
         let channels = config.channels as usize;
         device
             .build_output_stream(
-                config.clone(),
+                *config,
                 move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
                     let mut buf = buffer.lock().unwrap_or_else(|e| e.into_inner());
                     for frame in data.chunks_mut(channels.max(1)) {
