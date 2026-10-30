@@ -20,12 +20,13 @@ fn tint(mode: CrtMode) -> Option<(u32, u32, u32)> {
     }
 }
 
-/// How far the glass bulges: 0 is flat.
-const CURVE: f64 = 0.03;
+/// How far the glass bulges: 0 is flat. Slight, so text stays straight.
+const CURVE: f64 = 0.012;
 /// How dark the edges get.
-const VIGNETTE: f64 = 0.28;
-/// Darkest point between scanlines, at large scales.
-const SCANLINE_DEPTH: f64 = 0.42;
+const VIGNETTE: f64 = 0.2;
+/// Darkest point between scanlines: light, so they texture the picture
+/// rather than stripe it.
+const SCANLINE_DEPTH: f64 = 0.25;
 /// How much of the blurred image is added back as glow, in 256ths.
 const GLOW: u32 = 150;
 /// Brightness boost to make up for the darkening, in 256ths.
@@ -106,10 +107,10 @@ impl Crt {
     fn build(&mut self, nh: usize, dw: usize, dh: usize) {
         self.map.resize(dw * dh, 0);
         self.shade.resize(dw * dh, 0);
-        // Scanlines need a few output pixels per frame pixel to read as
-        // lines rather than as moiré.
+        // Scanlines need about two output pixels per frame pixel to read as
+        // lines rather than as moiré: full depth from twice the size.
         let scale_y = dh as f64 / nh as f64;
-        let depth = ((scale_y - 1.5) / 2.0).clamp(0.0, 1.0) * SCANLINE_DEPTH;
+        let depth = ((scale_y - 1.2) / 0.8).clamp(0.0, 1.0) * SCANLINE_DEPTH;
         // Edges fade out over a couple of pixels, for a smooth curve.
         let fade_px = 2.0;
         for y in 0..dh {
