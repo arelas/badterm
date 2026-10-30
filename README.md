@@ -57,7 +57,7 @@ fonts and colors of a host terminal.
   otherwise means "delete a line"
 - **Phosphor mode** (`Alt-P`): the look of a CRT, with glowing text,
   scanlines and curved glass, in color or as a green or amber monochrome
-  monitor
+  monitor, for every BBS or chosen per directory entry
 - **VGA-accurate display options**: 9-dot character cells, where the
   line-drawing characters join up as they did on a VGA (`Alt-W`), and the
   4:3 shape of a CRT instead of square pixels (`Alt-A`). An entry can use
@@ -158,7 +158,9 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 
 `Alt-P`, `Alt-A`, `Alt-W` and `Alt-M` work anywhere, including in the dialing
 directory, and are remembered in `settings.toml`. An entry's "Screen mode"
-can be 80x25 or 80x50.
+can be 80x25 or 80x50, and its "Phosphor mode" can override `Alt-P` for that
+BBS. While connected to a BBS with its own phosphor mode, `Alt-P` changes
+that BBS's mode rather than the global one.
 
 Downloads are saved to `Downloads/Phosphor`; `phosphor --paths` shows every
 location Phosphor uses.

@@ -48,6 +48,7 @@ The next things to do, in order.
 - [x] Phosphor mode: CRT glow, scanlines, curvature and vignette; color,
       green or amber
 - [x] 9-dot VGA cells, 4:3 aspect correction, 80x50 per entry (8x8 font)
+- [x] Phosphor mode per directory entry
 - [x] ANSI music (`CSI N`, `CSI |`, optionally `CSI M`; BASIC PLAY syntax,
       square-wave synthesis; ALSA loaded at run time, cpal on macOS/Windows)
 - [x] Website (`site/`): features, phosphor-mode screenshots, downloads,
@@ -92,7 +93,7 @@ The next things to do, in order.
 
 ## Dialer and UI
 
-- [ ] Per-entry settings: screen mode, font, iCE default, baud emulation,
+- [ ] More per-entry settings (screen and phosphor mode are done): font, iCE default, baud emulation,
       capture/log files, hide status line
 - [ ] Multiple directories / groups
 - [ ] Import more formats: NetRunner, mTelnet, Telnet BBS Guide lists, qodem

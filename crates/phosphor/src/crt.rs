@@ -7,48 +7,16 @@
 //! computed once per window size and cached, so a frame costs one pass for
 //! the glow at native size, one scaling pass and one lookup per pixel.
 
-use serde::{Deserialize, Serialize};
-
 use crate::render::scale_into;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum CrtMode {
-    #[default]
-    Off,
-    /// A color CRT.
-    Color,
-    /// A green-phosphor monochrome monitor (P1).
-    Green,
-    /// An amber monochrome monitor (P3).
-    Amber,
-}
+pub use phosphor_core::dialer::CrtMode;
 
-impl CrtMode {
-    pub fn next(self) -> CrtMode {
-        match self {
-            CrtMode::Off => CrtMode::Color,
-            CrtMode::Color => CrtMode::Green,
-            CrtMode::Green => CrtMode::Amber,
-            CrtMode::Amber => CrtMode::Off,
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            CrtMode::Off => "off",
-            CrtMode::Color => "color CRT",
-            CrtMode::Green => "green screen",
-            CrtMode::Amber => "amber screen",
-        }
-    }
-
-    fn tint(self) -> Option<(u32, u32, u32)> {
-        match self {
-            CrtMode::Green => Some((51, 255, 102)),
-            CrtMode::Amber => Some((255, 176, 0)),
-            CrtMode::Off | CrtMode::Color => None,
-        }
+/// The phosphor color of a monochrome monitor.
+fn tint(mode: CrtMode) -> Option<(u32, u32, u32)> {
+    match mode {
+        CrtMode::Green => Some((51, 255, 102)),
+        CrtMode::Amber => Some((255, 176, 0)),
+        CrtMode::Off | CrtMode::Color => None,
     }
 }
 
@@ -93,7 +61,7 @@ impl Crt {
     ) {
         let (ox, oy, dw, dh) = rect;
         self.lit.clear();
-        match mode.tint() {
+        match tint(mode) {
             Some(tint) => self.lit.extend(native.iter().map(|&px| monochrome(px, tint))),
             None => self.lit.extend_from_slice(native),
         }
@@ -232,7 +200,7 @@ mod tests {
 
     #[test]
     fn monochrome_keeps_brightness_order() {
-        let tint = CrtMode::Green.tint().unwrap();
+        let tint = tint(CrtMode::Green).unwrap();
         let white = monochrome(0xFFFFFF, tint);
         assert_eq!(white, 0x33FF66);
         assert_eq!(monochrome(0, tint), 0);

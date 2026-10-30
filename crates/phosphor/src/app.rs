@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
-use phosphor_core::dialer::{self, Directory, Entry};
+use phosphor_core::dialer::{self, CrtMode, Directory, Entry};
 use phosphor_core::export::{self, AnsiOptions};
 use phosphor_core::screen::{Cell, Screen};
 use phosphor_core::session::{NetEvent, Session, SessionConfig, SessionEvent, State};
@@ -31,7 +31,7 @@ use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
 use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::save::{SaveFormat, SavePrompt};
 use crate::ui::transfer::{self as transfer_ui, UploadPrompt};
-use crate::ui::{self, format_date};
+use crate::ui::{self, HOTKEY, format_date};
 
 const COLS: usize = 80;
 const ROWS: usize = 25;
@@ -41,7 +41,6 @@ const SCROLLBACK_LINES: usize = 10_000;
 /// Cursor blink half-period; text blinks at half this rate.
 const TICK: Duration = Duration::from_millis(267);
 const NOTICE_TIME: Duration = Duration::from_secs(4);
-const HOTKEY: &str = if cfg!(target_os = "macos") { "Cmd" } else { "Alt" };
 
 pub enum UserEvent {
     /// A network event for the session with this id.
@@ -354,7 +353,7 @@ impl App {
         if session.auth_prompt().is_none() {
             self.login = None;
         }
-        if connected && let Some(e) = self.session_index.and_then(|i| self.directory.entries.get_mut(i)) {
+        if connected && let Some(e) = self.session_entry_mut() {
             e.calls += 1;
             e.last_connected = Some(dialer::now());
             self.save_directory();
@@ -381,7 +380,7 @@ impl App {
                 SessionEvent::Notice(msg) => self.notify(msg),
                 SessionEvent::Connected => {
                     if let Some(pw) = self.remember.take()
-                        && let Some(e) = self.session_index.and_then(|i| self.directory.entries.get_mut(i))
+                        && let Some(e) = self.session_entry_mut()
                     {
                         e.password = pw;
                         self.save_directory();
@@ -524,9 +523,23 @@ impl App {
             }
             // Display settings, from anywhere.
             KeyCode::KeyP => {
-                self.settings.crt = self.settings.crt.next();
-                let msg = format!("Phosphor mode: {}", self.settings.crt.name());
-                self.settings_changed(msg);
+                // A system with its own phosphor mode keeps the change.
+                if let Some(mode) = self.own_crt_mode() {
+                    let next = mode.next();
+                    if let Some(s) = self.session.as_mut() {
+                        s.entry.crt = Some(next);
+                    }
+                    if let Some(e) = self.session_entry_mut() {
+                        e.crt = Some(next);
+                        self.save_directory();
+                    }
+                    let name = self.session.as_ref().map_or("", |s| s.entry.name.as_str());
+                    self.notify(format!("Phosphor mode for {name}: {}", next.name()));
+                } else {
+                    self.settings.crt = self.settings.crt.next();
+                    let msg = format!("Phosphor mode: {}", self.settings.crt.name());
+                    self.settings_changed(msg);
+                }
                 return true;
             }
             KeyCode::KeyA => {
@@ -628,6 +641,38 @@ impl App {
         if let Some(s) = self.session.as_mut() {
             s.answer_prompt(answer);
         }
+    }
+
+    /// Where the entry the session was dialed from is in the directory now:
+    /// editing the directory can move it.
+    fn session_entry_index(&self) -> Option<usize> {
+        let id = self.session.as_ref()?.entry.system_id();
+        let entries = &self.directory.entries;
+        let i = self.session_index?;
+        if entries.get(i).is_some_and(|e| e.system_id() == id) {
+            Some(i)
+        } else {
+            entries.iter().position(|e| e.system_id() == id)
+        }
+    }
+
+    fn session_entry_mut(&mut self) -> Option<&mut Entry> {
+        let i = self.session_entry_index()?;
+        self.session_index = Some(i);
+        self.directory.entries.get_mut(i)
+    }
+
+    /// The phosphor mode the connected system asks for, as it is in the
+    /// directory (so edits made while connected show at once).
+    fn own_crt_mode(&self) -> Option<CrtMode> {
+        match self.session_entry_index() {
+            Some(i) => self.directory.entries[i].crt,
+            None => self.session.as_ref().and_then(|s| s.entry.crt),
+        }
+    }
+
+    fn crt_mode(&self) -> CrtMode {
+        self.own_crt_mode().unwrap_or(self.settings.crt)
     }
 
     fn settings_changed(&mut self, msg: impl Into<String>) {
@@ -922,6 +967,7 @@ impl App {
         self.draw_status();
         let dialer_cursor =
             if self.dialer_open { self.dialer.draw(&mut self.dialer_screen, &self.directory) } else { None };
+        let crt = self.crt_mode();
         let Some(gfx) = self.gfx.as_mut() else { return };
         let size = gfx.window.inner_size();
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
@@ -1010,7 +1056,7 @@ impl App {
                 } else {
                     1.0
                 };
-                let display = Display { scaling, pixel_aspect, crt: self.settings.crt };
+                let display = Display { scaling, pixel_aspect, crt };
                 self.view_rect = self.renderer.blit(&mut buf, w.get() as usize, h.get() as usize, &display);
                 if let Err(e) = buf.present() {
                     log::error!("presenting frame: {e}");

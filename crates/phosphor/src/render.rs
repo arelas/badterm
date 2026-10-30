@@ -350,6 +350,16 @@ mod tests {
         r.draw(&Frame { rows, cursor: None, ice: true, selection: None }, true, true);
         write_ppm(&mut r, &dir.join("dialer.ppm"));
 
+        let mut edit = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
+        let mut ed = d.clone();
+        ed.entries[0].crt = Some(crate::crt::CrtMode::Green);
+        edit.handle_key(crate::input::Key::Char('e'), crate::input::Mods::default(), &mut ed);
+        let mut es = phosphor_core::Screen::new(80, 25, 0);
+        let cursor = edit.draw(&mut es, &ed);
+        let rows: Vec<&[Cell]> = (0..25).map(|y| es.row(y)).collect();
+        r.draw(&Frame { rows, cursor, ice: true, selection: None }, true, true);
+        write_ppm(&mut r, &dir.join("edit.ppm"));
+
         ui.confirm_hang_up("Example BBS", "another.example.com");
         ui.draw(&mut s, &d);
         let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();

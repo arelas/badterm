@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use phosphor_core::Encoding;
-use phosphor_core::dialer::{self, Directory, Entry, Protocol};
+use phosphor_core::dialer::{self, CrtMode, Directory, Entry, Protocol};
 use phosphor_core::screen::{Cell, Screen};
 
 use super::*;
@@ -32,13 +32,14 @@ pub enum Action {
     Close,
 }
 
-const FIELDS: [&str; 11] = [
+const FIELDS: [&str; 12] = [
     "Name",
     "Address",
     "Port",
     "Protocol",
     "Encoding",
     "Screen mode",
+    "Phosphor mode",
     "Terminal type",
     "User name",
     "Password",
@@ -49,25 +50,28 @@ const F_PORT: usize = 2;
 const F_PROTOCOL: usize = 3;
 const F_ENCODING: usize = 4;
 const F_ROWS: usize = 5;
-const F_TERM: usize = 6;
-const F_USER: usize = 7;
-const F_PASSWORD: usize = 8;
-const F_KEY_FILE: usize = 9;
-const F_COMMENT: usize = 10;
+const F_CRT: usize = 6;
+const F_TERM: usize = 7;
+const F_USER: usize = 8;
+const F_PASSWORD: usize = 9;
+const F_KEY_FILE: usize = 10;
+const F_COMMENT: usize = 11;
 /// The fields changed with Space or the arrow keys rather than typed into.
-const OPTION_FIELDS: [usize; 3] = [F_PROTOCOL, F_ENCODING, F_ROWS];
+const OPTION_FIELDS: [usize; 4] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_CRT];
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 11],
+    text: [TextField; 12],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
     protocol: Protocol,
     encoding: Encoding,
     rows: u16,
+    /// None: the global phosphor mode (Alt-P).
+    crt: Option<CrtMode>,
     focus: usize,
     error: Option<String>,
 }
@@ -88,6 +92,7 @@ impl Form {
                 TextField::default(),
                 TextField::default(),
                 TextField::default(),
+                TextField::default(),
                 t(&e.term_type),
                 t(&e.username),
                 t(&password),
@@ -98,6 +103,7 @@ impl Form {
             protocol: e.protocol,
             encoding: e.encoding,
             rows: if dialer::SCREEN_ROWS.contains(&e.rows) { e.rows } else { 25 },
+            crt: e.crt,
             focus: 0,
             error: problem.clone(),
             base: e,
@@ -135,6 +141,7 @@ impl Form {
             encoding: self.encoding,
             term_type: self.text[F_TERM].value.trim().to_string(),
             rows: self.rows,
+            crt: self.crt,
             username: self.text[F_USER].value.clone(),
             password,
             keychain: kept,
@@ -328,6 +335,14 @@ impl DialerUi {
                     let all = dialer::SCREEN_ROWS;
                     let i = all.iter().position(|&r| r == form.rows).unwrap_or(0);
                     form.rows = all[(i + 1) % all.len()];
+                }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_CRT => {
+                    // The global setting, then each mode.
+                    let all: Vec<Option<CrtMode>> =
+                        std::iter::once(None).chain(CrtMode::ALL.into_iter().map(Some)).collect();
+                    let i = all.iter().position(|&m| m == form.crt).unwrap_or(0);
+                    let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
+                    form.crt = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_ENCODING => {
                     form.encoding = match form.encoding {
@@ -622,6 +637,13 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
             }
             F_ENCODING => text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg),
             F_ROWS => text(s, fx, yy, fw, &format!("\u{25C4} 80x{:<4} \u{25BA}", form.rows), fg, bg),
+            F_CRT => {
+                let name = form.crt.map_or("default", CrtMode::name);
+                text(s, fx, yy, fw, &format!("\u{25C4} {name:<12} \u{25BA}"), fg, bg);
+                if form.crt.is_none() {
+                    label(s, fx + 17, yy, &format!("({HOTKEY}-P)"), DARK_GRAY, bg);
+                }
+            }
             _ => {
                 let pos = form.text[i].draw(s, fx, yy, fw, i == F_PASSWORD, fg, bg);
                 if focused {
@@ -697,6 +719,33 @@ mod tests {
         assert!(d.entries[0].pinned && d.entries[0].host == "beta.example.org");
         // The selection follows the entry.
         assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(0)));
+    }
+
+    #[test]
+    fn phosphor_mode_per_entry() {
+        let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
+        key(&mut ui, &mut d, Key::Char('e'));
+        let Mode::Edit(form) = &mut ui.mode else { panic!() };
+        assert_eq!(form.crt, None);
+        form.focus = F_CRT;
+        // Default, off, color, green.
+        for _ in 0..3 {
+            key(&mut ui, &mut d, Key::Right);
+        }
+        assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Changed));
+        assert_eq!(d.entries[0].crt, Some(CrtMode::Green));
+
+        // Left goes back: from green to color.
+        key(&mut ui, &mut d, Key::Char('e'));
+        let Mode::Edit(form) = &mut ui.mode else { panic!() };
+        form.focus = F_CRT;
+        key(&mut ui, &mut d, Key::Left);
+        let Mode::Edit(form) = &ui.mode else { panic!() };
+        assert_eq!(form.crt, Some(CrtMode::Color));
+        let mut s = Screen::new(COLS, ROWS, 0);
+        ui.draw(&mut s, &d);
+        let rows: Vec<String> = (0..ROWS).map(|y| s.row(y).iter().map(|c| c.ch as char).collect()).collect();
+        assert!(rows.iter().any(|r| r.contains("Phosphor mode") && r.contains("color CRT")), "{rows:#?}");
     }
 
     #[test]

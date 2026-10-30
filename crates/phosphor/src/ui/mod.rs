@@ -13,6 +13,9 @@ use phosphor_core::screen::{Cell, Color, Screen};
 
 use crate::input::{Key, Mods};
 
+/// The modifier for Phosphor's own hotkeys, as shown in help text.
+pub const HOTKEY: &str = if cfg!(target_os = "macos") { "Cmd" } else { "Alt" };
+
 pub const BLACK: Color = Color::Pc(0);
 pub const BLUE: Color = Color::Pc(1);
 pub const CYAN: Color = Color::Pc(3);

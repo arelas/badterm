@@ -79,6 +79,9 @@ pub struct Entry {
     /// Screen height: 25 lines, or 50 (with the 8x8 font).
     #[serde(skip_serializing_if = "is_25")]
     pub rows: u16,
+    /// Phosphor mode for this system; None follows the global setting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub crt: Option<CrtMode>,
     /// SSH private key to try first; otherwise the SSH agent and the usual
     /// `~/.ssh/id_*` files are tried.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -108,6 +111,7 @@ impl Default for Entry {
             password: String::new(),
             term_type: "ANSI".into(),
             rows: 25,
+            crt: None,
             key_file: String::new(),
             comment: String::new(),
             keychain: false,
@@ -169,6 +173,38 @@ fn is_25(n: &u16) -> bool {
 
 /// The screen heights an entry can ask for.
 pub const SCREEN_ROWS: [u16; 2] = [25, 50];
+
+/// "Phosphor mode": the look of a CRT, drawn by the front end.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CrtMode {
+    #[default]
+    Off,
+    /// A color CRT.
+    Color,
+    /// A green-phosphor monochrome monitor (P1).
+    Green,
+    /// An amber monochrome monitor (P3).
+    Amber,
+}
+
+impl CrtMode {
+    pub const ALL: [CrtMode; 4] = [CrtMode::Off, CrtMode::Color, CrtMode::Green, CrtMode::Amber];
+
+    pub fn next(self) -> CrtMode {
+        let i = CrtMode::ALL.iter().position(|&m| m == self).unwrap_or(0);
+        CrtMode::ALL[(i + 1) % CrtMode::ALL.len()]
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            CrtMode::Off => "off",
+            CrtMode::Color => "color CRT",
+            CrtMode::Green => "green screen",
+            CrtMode::Amber => "amber screen",
+        }
+    }
+}
 
 /// The entries a new directory starts with, first among them the project's
 /// own BBS. More can be added here over time: existing directories pick up
@@ -595,7 +631,13 @@ mod tests {
                 comment: "Has, commas".into(),
                 ..Entry::default()
             },
-            Entry { name: "Beta".into(), host: "beta.example.org".into(), port: 2323, ..Entry::default() },
+            Entry {
+                name: "Beta".into(),
+                host: "beta.example.org".into(),
+                port: 2323,
+                crt: Some(CrtMode::Amber),
+                ..Entry::default()
+            },
         ]
     }
 
@@ -688,6 +730,14 @@ mod tests {
         assert!(!d.entries[0].pinned && !d.entries[0].keychain && d.entries[0].key_file.is_empty());
         let t = toml::to_string_pretty(&d).unwrap();
         assert!(!t.contains("pinned") && !t.contains("keychain") && !t.contains("key_file"), "{t}");
+        assert!(d.entries[0].crt.is_none() && !t.contains("crt"), "{t}");
+    }
+
+    #[test]
+    fn crt_mode_in_toml() {
+        let d: Directory = toml::from_str("[[entry]]\nhost = \"a.example\"\ncrt = \"green\"\n").unwrap();
+        assert_eq!(d.entries[0].crt, Some(CrtMode::Green));
+        assert_eq!(CrtMode::Amber.next(), CrtMode::Off);
     }
 
     #[test]
