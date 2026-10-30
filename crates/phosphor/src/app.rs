@@ -205,6 +205,10 @@ pub struct App {
     session_id: u64,
     /// Directory index of the entry the session was dialed from.
     session_index: Option<usize>,
+    /// A keyboard macro being sent: what is left, and when to go on after
+    /// a pause.
+    macro_steps: std::collections::VecDeque<crate::macros::Step>,
+    macro_at: Instant,
     /// How many times the current call has been redialed.
     redials: u32,
     redial: Option<Redial>,
@@ -282,6 +286,8 @@ impl App {
             session_id: 0,
             session_index: None,
             redials: 0,
+            macro_steps: std::collections::VecDeque::new(),
+            macro_at: Instant::now(),
             redial: None,
             scroll: 0,
             mods: ModifiersState::empty(),
@@ -400,6 +406,7 @@ impl App {
 
     fn hang_up(&mut self) {
         self.redial = None;
+        self.macro_steps.clear();
         self.session = None;
         self.session_index = None;
         self.scroll = 0;
@@ -729,6 +736,10 @@ impl App {
         // Session hotkeys act on what is on screen, so they are swallowed
         // while the dialer (or settings, or help) covers the session.
         if self.dialer_open || self.settings_open || self.help_open {
+            return true;
+        }
+        if let Some(i) = macro_index(code) {
+            self.start_macro(i);
             return true;
         }
         let Some(session) = self.session.as_mut() else { return false };
@@ -1101,6 +1112,48 @@ impl App {
             Err(e) => format!("Copy failed: {e}"),
         };
         self.notify(msg);
+    }
+
+    /// Send keyboard macro `i` (Alt-1 is 0), pausing where it says.
+    fn start_macro(&mut self, i: usize) {
+        let Some(session) = self.session.as_ref().filter(|s| s.state == State::Connected) else {
+            return self.notify("Not connected");
+        };
+        let text = self.settings.macros.get(i).cloned().unwrap_or_default();
+        if text.is_empty() {
+            let key = crate::macros::key_name(i);
+            return self.notify(format!("{HOTKEY}-{key} has no macro yet: set one in Settings ({HOTKEY}-O)"));
+        }
+        let e = &session.entry;
+        self.macro_steps = crate::macros::expand(&text, &e.username, &e.password).into();
+        self.macro_at = Instant::now();
+        self.run_macro();
+    }
+
+    /// Send what a macro has ready, up to its next pause.
+    fn run_macro(&mut self) {
+        if self.macro_steps.is_empty() || Instant::now() < self.macro_at {
+            return;
+        }
+        let Some(session) = self.session.as_mut().filter(|s| s.state == State::Connected) else {
+            self.macro_steps.clear();
+            return;
+        };
+        while let Some(step) = self.macro_steps.pop_front() {
+            match step {
+                crate::macros::Step::Send(text) => {
+                    let bytes = match session.term.encoding {
+                        Encoding::Utf8 => text.into_bytes(),
+                        Encoding::Cp437 => cp437::encode(&text),
+                    };
+                    session.send(&bytes);
+                }
+                crate::macros::Step::Pause => {
+                    self.macro_at = Instant::now() + crate::macros::PAUSE;
+                    return;
+                }
+            }
+        }
     }
 
     fn open_upload(&mut self, requested: bool) {
@@ -1554,6 +1607,12 @@ impl ApplicationHandler<UserEvent> for App {
         }
         // Baud rate emulation shows text a few characters at a time.
         let mut wake = self.next_tick;
+        if !self.macro_steps.is_empty() {
+            self.run_macro();
+            if !self.macro_steps.is_empty() {
+                wake = wake.min(self.macro_at);
+            }
+        }
         if let Some(s) = self.session.as_mut().filter(|s| s.pacing()) {
             s.pump();
             self.session_events();
@@ -1591,6 +1650,23 @@ fn stamp(now: u64) -> String {
 
 fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
+}
+
+/// Which keyboard macro a hotkey sends: Alt-1 is the first, Alt-0 the tenth.
+fn macro_index(code: KeyCode) -> Option<usize> {
+    const DIGITS: [KeyCode; 10] = [
+        KeyCode::Digit1,
+        KeyCode::Digit2,
+        KeyCode::Digit3,
+        KeyCode::Digit4,
+        KeyCode::Digit5,
+        KeyCode::Digit6,
+        KeyCode::Digit7,
+        KeyCode::Digit8,
+        KeyCode::Digit9,
+        KeyCode::Digit0,
+    ];
+    DIGITS.iter().position(|&d| d == code)
 }
 
 /// The screen shown with no session and the dialer closed: blank, with a

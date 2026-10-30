@@ -17,6 +17,7 @@ mod crt;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos_urls;
+mod macros;
 mod png;
 mod render;
 mod secrets;

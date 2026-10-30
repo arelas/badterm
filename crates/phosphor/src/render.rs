@@ -518,12 +518,24 @@ mod tests {
         let mut ps = phosphor_core::Screen::new(80, 25, 0);
         sui.draw(&mut ps, &settings, Some("green screen"), None);
         page(&mut r, &ps, "settings.ppm");
-        for k in [Key::End, Key::Enter, Key::Down, Key::Down, Key::Down, Key::Down, Key::Enter, Key::Right] {
+        for k in
+            [Key::Up, Key::Up, Key::Up, Key::Enter, Key::Down, Key::Down, Key::Down, Key::Down, Key::Enter, Key::Right]
+        {
             sui.handle_key(k, crate::input::Mods::default(), &mut settings);
         }
         crate::ui::theme::set_current(settings.colors);
         sui.draw(&mut ps, &settings, None, None);
         page(&mut r, &ps, "colors.ppm");
+        let mut mui = crate::ui::settings::SettingsUi::default();
+        let mut ms = crate::settings::Settings::default();
+        ms.macros[0] = "{user}^M~{password}^M".into();
+        ms.macros[2] = "/x^M".into();
+        for k in [Key::Down; 7].into_iter().chain([Key::Enter]) {
+            mui.handle_key(k, crate::input::Mods::default(), &mut ms);
+        }
+        crate::ui::theme::set_current(Default::default());
+        mui.draw(&mut ps, &ms, None, None);
+        page(&mut r, &ps, "macros.ppm");
         crate::ui::theme::set_current(crate::ui::theme::SCHEMES[2].1);
         crate::ui::help::draw(&mut ps);
         page(&mut r, &ps, "help.ppm");

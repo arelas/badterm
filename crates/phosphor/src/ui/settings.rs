@@ -28,7 +28,7 @@ pub enum Action {
     Export(String),
 }
 
-const ITEMS: [&str; 11] = [
+const ITEMS: [&str; 12] = [
     "Phosphor mode",
     "Character cells",
     "Pixel shape",
@@ -36,6 +36,7 @@ const ITEMS: [&str; 11] = [
     "ANSI music",
     "Redial busy BBSes",
     "Check for updates",
+    "Keyboard macros...",
     "Color scheme",
     "Edit colors...",
     "Import a theme...",
@@ -48,12 +49,13 @@ const I_BEZEL: usize = 3;
 const I_MUSIC: usize = 4;
 const I_REDIAL: usize = 5;
 const I_UPDATES: usize = 6;
-const I_SCHEME: usize = 7;
-const I_COLORS: usize = 8;
-const I_IMPORT: usize = 9;
-const I_EXPORT: usize = 10;
+const I_MACROS: usize = 7;
+const I_SCHEME: usize = 8;
+const I_COLORS: usize = 9;
+const I_IMPORT: usize = 10;
+const I_EXPORT: usize = 11;
 /// Items that open something rather than having a value.
-const ACTIONS: [usize; 3] = [I_COLORS, I_IMPORT, I_EXPORT];
+const ACTIONS: [usize; 4] = [I_MACROS, I_COLORS, I_IMPORT, I_EXPORT];
 
 /// Rows of the color grid: the eight background colors (bright ones blink
 /// on a real VGA, so the interface leaves them out, as Telix did).
@@ -71,6 +73,8 @@ enum Mode {
     },
     /// Asking for a theme file to import, or a name to save one as.
     Prompt(usize, TextField),
+    /// Editing the keyboard macros: which one, and its text.
+    Macros(usize, TextField),
     Message(String),
 }
 
@@ -113,6 +117,26 @@ impl SettingsUi {
             Mode::Menu => self.menu_key(key, settings),
             Mode::Message(_) => {
                 self.mode = Mode::Menu;
+                Action::None
+            }
+            Mode::Macros(line, field) => {
+                let n = crate::macros::COUNT;
+                let next = match key {
+                    Key::Escape => {
+                        self.mode = Mode::Menu;
+                        return Action::None;
+                    }
+                    Key::Up => (*line + n - 1) % n,
+                    Key::Down | Key::Enter | Key::Tab => (*line + 1) % n,
+                    _ => {
+                        field.handle_key(key, mods);
+                        settings.macros.resize(n, String::new());
+                        settings.macros[*line] = field.value.clone();
+                        return Action::Changed;
+                    }
+                };
+                settings.macros.resize(n, String::new());
+                self.mode = Mode::Macros(next, TextField::new(&settings.macros[next], 200));
                 Action::None
             }
             Mode::Prompt(item, field) => match key {
@@ -183,6 +207,10 @@ impl SettingsUi {
             Key::End => self.item = n - 1,
             Key::Escape => return Action::Close,
             Key::Enter if self.item == I_COLORS => self.mode = Mode::Parts,
+            Key::Enter if self.item == I_MACROS => {
+                let first = settings.macros.first().cloned().unwrap_or_default();
+                self.mode = Mode::Macros(0, TextField::new(&first, 200));
+            }
             Key::Enter if self.item == I_IMPORT => self.mode = Mode::Prompt(I_IMPORT, TextField::new("", 400)),
             Key::Enter if self.item == I_EXPORT => {
                 let name = self.scheme_name(&settings.colors).unwrap_or("My colors").to_string();
@@ -268,6 +296,7 @@ impl SettingsUi {
                 label(s, x + 2, y + 1, hint, t.window_text.fg(), t.window_text.bg());
                 cursor = Some(field.draw(s, x + 2, y + 3, w - 4, false, t.input.fg(), t.input.bg()));
             }
+            Mode::Macros(line, field) => cursor = Some(self.draw_macros(s, settings, *line, field)),
             Mode::Message(msg) => {
                 self.draw_menu(s, settings, own_crt, update);
                 let lines = wrap(msg, 60);
@@ -284,16 +313,48 @@ impl SettingsUi {
             Mode::Parts => "\u{2191}\u{2193} Choose a part   Enter Pick its colors   Esc Back",
             Mode::Grid { .. } => "\u{2190}\u{2192} Foreground   \u{2191}\u{2193} Background   Enter Keep   Esc Undo",
             Mode::Prompt(..) => "Enter OK   Esc Cancel",
+            Mode::Macros(..) => "\u{2191}\u{2193} Choose   Type to change (saved as you go)   Esc Done",
             Mode::Message(_) => "Press any key",
         };
         text(s, 1, 24, COLS - 2, help, t.help.fg(), t.help.bg());
         cursor
     }
 
+    fn draw_macros(&self, s: &mut Screen, settings: &Settings, line: usize, field: &TextField) -> (usize, usize) {
+        let t = theme::current();
+        let (x, y, w) = (3, 2, COLS - 6);
+        frame(s, x, y, w, 21, "Keyboard Macros", t.window.fg(), t.window.bg());
+        let mut cursor = (0, 0);
+        for i in 0..crate::macros::COUNT {
+            let yy = y + 2 + i;
+            let focused = i == line;
+            let name_attr = if focused { t.keys } else { t.field_name };
+            let k = format!("{HOTKEY}-{}", crate::macros::key_name(i));
+            text(s, x + 2, yy, 7, &format!("{k:>6}"), name_attr.fg(), name_attr.bg());
+            if focused {
+                cursor = field.draw(s, x + 10, yy, w - 12, false, t.input.fg(), t.input.bg());
+            } else {
+                let v = settings.macros.get(i).map(String::as_str).unwrap_or("");
+                text(s, x + 10, yy, w - 12, &truncate(v, w - 12), t.field_value.fg(), t.field_value.bg());
+            }
+        }
+        let help = [
+            "Sent to the BBS when you press the key. In a macro:",
+            "  ^M  Enter          ^[  Esc        ^A to ^Z  other control keys",
+            "  ~   wait 1/2 sec   ^^  a ^        ^~  a ~",
+            "  {user}  {password}   the dialing directory entry's",
+            "For example:  {user}^M~{password}^M   logs in.",
+        ];
+        for (i, l) in help.iter().enumerate() {
+            label(s, x + 2, y + 14 + i, l, t.window_text.fg(), t.window_text.bg());
+        }
+        cursor
+    }
+
     fn draw_menu(&self, s: &mut Screen, settings: &Settings, own_crt: Option<&str>, update: Option<&str>) {
         let t = theme::current();
         let (w, h) = (60, ITEMS.len() + 6);
-        let (x, y) = ((COLS - w) / 2, 3);
+        let (x, y) = ((COLS - w) / 2, 2);
         frame(s, x, y, w, h, "Settings", t.window.fg(), t.window.bg());
         for (i, name) in ITEMS.iter().enumerate() {
             let yy = y + 2 + i + usize::from(i >= I_SCHEME);
@@ -394,6 +455,24 @@ mod tests {
         fn handle_key_test(&mut self, key: Key, s: &mut Settings) -> Action {
             self.handle_key(key, Mods::default(), s)
         }
+    }
+
+    #[test]
+    fn macro_editor() {
+        let mut ui = SettingsUi { item: I_MACROS, ..SettingsUi::default() };
+        let mut s = Settings::default();
+        ui.handle_key_test(Key::Enter, &mut s);
+        ui.handle_key_test(Key::Down, &mut s);
+        for c in "hi^M".chars() {
+            assert_eq!(ui.handle_key_test(Key::Char(c), &mut s), Action::Changed);
+        }
+        assert_eq!(s.macros[1], "hi^M");
+        let mut screen = Screen::new(COLS, ROWS, 0);
+        assert!(ui.draw(&mut screen, &s, None, None).is_some());
+        // Back to the first, then out.
+        ui.handle_key_test(Key::Up, &mut s);
+        ui.handle_key_test(Key::Escape, &mut s);
+        assert_eq!(ui.handle_key_test(Key::Escape, &mut s), Action::Close);
     }
 
     #[test]

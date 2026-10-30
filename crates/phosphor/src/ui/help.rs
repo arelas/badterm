@@ -22,6 +22,7 @@ const LEFT: [Group; 3] = [
             ("@-D", "Dialing directory"),
             ("@-R", "Call again, or redial now"),
             ("@-L", "Send login (name, password)"),
+            ("@-1..0", "Send a keyboard macro"),
             ("@-H", "Hang up"),
             ("@-X", "Exit Phosphor"),
         ],

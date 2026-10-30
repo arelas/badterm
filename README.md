@@ -174,6 +174,7 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-H` | Hang up (or clear a finished call from the screen) |
 | `Alt-R` | Call again (after a hang-up, or now while a redial is waiting) |
 | `Alt-L` | Send the entry's user name; again for the password |
+| `Alt-1` ... `Alt-0` | Keyboard macros (set them in Settings, `Alt-O`) |
 | `Alt-B`, `Shift-PgUp`, mouse wheel | Scrollback (arrows, `PgUp`/`PgDn`, `Home`; any other key returns) |
 | `Alt-I` | Toggle iCE colors / blinking |
 | `Alt-E` | Toggle CP437 / UTF-8 |
@@ -209,6 +210,11 @@ colors", give each part of the interface (title bar, selected entry,
 windows, input fields, key hints, ...) its own foreground and background
 from a grid of the 16 x 8 combinations, as in QModem and Telix. Changes
 show and are saved straight away; in the grid, `Esc` undoes the last part.
+
+"Keyboard macros" sets what `Alt-1` to `Alt-0` send, written as in Telix
+and QModem: `^M` is Enter, `^[` Esc and `^A` to `^Z` the other control
+keys, `~` waits half a second, and `{user}` and `{password}` are the
+directory entry's. `{user}^M~{password}^M`, for example, logs in.
 
 Color themes can be shared. "Save as a theme" writes the current colors to
 a file in the `themes` folder (`phosphor --paths` shows where), and "Import

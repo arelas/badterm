@@ -55,6 +55,8 @@ pub struct Settings {
     pub colors: Theme,
     /// The monitor bezel drawn around the screen, by name; empty for none.
     pub bezel: String,
+    /// Keyboard macros, Alt-1 to Alt-0 (see [`crate::macros`]).
+    pub macros: Vec<String>,
     /// Ask the project's server for a newer version at each start. Off
     /// unless turned on, as it contacts the server.
     pub check_updates: bool,
@@ -70,6 +72,7 @@ impl Default for Settings {
             redial: true,
             colors: Theme::default(),
             bezel: String::new(),
+            macros: vec![String::new(); crate::macros::COUNT],
             check_updates: false,
         }
     }
@@ -112,6 +115,7 @@ mod tests {
             redial: false,
             colors,
             bezel: "Beige".into(),
+            macros: vec!["{user}^M".into(); 10],
             check_updates: true,
         };
         let text = toml::to_string_pretty(&s).unwrap();
