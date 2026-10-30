@@ -1717,7 +1717,8 @@ impl ApplicationHandler<UserEvent> for App {
             return event_loop.exit();
         }
         self.load_bezel();
-        if self.settings.splash {
+        // Not when started to call a BBS or show a file: get on with it.
+        if self.settings.splash && self.startup.is_none() && self.view_at_start.is_none() {
             self.splash_until = Some(Instant::now() + ui::splash::TIME);
         }
         if let Some(path) = self.view_at_start.take() {
@@ -1743,6 +1744,9 @@ impl ApplicationHandler<UserEvent> for App {
                 // Before the window exists: the link that launched the app.
                 Some(e) if self.gfx.is_none() => self.startup = Some(e),
                 Some(e) => {
+                    // A link that launched the app can come just after the
+                    // window: the call matters more than the splash.
+                    self.splash_until = None;
                     if let Some(g) = &self.gfx {
                         g.window.focus_window();
                     }

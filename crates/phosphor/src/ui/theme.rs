@@ -171,30 +171,6 @@ const fn a(fg: u8, bg: u8) -> Attr {
 /// The built-in schemes, by name; the first is the default.
 pub const SCHEMES: [(&str, Theme); 9] = [
     (
-        "Classic blue",
-        Theme {
-            title_bar: a(WHITE, BLUE),
-            border: a(LIGHT_CYAN, BLUE),
-            headings: a(YELLOW, BLUE),
-            entries: a(WHITE, BLUE),
-            selected: a(BLACK, CYAN),
-            info: a(LIGHT_CYAN, BLACK),
-            help: a(GRAY, BLACK),
-            help_key: a(YELLOW, BLACK),
-            status: a(WHITE, BLUE),
-            status_alt: a(BLACK, CYAN),
-            window: a(WHITE, BLUE),
-            window_title: a(YELLOW, BLUE),
-            window_text: a(GRAY, BLUE),
-            field_name: a(GRAY, BLUE),
-            field_value: a(LIGHT_CYAN, BLUE),
-            input: a(WHITE, BLACK),
-            keys: a(YELLOW, BLUE),
-            note: a(DARK_GRAY, BLUE),
-            error: a(LIGHT_RED, BLUE),
-        },
-    ),
-    (
         "Midnight",
         Theme {
             title_bar: a(BLACK, CYAN),
@@ -216,6 +192,30 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(LIGHT_CYAN, BLACK),
             note: a(DARK_GRAY, BLACK),
             error: a(LIGHT_RED, BLACK),
+        },
+    ),
+    (
+        "Classic blue",
+        Theme {
+            title_bar: a(WHITE, BLUE),
+            border: a(LIGHT_CYAN, BLUE),
+            headings: a(YELLOW, BLUE),
+            entries: a(WHITE, BLUE),
+            selected: a(BLACK, CYAN),
+            info: a(LIGHT_CYAN, BLACK),
+            help: a(GRAY, BLACK),
+            help_key: a(YELLOW, BLACK),
+            status: a(WHITE, BLUE),
+            status_alt: a(BLACK, CYAN),
+            window: a(WHITE, BLUE),
+            window_title: a(YELLOW, BLUE),
+            window_text: a(GRAY, BLUE),
+            field_name: a(GRAY, BLUE),
+            field_value: a(LIGHT_CYAN, BLUE),
+            input: a(WHITE, BLACK),
+            keys: a(YELLOW, BLUE),
+            note: a(DARK_GRAY, BLUE),
+            error: a(LIGHT_RED, BLUE),
         },
     ),
     (
@@ -496,7 +496,7 @@ mod tests {
         t.set(4, Attr::new(14, 4));
         assert_eq!(t.selected, Attr::new(14, 4));
         assert_eq!(t.scheme_name(), None);
-        assert_eq!(Theme::default().scheme_name(), Some("Classic blue"));
+        assert_eq!(Theme::default().scheme_name(), Some("Midnight"));
         // Every scheme is distinct, so its name can be shown.
         for (i, (_, a)) in SCHEMES.iter().enumerate() {
             for (_, b) in &SCHEMES[i + 1..] {

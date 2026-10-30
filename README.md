@@ -230,8 +230,8 @@ glass (off for a flat screen, slight, medium or strong), the aspect ratio,
 scaling (fit keeping the shape; auto, which is whole numbers in a window
 and fit in full screen; always whole numbers; or stretch to fill),
 character cells, ANSI music, redialing, and the colors
-of Phosphor's own screens. Pick one of the color schemes (Classic blue,
-Midnight, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit
+of Phosphor's own screens. Pick one of the color schemes (Midnight, the
+default; Classic blue, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit
 colors", give each part of the interface (title bar, selected entry,
 windows, input fields, key hints, ...) its own foreground and background
 from a grid of the 16 x 8 combinations, as in QModem and Telix. Changes
