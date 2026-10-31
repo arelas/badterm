@@ -641,9 +641,23 @@ footer p.copyright {
   }
 }
 
-@media (max-width: 520px) {
-  nav a:not(.nav-download) {
-    display: none;
+/* Narrow screens: the links get a row of their own under the name. */
+@media (max-width: 600px) {
+  .topbar-inner {
+    flex-wrap: wrap;
+    gap: 0;
+    padding: 10px 16px 8px;
+  }
+
+  nav {
+    width: 100%;
+    justify-content: space-between;
+    gap: 4px 12px;
+    padding-top: 8px;
+  }
+
+  html {
+    scroll-padding-top: 108px;
   }
 }
 
