@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use badterm_core::Encoding;
-use badterm_core::dialer::{self, CrtMode, Directory, Entry, Protocol};
+use badterm_core::dialer::{self, BellMode, CrtMode, Directory, Entry, Protocol};
 use badterm_core::screen::{Cell, Screen};
 
 use super::*;
@@ -35,24 +35,28 @@ pub enum Action {
     Settings,
 }
 
-const FIELDS: [&str; 16] = [
+const FIELDS: [&str; 19] = [
     "Name",
     "Address",
     "Port",
     "Protocol",
-    "Encoding",
+    "Emulation",
     "Screen mode",
     "Font",
     "iCE colors",
     "Phosphor mode",
+    "Bell",
     "Baud rate",
     "Terminal type",
     "User name",
     "Password",
     "Auto-login",
     "SSH key file",
+    "Capture",
+    "Capture file",
     "Comment",
 ];
+const F_ADDRESS: usize = 1;
 const F_PORT: usize = 2;
 const F_PROTOCOL: usize = 3;
 const F_ENCODING: usize = 4;
@@ -60,21 +64,25 @@ const F_ROWS: usize = 5;
 const F_FONT: usize = 6;
 const F_ICE: usize = 7;
 const F_CRT: usize = 8;
-const F_BAUD: usize = 9;
-const F_TERM: usize = 10;
-const F_USER: usize = 11;
-const F_PASSWORD: usize = 12;
-const F_AUTO_LOGIN: usize = 13;
-const F_KEY_FILE: usize = 14;
-const F_COMMENT: usize = 15;
+const F_BELL: usize = 9;
+const F_BAUD: usize = 10;
+const F_TERM: usize = 11;
+const F_USER: usize = 12;
+const F_PASSWORD: usize = 13;
+const F_AUTO_LOGIN: usize = 14;
+const F_KEY_FILE: usize = 15;
+const F_CAPTURE: usize = 16;
+const F_CAPTURE_FILE: usize = 17;
+const F_COMMENT: usize = 18;
 /// The fields changed with Space or the arrow keys rather than typed into.
-const OPTION_FIELDS: [usize; 8] = [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_ICE, F_CRT, F_BAUD, F_AUTO_LOGIN];
+const OPTION_FIELDS: [usize; 10] =
+    [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_ICE, F_CRT, F_BELL, F_BAUD, F_AUTO_LOGIN, F_CAPTURE];
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 16],
+    text: [TextField; 19],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
@@ -88,8 +96,11 @@ struct Form {
     ice: Option<bool>,
     /// None: the global phosphor mode (Alt-P).
     crt: Option<CrtMode>,
+    /// None: the global setting.
+    bell: Option<BellMode>,
     baud: u32,
     auto_login: bool,
+    capture: bool,
     focus: usize,
     error: Option<String>,
 }
@@ -114,11 +125,14 @@ impl Form {
                 TextField::default(),
                 TextField::default(),
                 TextField::default(),
+                TextField::default(),
                 t(&e.term_type),
                 t(&e.username),
                 t(&password),
                 TextField::default(),
                 TextField::new(&e.key_file, 400),
+                TextField::default(),
+                TextField::new(&e.capture_file, 400),
                 t(&e.comment),
             ],
             keychain_unread: problem.is_some(),
@@ -128,8 +142,10 @@ impl Form {
             font: e.font,
             ice: e.ice,
             crt: e.crt,
+            bell: e.bell,
             baud: e.baud,
             auto_login: e.auto_login,
+            capture: e.capture,
             focus: 0,
             error: problem.clone(),
             base: e,
@@ -138,17 +154,25 @@ impl Form {
     }
 
     fn to_entry(&self) -> Result<Entry, String> {
-        let host = self.text[1].value.trim();
+        let host = self.text[F_ADDRESS].value.trim();
         if host.is_empty() {
-            return Err("Address is required".into());
+            let what = if self.protocol == Protocol::Modem { "The phone number" } else { "Address" };
+            return Err(format!("{what} is required"));
         }
-        // Allow "host:port" or a URL in the address field.
-        let parsed = Entry::from_address(host).ok_or("Invalid address")?;
-        let mut port: u16 = self.text[F_PORT].value.trim().parse().map_err(|_| "Port must be 1-65535")?;
-        if port == 0 {
+        let modem = self.protocol == Protocol::Modem;
+        // Allow "host:port" or a URL in the address field; a phone number is
+        // taken as it is.
+        let parsed = if modem {
+            Entry { host: host.to_string(), port: 0, ..Entry::default() }
+        } else {
+            Entry::from_address(host).ok_or("Invalid address")?
+        };
+        let mut port: u16 =
+            if modem { 0 } else { self.text[F_PORT].value.trim().parse().map_err(|_| "Port must be 1-65535")? };
+        if port == 0 && !modem {
             return Err("Port must be 1-65535".into());
         }
-        if parsed.port != parsed.protocol.default_port() {
+        if !modem && parsed.port != parsed.protocol.default_port() {
             port = parsed.port;
         }
         if self.protocol == Protocol::Ssh && self.text[F_USER].value.trim().is_empty() {
@@ -171,8 +195,11 @@ impl Form {
             font: self.font,
             ice: self.ice,
             crt: self.crt,
+            bell: self.bell,
             baud: self.baud,
             auto_login: self.auto_login,
+            capture: self.capture,
+            capture_file: self.text[F_CAPTURE_FILE].value.trim().to_string(),
             username: self.text[F_USER].value.clone(),
             password,
             keychain: kept,
@@ -389,6 +416,16 @@ impl DialerUi {
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_AUTO_LOGIN => {
                     form.auto_login = !form.auto_login;
+                }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_CAPTURE => {
+                    form.capture = !form.capture;
+                }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_BELL => {
+                    let all: Vec<Option<BellMode>> =
+                        std::iter::once(None).chain(BellMode::ALL.into_iter().map(Some)).collect();
+                    let i = all.iter().position(|&m| m == form.bell).unwrap_or(0);
+                    let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
+                    form.bell = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_CRT => {
                     // The global setting, then each mode.
@@ -632,7 +669,7 @@ impl DialerUi {
                         ("Quick Connect", "host, host:port, telnet://host:port or raw://host:port")
                     }
                     PromptKind::Import => {
-                        ("Import Directory", "SyncTERM .lst, NetRunner .phn, EtherTerm .xml, .csv...")
+                        ("Import Directory", "SyncTERM .lst, NetRunner .phn, Qodem fonebook.txt, .csv, .xml...")
                     }
                     PromptKind::Export => ("Export Directory", "Format follows extension: .lst .csv .json .toml"),
                 };
@@ -686,6 +723,8 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 let note = match form.encoding {
                     Encoding::Petscii => "(Commodore 64: 40x25, its font)",
                     Encoding::Atascii => "(Atari 8-bit: 40x24, its font)",
+                    Encoding::Avatar => "(AVT/0+ codes as well as ANSI)",
+                    Encoding::Rip => "(graphics; 80x43 text over them)",
                     _ => "",
                 };
                 label(s, fx + 12, yy, note, t.note.fg(), bg);
@@ -725,6 +764,22 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 };
                 label(s, fx + 8, yy, &hint, t.note.fg(), bg);
             }
+            F_BELL => {
+                let name = form.bell.map_or("default", BellMode::name);
+                text(s, fx, yy, fw, &format!("\u{25C4} {name:<14} \u{25BA}"), fg, bg);
+                if form.bell.is_none() {
+                    label(s, fx + 19, yy, "(Settings)", t.note.fg(), bg);
+                }
+            }
+            F_CAPTURE => {
+                let v = if form.capture { "On " } else { "Off" };
+                text(s, fx, yy, fw, &format!("\u{25C4} {v} \u{25BA}"), fg, bg);
+                label(s, fx + 8, yy, &format!("(records each call; or {HOTKEY}-C)"), t.note.fg(), bg);
+            }
+            F_PORT if form.protocol == Protocol::Modem => {
+                text(s, fx, yy, fw, "", fg, bg);
+                label(s, fx, yy, "(a modem has none)", t.note.fg(), bg);
+            }
             F_CRT => {
                 let name = form.crt.map_or("default", CrtMode::name);
                 text(s, fx, yy, fw, &format!("\u{25C4} {name:<12} \u{25BA}"), fg, bg);
@@ -736,6 +791,15 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 let pos = form.text[i].draw(s, fx, yy, fw, i == F_PASSWORD, fg, bg);
                 if focused {
                     cursor = pos;
+                }
+                // What a field holds, where it isn't obvious.
+                let hint = match i {
+                    F_ADDRESS if form.protocol == Protocol::Modem => "phone number",
+                    F_CAPTURE_FILE => "{name} {date} {time}; .txt: text only",
+                    _ => "",
+                };
+                if !hint.is_empty() && form.text[i].value.is_empty() && !focused {
+                    label(s, fx, yy, hint, t.note.fg(), bg);
                 }
             }
         }

@@ -23,18 +23,23 @@ pub enum Protocol {
     Raw,
     Ssh,
     Rlogin,
+    /// A real modem on a serial port, dialing the entry's phone number (its
+    /// address) with the modem settings (see [`crate::modem`]).
+    Modem,
 }
 
 impl Protocol {
-    pub const ALL: [Protocol; 5] =
-        [Protocol::Telnet, Protocol::TelnetS, Protocol::Raw, Protocol::Ssh, Protocol::Rlogin];
+    pub const ALL: [Protocol; 6] =
+        [Protocol::Telnet, Protocol::TelnetS, Protocol::Raw, Protocol::Ssh, Protocol::Rlogin, Protocol::Modem];
 
+    /// The usual port; 0 for a modem, which has none.
     pub fn default_port(self) -> u16 {
         match self {
             Protocol::Telnet | Protocol::Raw => 23,
             Protocol::TelnetS => 992,
             Protocol::Ssh => 22,
             Protocol::Rlogin => 513,
+            Protocol::Modem => 0,
         }
     }
 
@@ -46,6 +51,7 @@ impl Protocol {
             Protocol::Raw => "Raw",
             Protocol::Ssh => "SSH",
             Protocol::Rlogin => "RLogin",
+            Protocol::Modem => "Modem",
         }
     }
 
@@ -61,6 +67,7 @@ impl Protocol {
             "raw" => Some(Protocol::Raw),
             "ssh" | "sshna" => Some(Protocol::Ssh),
             "rlogin" | "rloginreversed" => Some(Protocol::Rlogin),
+            "modem" | "dialup" | "serial" => Some(Protocol::Modem),
             _ => None,
         }
     }
@@ -107,6 +114,19 @@ pub struct Entry {
     /// Phosphor mode for this system; None follows the global setting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub crt: Option<CrtMode>,
+    /// What the bell (Ctrl-G) does on this system; None follows the global
+    /// setting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bell: Option<BellMode>,
+    /// Start capturing the session to a file as soon as it connects.
+    #[serde(skip_serializing_if = "is_false")]
+    pub capture: bool,
+    /// The capture file's name, with `{name}`, `{date}` and `{time}` filled
+    /// in; relative names are in the captures folder, and a `.txt` name
+    /// keeps only the text (see [`crate::session::CaptureKind`]). Empty for
+    /// the usual `name-date-time.ans`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub capture_file: String,
     /// SSH private key to try first; otherwise the SSH agent and the usual
     /// `~/.ssh/id_*` files are tried.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -142,6 +162,9 @@ impl Default for Entry {
             ice: None,
             baud: 0,
             crt: None,
+            bell: None,
+            capture: false,
+            capture_file: String::new(),
             key_file: String::new(),
             comment: String::new(),
             keychain: false,
@@ -180,7 +203,7 @@ impl Entry {
     }
 
     pub fn address(&self) -> String {
-        if self.port == self.protocol.default_port() {
+        if self.port == self.protocol.default_port() || self.protocol == Protocol::Modem {
             self.host.clone()
         } else if self.host.contains(':') {
             format!("[{}]:{}", self.host, self.port)
@@ -231,6 +254,40 @@ fn is_25(n: &u16) -> bool {
 /// or more use the 8x8 font.
 pub const SCREEN_MODES: [(u16, u16); 6] = [(80, 25), (80, 43), (80, 50), (132, 25), (132, 37), (132, 52)];
 
+/// What the bell (Ctrl-G) does.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BellMode {
+    /// A beep.
+    #[default]
+    Sound,
+    /// The screen flashes.
+    Visual,
+    Both,
+    Off,
+}
+
+impl BellMode {
+    pub const ALL: [BellMode; 4] = [BellMode::Sound, BellMode::Visual, BellMode::Both, BellMode::Off];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            BellMode::Sound => "beep",
+            BellMode::Visual => "flash",
+            BellMode::Both => "beep and flash",
+            BellMode::Off => "off",
+        }
+    }
+
+    pub fn sound(self) -> bool {
+        matches!(self, BellMode::Sound | BellMode::Both)
+    }
+
+    pub fn visual(self) -> bool {
+        matches!(self, BellMode::Visual | BellMode::Both)
+    }
+}
+
 /// "Phosphor mode": the look of a CRT, drawn by the front end.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -239,7 +296,7 @@ pub enum CrtMode {
     Off,
     /// A color CRT.
     Color,
-    /// A green-badterm monochrome monitor (P1).
+    /// A green-phosphor monochrome monitor (P1).
     Green,
     /// An amber monochrome monitor (P3).
     Amber,
@@ -315,6 +372,8 @@ pub enum Format {
     EtherTerm,
     /// NetRunner's binary `netrunner.phn`. Import only.
     NetRunner,
+    /// Qodem's `fonebook.txt`. Import only.
+    Qodem,
 }
 
 impl Format {
@@ -328,6 +387,7 @@ impl Format {
             "lst" | "ini" => Some(Format::SyncTerm),
             "xml" => Some(Format::EtherTerm),
             "phn" => Some(Format::NetRunner),
+            "txt" if path.file_stem().is_some_and(|s| s.eq_ignore_ascii_case("fonebook")) => Some(Format::Qodem),
             _ => None,
         }
     }
@@ -501,6 +561,7 @@ pub fn import(path: &Path) -> Result<Vec<Entry>> {
             })
             .collect(),
         Some(Format::EtherTerm) => from_etherterm(text)?,
+        Some(Format::Qodem) => from_qodem(text),
         // Read above, as bytes.
         Some(Format::NetRunner) => unreachable!("NetRunner phone books are read before decoding"),
         None => bail!("unrecognized dialing directory format: {}", path.display()),
@@ -518,7 +579,7 @@ pub fn export(path: &Path, entries: &[Entry]) -> Result<()> {
         Format::Json => serde_json::to_string_pretty(entries)?,
         Format::Csv => to_csv(entries)?,
         Format::SyncTerm => to_syncterm(entries),
-        Format::MagiTerm | Format::EtherTerm | Format::NetRunner => {
+        Format::MagiTerm | Format::EtherTerm | Format::NetRunner | Format::Qodem => {
             bail!("that format can be imported, not exported")
         }
     };
@@ -527,7 +588,9 @@ pub fn export(path: &Path, entries: &[Entry]) -> Result<()> {
 
 fn sniff(text: &str) -> Option<Format> {
     let t = text.trim_start();
-    if t.starts_with('{') || t.starts_with('[') && t[1..].trim_start().starts_with('{') {
+    if is_qodem(t) {
+        Some(Format::Qodem)
+    } else if t.starts_with('{') || t.starts_with('[') && t[1..].trim_start().starts_with('{') {
         Some(Format::Json)
     } else if t.starts_with("<?xml") || t.starts_with("<EtherTerm") {
         Some(Format::EtherTerm)
@@ -772,6 +835,83 @@ fn xml_unescape(s: &str) -> String {
 
 /// Parse a SyncTERM dialing directory (`syncterm.lst`): an INI file with one
 /// section per BBS.
+/// Qodem's phone book: `[entry]` sections of `key=value` lines, after a
+/// "# Qodem Phonebook" comment.
+fn is_qodem(text: &str) -> bool {
+    text.starts_with("# Qodem") || text.lines().take(20).any(|l| l.trim() == "[entry]") && text.contains("\nmethod=")
+}
+
+/// Parse Qodem's `fonebook.txt`. Its methods are TELNET, SSH, RLOGIN,
+/// SOCKET (raw TCP) and MODEM (the address is a phone number); LOCAL and
+/// CMDLINE entries run programs and are left out. Notes span lines, from
+/// `notes=<<<END` to `END`, and become the comment.
+fn from_qodem(text: &str) -> Vec<Entry> {
+    let mut out = Vec::new();
+    let mut cur: Option<Entry> = None;
+    let mut skip = false;
+    let mut notes: Option<Vec<String>> = None;
+    let finish = |e: Option<Entry>, skip: bool, out: &mut Vec<Entry>| {
+        if let Some(mut e) = e.filter(|_| !skip) {
+            if e.port == 0 {
+                e.port = e.protocol.default_port();
+            }
+            out.push(e);
+        }
+    };
+    for line in text.lines() {
+        if let Some(n) = notes.as_mut() {
+            if line == "END" {
+                let text = notes.take().unwrap_or_default().join(" ");
+                if let Some(e) = cur.as_mut() {
+                    e.comment = text.trim().to_string();
+                }
+            } else {
+                n.push(line.trim().to_string());
+            }
+            continue;
+        }
+        let line = line.trim();
+        if line == "[entry]" {
+            finish(cur.take(), skip, &mut out);
+            cur = Some(Entry { port: 0, ..Entry::default() });
+            skip = false;
+            continue;
+        }
+        let (Some(e), Some((key, value))) = (cur.as_mut(), line.split_once('=')) else { continue };
+        let value = value.trim();
+        match key {
+            "name" => e.name = value.to_string(),
+            "address" => e.host = value.to_string(),
+            "port" => e.port = value.parse().unwrap_or(0),
+            "username" => e.username = value.to_string(),
+            "password" => e.password = value.to_string(),
+            "method" => match value {
+                "TELNET" => e.protocol = Protocol::Telnet,
+                "SSH" => e.protocol = Protocol::Ssh,
+                "RLOGIN" => e.protocol = Protocol::Rlogin,
+                "SOCKET" => e.protocol = Protocol::Raw,
+                "MODEM" => e.protocol = Protocol::Modem,
+                _ => skip = true,
+            },
+            "emulation" => match value {
+                "AVATAR" => e.encoding = Encoding::Avatar,
+                "PETSCII" => e.encoding = Encoding::Petscii,
+                "ATASCII" => e.encoding = Encoding::Atascii,
+                "L_UTF8" | "X_UTF8" => e.encoding = Encoding::Utf8,
+                _ => {}
+            },
+            "codepage" if value.eq_ignore_ascii_case("utf-8") => e.encoding = Encoding::Utf8,
+            "times_on" => e.calls = value.parse().unwrap_or(0),
+            "last_call" => e.last_connected = value.parse().ok().filter(|&t| t != 0),
+            "capture_filename" if !value.is_empty() => e.capture_file = value.to_string(),
+            "notes" if value == "<<<END" => notes = Some(Vec::new()),
+            _ => {}
+        }
+    }
+    finish(cur.take(), skip, &mut out);
+    out
+}
+
 fn from_syncterm(text: &str) -> Vec<Entry> {
     let mut out = Vec::new();
     let mut cur: Option<Entry> = None;
@@ -1058,5 +1198,36 @@ mod tests {
         edited[at + 1..at + 1 + addr.len()].copy_from_slice(addr);
         let v = from_netrunner(&edited).unwrap();
         assert_eq!((v[0].host.as_str(), v[0].port), ("bbs.example.org", 2323));
+    }
+
+    #[test]
+    fn imports_qodem() {
+        let text = "# Qodem Phonebook\n#\n\n[entry]\nname=The Vortex\naddress=vortexbbs.com\nport=\n\
+            username=guest\npassword=pw\nmethod=TELNET\nemulation=AVATAR\ncodepage=CP437\ntimes_on=7\n\
+            last_call=1700000000\nnotes=<<<END\nBest BBS\nin town\nEND\ncapture_filename=vortex.txt\n\n\
+            [entry]\nname=Local shell\naddress=\nmethod=LOCAL\n\n\
+            [entry]\nname=Dial-up\naddress=555-1234\nport=\nmethod=MODEM\nemulation=ANSI\n\n\
+            [entry]\nname=Secure\naddress=ssh.example.org\nport=2222\nmethod=SSH\nemulation=X_UTF8\n";
+        let dir = std::env::temp_dir().join(format!("badterm-qodem-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        // Found by its name, or by its content.
+        for name in ["fonebook.txt", "phonebook"] {
+            fs::write(dir.join(name), text).unwrap();
+            let v = import(&dir.join(name)).unwrap();
+            assert_eq!(v.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["The Vortex", "Dial-up", "Secure"]);
+            let e = &v[0];
+            assert_eq!(
+                (e.host.as_str(), e.port, e.protocol, e.encoding),
+                ("vortexbbs.com", 23, Protocol::Telnet, Encoding::Avatar)
+            );
+            assert_eq!((e.username.as_str(), e.password.as_str(), e.calls), ("guest", "pw", 7));
+            assert_eq!((e.comment.as_str(), e.capture_file.as_str()), ("Best BBS in town", "vortex.txt"));
+            assert_eq!(
+                (v[1].protocol, v[1].host.as_str(), v[1].address()),
+                (Protocol::Modem, "555-1234", "555-1234".into())
+            );
+            assert_eq!((v[2].protocol, v[2].port, v[2].encoding), (Protocol::Ssh, 2222, Encoding::Utf8));
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 }

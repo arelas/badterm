@@ -26,7 +26,7 @@ use crate::input::{self, Key, Mods};
 use crate::render::{Display, Font, Frame, Renderer, Scaling};
 use crate::secrets::{self, Keychain, Store};
 use crate::selection::Selection;
-use crate::settings::{Folders, Music, ScaleMode, Settings};
+use crate::settings::{BellMode, Folders, Music, ScaleMode, Settings};
 use crate::sound::Player;
 use crate::ui::art::{self as art_ui, ArtAction, ArtView};
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
@@ -35,8 +35,8 @@ use crate::ui::login::{LoginAction, LoginPrompt};
 use crate::ui::save::{SaveFormat, SavePrompt};
 use crate::ui::settings::{self as settings_ui, SettingsUi};
 use crate::ui::theme::{self, ThemeFile};
-use crate::ui::transfer::{self as transfer_ui, DownloadAction, DownloadPrompt, UploadAction, UploadPrompt};
-use crate::ui::{self, HOTKEY, format_date};
+use crate::ui::transfer::{self as transfer_ui, DownloadAction, DownloadPrompt, Proto, UploadAction, UploadPrompt};
+use crate::ui::{self, HOTKEY, expand_home, format_date};
 
 mod call;
 mod draw;
@@ -59,6 +59,10 @@ const REDIAL_DELAY: Duration = Duration::from_secs(15);
 const MAX_REDIALS: u32 = 10;
 /// How often the screen updates while baud rate emulation holds text back.
 const PACE_FRAME: Duration = Duration::from_millis(16);
+/// The bell rings at most this often.
+const BELL_GAP: Duration = Duration::from_millis(250);
+/// How long the screen flashes for a visual bell.
+const FLASH: Duration = Duration::from_millis(120);
 
 pub enum UserEvent {
     /// A network event for the session with this id.
@@ -257,6 +261,9 @@ pub struct App {
     next_tick: Instant,
     notice: Option<(String, Instant)>,
     startup: Option<Entry>,
+    /// When the bell last rang, and until when the screen flashes for it.
+    last_bell: Option<Instant>,
+    flash_until: Option<Instant>,
 }
 
 impl App {
@@ -339,6 +346,8 @@ impl App {
             next_tick: Instant::now() + TICK,
             notice: None,
             startup,
+            last_bell: None,
+            flash_until: None,
         }
     }
 
@@ -528,6 +537,14 @@ impl ApplicationHandler<UserEvent> for App {
         }
         // Baud rate emulation shows text a few characters at a time.
         let mut wake = self.next_tick;
+        if let Some(until) = self.flash_until {
+            if now >= until {
+                self.flash_until = None;
+                self.request_redraw();
+            } else {
+                wake = wake.min(until);
+            }
+        }
         if let Some(until) = self.splash_until {
             if now >= until {
                 self.splash_until = None;

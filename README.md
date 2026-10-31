@@ -39,6 +39,12 @@ BadTerm starts.
   **telnet over TLS** ("TelnetS", port 992); **RLogin**, which logs straight
   in with the entry's user name and password; **raw TCP** for systems that
   don't speak telnet
+- **A real modem**: entries whose protocol is Modem dial their phone number
+  (the entry's address) on a modem on a serial port, a USB modem, a WiFi
+  modem or tcpser. Set the port, speed, flow control, init string and dial
+  command once in Settings (`Alt-O`, the Modem tab). The modem's replies
+  show as it dials, a BUSY line is redialed like a busy BBS, and the call
+  ends when the carrier drops: NO CARRIER.
 - **SSH** (pure Rust, no OpenSSL): "none" auth for BBSes that run their own
   login, public keys (a key file set in the entry, your SSH agent, or
   `~/.ssh/id_ed25519`, `id_ecdsa`, `id_rsa`), keyboard-interactive and
@@ -56,21 +62,39 @@ BadTerm starts.
   BBSes and doors that offer them: start the BBS's side, then `Alt-G` to
   download or `Alt-U` to upload. YMODEM keeps file names and sizes and sends
   several files; XMODEM asks what to save a download as.
+- **Kermit**, with long packets, CRC checks, compression and file sizes, as
+  C-Kermit and G-Kermit speak it: a download starts by itself when the
+  BBS's Kermit sends; to upload, start the BBS's Kermit receiving, then
+  `Alt-U` and choose Kermit.
 - **A file picker** for uploads: browse folders, mark several files with
   `Space`, or press `Tab` to type a path
 - **An ANSI viewer** (`Alt-F`, `badterm file.ans`, or drop a file on the
   window when not in a call): scroll through art in its own width, font and
   colors, with its SAUCE title, artist, group, date and comments (`I`)
 - **CP437 and UTF-8** sessions, switchable per entry or live with `Alt-E`
+- **RIPscrip** graphics, for RIPterm-era BBSes (set the entry's emulation
+  to RIPscrip): the 640x350 EGA scenes of lines, shapes, fills, patterns
+  and text, with the 80x43 text screen over them, and clickable buttons and
+  mouse areas that send their commands. BadTerm answers the BBS's RIP
+  query (`ESC [ !`), so the BBS knows to send them. Not supported: icon
+  and scene files, and RIP's own file transfers.
+- **AVATAR** (AVT/0 and AVT/0+), the compact codes of Opus, Maximus and
+  other FidoNet-era BBSes, alongside ANSI: set the entry's emulation to
+  Avatar
 - **Commodore 64 (PETSCII) and Atari 8-bit (ATASCII)** BBSes, set by the
-  entry's encoding: their 40-column screens, colors, character sets (the
+  entry's emulation: their 40-column screens, colors, character sets (the
   C64's two, switched by the BBS), reverse video and screen-editor codes,
   and their keys (Enter, DEL, the cursor keys, the C64's F1 to F8 and
   RUN/STOP on `Esc`). The fonts are BadTerm's own, in those machines'
   style
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
-- **Session capture** to `.ans` files (`Alt-C`)
+- **Session capture** to `.ans` files (`Alt-C`), or for an entry from the
+  start of each call, to a file name of your choosing (`{name}`, `{date}`
+  and `{time}` are filled in). A `.txt` capture keeps only the text, as a
+  log.
+- **The bell** (Ctrl-G) beeps, flashes the screen, both, or neither, set in
+  Settings and per directory entry
 - **Copy with the mouse**: drag to select text and it is copied when you let
   go; hold `Shift` as you let go to copy it with its colors, as ANSI
 - **Save the scrollback** (`Alt-S`) as an `.ans` file for ANSI viewers and
@@ -82,8 +106,9 @@ BadTerm starts.
 - **Passwords in the OS keychain** (Keychain on macOS, Credential Manager on
   Windows, the Secret Service on Linux) rather than the directory file. Where
   no keychain is available, they stay in the file.
-- **Import/export** of SyncTERM `.lst`, CSV, JSON and TOML directories. Use
-  the dialer, the command line, or drag a file onto the window.
+- **Import/export** of SyncTERM `.lst`, CSV, JSON and TOML directories, and
+  import from NetRunner, EtherTerm, MagiTerm and Qodem (`fonebook.txt`).
+  Use the dialer, the command line, or drag a file onto the window.
 - **ANSI music**: BBS tunes in the BASIC `PLAY` language (`ESC [ N` or
   `ESC [ |` up to Ctrl-N) play as PC-speaker square waves. `Alt-M` turns
   it off, or also on for `ESC [ M`, which many doors use but which

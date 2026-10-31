@@ -26,6 +26,8 @@ impl App {
             return;
         }
         match state {
+            // A RIPscrip button or mouse region sends its command.
+            ElementState::Pressed if self.scroll == 0 && self.rip_click() => {}
             ElementState::Pressed => {
                 self.selection = self.mouse_cell().map(Selection::at);
                 self.dragging = self.selection.is_some();
@@ -40,6 +42,28 @@ impl App {
             ElementState::Released => {}
         }
         self.request_redraw();
+    }
+
+    /// Click a RIP mouse region under the mouse, if there is one.
+    fn rip_click(&mut self) -> bool {
+        if self.mouse_cell().is_none() {
+            return false;
+        }
+        let Some(session) = self.session.as_mut().filter(|s| s.state == State::Connected) else { return false };
+        let Some(rip) = session.term.rip() else { return false };
+        let (ox, oy, w, h) = self.view_rect;
+        let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
+        let x = mx.saturating_sub(ox) * self.renderer.native_width() / w.max(1);
+        let y = my.saturating_sub(oy) * self.renderer.native_height() / h.max(1);
+        let rows = session.term.screen.rows();
+        let Some((gx, gy)) =
+            self.renderer.graphics_point(x, y, rows, badterm_core::rip::WIDTH, badterm_core::rip::HEIGHT)
+        else {
+            return false;
+        };
+        let Some(text) = rip.click(gx, gy) else { return false };
+        session.send(&text);
+        true
     }
 
     pub(super) fn on_mouse_move(&mut self, x: f64, y: f64) {

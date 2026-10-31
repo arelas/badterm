@@ -3,6 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
+pub use badterm_core::dialer::BellMode;
+pub use badterm_core::modem::ModemConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::crt::{CrtMode, Curvature, Scanlines};
@@ -190,6 +192,8 @@ pub struct Settings {
     /// How the screen is scaled to the window.
     pub scaling: ScaleMode,
     pub music: Music,
+    /// What the bell (Ctrl-G) does; a directory entry can choose its own.
+    pub bell: BellMode,
     /// Call a busy or unreachable BBS again, a few times.
     pub redial: bool,
     /// The colors of BadTerm's own screens.
@@ -205,6 +209,8 @@ pub struct Settings {
     /// Ask the project's server for a newer version at each start. Off
     /// unless turned on, as it contacts the server.
     pub check_updates: bool,
+    /// The modem, for directory entries that dial out with one.
+    pub modem: ModemConfig,
 }
 
 impl Default for Settings {
@@ -219,6 +225,7 @@ impl Default for Settings {
             aspect: Aspect::Square,
             scaling: ScaleMode::Fit,
             music: Music::On,
+            bell: BellMode::Sound,
             redial: true,
             colors: Theme::default(),
             bezel: String::new(),
@@ -226,6 +233,7 @@ impl Default for Settings {
             folders: Folders::default(),
             splash: true,
             check_updates: false,
+            modem: ModemConfig::default(),
         }
     }
 }
@@ -267,6 +275,7 @@ mod tests {
             aspect: Aspect::SixteenNine,
             scaling: ScaleMode::Stretch,
             music: Music::All,
+            bell: BellMode::Visual,
             redial: false,
             colors,
             bezel: "Beige".into(),
@@ -274,6 +283,7 @@ mod tests {
             folders: Folders { downloads: Some("/tmp/dl".into()), ..Folders::default() },
             splash: false,
             check_updates: true,
+            modem: ModemConfig { device: "/dev/ttyUSB0".into(), init: "AT&F".into(), ..ModemConfig::default() },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);

@@ -30,9 +30,9 @@ const LEFT: [Group; 3] = [
     Group {
         heading: "Files",
         keys: &[
-            ("@-U", "Upload (ZMODEM, Y/XMODEM)"),
-            ("@-G", "Download with Y/XMODEM"),
-            ("", "(ZMODEM starts by itself)"),
+            ("@-U", "Upload: Z/Y/XMODEM, Kermit"),
+            ("@-G", "Download: Y/XMODEM, Kermit"),
+            ("", "(ZMODEM, Kermit: automatic)"),
             ("@-C", "Capture session to a file"),
             ("@-S", "Save scrollback or screen"),
             ("@-F", "View ANSI art"),

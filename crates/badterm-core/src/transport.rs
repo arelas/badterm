@@ -112,6 +112,8 @@ pub struct ConnectOptions {
     pub ssh_agent: bool,
     /// Where to look for default SSH keys (usually `~/.ssh`).
     pub ssh_key_dir: Option<PathBuf>,
+    /// The modem, for modem entries.
+    pub modem: crate::modem::ModemConfig,
 }
 
 /// What a [`Writer`] asks a connection task (SSH or TLS) to do.
@@ -127,6 +129,8 @@ pub(crate) enum WriterKind {
     Tcp(TcpStream),
     /// To a task that owns the connection (SSH, TLS).
     Channel(mpsc::UnboundedSender<Cmd>),
+    /// A modem: the port, and the flag that tells its thread to hang up.
+    Serial(Mutex<Box<dyn serialport::SerialPort>>, Arc<std::sync::atomic::AtomicBool>),
 }
 
 impl fmt::Debug for Writer {
@@ -134,6 +138,7 @@ impl fmt::Debug for Writer {
         f.write_str(match self.0 {
             WriterKind::Tcp(_) => "Writer(TCP)",
             WriterKind::Channel(_) => "Writer(channel)",
+            WriterKind::Serial(..) => "Writer(modem)",
         })
     }
 }
@@ -145,6 +150,7 @@ impl Writer {
             WriterKind::Channel(tx) => tx
                 .send(Cmd::Data(data.to_vec()))
                 .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "connection closed")),
+            WriterKind::Serial(port, _) => crate::modem::write(port, data),
         }
     }
 
@@ -157,6 +163,7 @@ impl Writer {
             WriterKind::Channel(tx) => {
                 let _ = tx.send(Cmd::Close);
             }
+            WriterKind::Serial(_, stop) => stop.store(true, std::sync::atomic::Ordering::Relaxed),
         }
     }
 }
@@ -191,6 +198,7 @@ where
             };
             spawn_ssh(params, sink);
         }
+        Protocol::Modem => crate::modem::spawn_modem(entry.host.clone(), opts.modem.clone(), sink),
     }
 }
 

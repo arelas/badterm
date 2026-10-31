@@ -73,8 +73,9 @@ impl App {
             return ui::text(s, 0, 0, cols, &line, theme.status_alt.fg(), theme.status_alt.bg());
         }
         let e = &session.entry;
-        if session.transfer().is_some() {
-            let line = format!(" {} \u{2502} ZMODEM transfer in progress \u{2502} Esc cancels", truncate(&e.name, 30));
+        if let Some(t) = session.transfer() {
+            let line =
+                format!(" {} \u{2502} {} transfer in progress \u{2502} Esc cancels", truncate(&e.name, 30), t.name());
             return ui::text(s, 0, 0, cols, &line, fg, bg);
         }
         if self.login.is_some() {
@@ -181,7 +182,7 @@ impl App {
                 } else if let Some(prompt) = &self.download_prompt {
                     overlay_cursor = prompt.draw(&mut self.overlay);
                 } else if let Some(t) = session.transfer() {
-                    transfer_ui::draw_progress(&mut self.overlay, t.progress());
+                    transfer_ui::draw_progress(&mut self.overlay, t.name(), t.progress());
                 }
                 true
             }
@@ -212,7 +213,13 @@ impl App {
                 // Dialogs are drawn in the BBS's look too, so the screen
                 // behind them keeps its fonts and colors.
                 let sc = &session.term.screen;
-                Frame { look: &sc.look, look_rows: sc.rows(), ..Frame::plain(rows, overlay_cursor, sc.ice_colors) }
+                let graphics = rip_graphics(session);
+                Frame {
+                    look: &sc.look,
+                    look_rows: sc.rows(),
+                    graphics,
+                    ..Frame::plain(rows, overlay_cursor, sc.ice_colors)
+                }
             }
             Some(session) => {
                 let sc = &session.term.screen;
@@ -221,7 +228,15 @@ impl App {
                 let live = self.scroll == 0 || sc.scrollback_len() == 0;
                 let cursor = (live && sc.cursor_visible && session.state == State::Connected).then(|| sc.cursor());
                 let selection = self.selection;
-                Frame { selection, look: &sc.look, look_rows: sc.rows(), ..Frame::plain(rows, cursor, sc.ice_colors) }
+                // Graphics belong to the live screen, not the scrollback.
+                let graphics = rip_graphics(session).filter(|_| self.scroll == 0);
+                Frame {
+                    selection,
+                    look: &sc.look,
+                    look_rows: sc.rows(),
+                    graphics,
+                    ..Frame::plain(rows, cursor, sc.ice_colors)
+                }
             }
             None => {
                 let mut rows: Vec<&[Cell]> = (0..ROWS).map(|y| self.idle_screen.row(y)).collect();
@@ -269,6 +284,9 @@ impl App {
         };
         self.renderer.set_layout(base, cell_w, cols, text_rows + 1);
         self.renderer.draw(&frame, (self.tick / 2).is_multiple_of(2), self.tick.is_multiple_of(2));
+        if self.flash_until.is_some() {
+            self.renderer.flash(text_rows);
+        }
 
         if let Err(e) = gfx.surface.resize(w, h) {
             return log::error!("resizing surface: {e}");
@@ -329,4 +347,15 @@ impl App {
             Err(e) => log::error!("getting frame buffer: {e}"),
         }
     }
+}
+
+/// A RIP system's graphics, to draw under its screen.
+fn rip_graphics(session: &Session) -> Option<crate::render::Graphics<'_>> {
+    let rip = session.term.rip()?;
+    Some(crate::render::Graphics {
+        pixels: rip.pixels(),
+        width: badterm_core::rip::WIDTH,
+        height: badterm_core::rip::HEIGHT,
+        palette: rip.palette(),
+    })
 }

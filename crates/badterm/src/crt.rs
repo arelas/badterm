@@ -13,7 +13,7 @@ use crate::render::scale_into;
 
 pub use badterm_core::dialer::CrtMode;
 
-/// The badterm color of a monochrome monitor.
+/// The phosphor color of a monochrome monitor.
 fn tint(mode: CrtMode) -> Option<(u32, u32, u32)> {
     match mode {
         CrtMode::Green => Some((51, 255, 102)),

@@ -18,6 +18,7 @@ impl App {
             download_dir: self.folder(Folders::DOWNLOADS),
             ssh_agent: true,
             ssh_key_dir: self.paths.ssh_keys.clone(),
+            modem: self.settings.modem.clone(),
         };
         let (cols, rows) = match entry.encoding.screen_size() {
             Some((c, r)) => (c as u16, r as u16),
@@ -130,11 +131,7 @@ impl App {
         let Some(session) = self.session.as_mut() else { return };
         for ev in session.take_events() {
             match ev {
-                SessionEvent::Term(TermEvent::Bell) => {
-                    if let Some(g) = self.gfx.as_ref().filter(|g| !g.window.has_focus()) {
-                        g.window.request_user_attention(Some(UserAttentionType::Informational));
-                    }
-                }
+                SessionEvent::Term(TermEvent::Bell) => self.bell(),
                 SessionEvent::Term(TermEvent::Title(t)) => self.set_title(&format!("BadTerm \u{2014} {t}")),
                 SessionEvent::Term(TermEvent::Music(tones)) => {
                     if self.settings.music != Music::Off {
@@ -146,6 +143,9 @@ impl App {
                     // Got through after redialing: worth a look.
                     if self.redials > 0 {
                         self.attention();
+                    }
+                    if self.session.as_ref().is_some_and(|s| s.entry.capture && s.capture_path().is_none()) {
+                        self.toggle_capture();
                     }
                     if let Some(pw) = self.remember.take()
                         && let Some(e) = self.session_entry_mut()
@@ -214,6 +214,17 @@ impl App {
         self.session_events();
     }
 
+    pub(super) fn start_kermit_upload(&mut self, paths: Vec<PathBuf>) {
+        let Some(session) = self.session.as_mut() else { return };
+        if session.state != State::Connected {
+            return self.notify("Not connected");
+        }
+        if let Err(e) = session.start_kermit_upload(paths) {
+            self.notify(format!("Upload failed: {e:#}"));
+        }
+        self.session_events();
+    }
+
     pub(super) fn start_upload(&mut self, paths: Vec<PathBuf>) {
         let Some(session) = self.session.as_mut() else { return };
         if session.state != State::Connected {
@@ -255,6 +266,38 @@ impl App {
 
     pub(super) fn crt_mode(&self) -> CrtMode {
         self.own_crt_mode().unwrap_or(self.settings.crt)
+    }
+
+    /// What the bell does on the connected system: its own setting, or the
+    /// global one.
+    pub(super) fn bell_mode(&self) -> BellMode {
+        let own = match self.session_entry_index() {
+            Some(i) => self.directory.entries[i].bell,
+            None => self.session.as_ref().and_then(|s| s.entry.bell),
+        };
+        own.unwrap_or(self.settings.bell)
+    }
+
+    /// Ring the bell: a beep, a flash, or both (at most every so often, as
+    /// some BBSes ring it in bursts), and a nudge on the taskbar when the
+    /// window is in the background.
+    pub(super) fn bell(&mut self) {
+        if let Some(g) = self.gfx.as_ref().filter(|g| !g.window.has_focus()) {
+            g.window.request_user_attention(Some(UserAttentionType::Informational));
+        }
+        let now = Instant::now();
+        if self.last_bell.is_some_and(|t| now.duration_since(t) < BELL_GAP) {
+            return;
+        }
+        self.last_bell = Some(now);
+        let mode = self.bell_mode();
+        if mode.sound() {
+            self.player.play(vec![badterm_core::music::Tone { hz: 880, ms: 120 }]);
+        }
+        if mode.visual() {
+            self.flash_until = Some(now + FLASH);
+            self.request_redraw();
+        }
     }
 
     /// Send keyboard macro `i` (Alt-1 is 0), pausing where it says.
@@ -302,8 +345,8 @@ impl App {
             session.stop_capture();
             return self.notify("Capture stopped");
         }
-        let name = format!("{}-{}.ans", file_stem(&session.entry.name), stamp(dialer::now()));
-        let path = self.folder(Folders::CAPTURES).join(name);
+        let entry = session.entry.clone();
+        let path = capture_file(&entry, &self.folder(Folders::CAPTURES), dialer::now());
         let Some(session) = self.session.as_mut() else { return };
         let msg = match session.start_capture(path.clone()) {
             Ok(()) => format!("Capturing to {}", path.display()),
@@ -356,4 +399,20 @@ impl App {
         std::fs::write(path, data).with_context(|| format!("writing {}", path.display()))?;
         Ok(what)
     }
+}
+
+/// Where an entry's capture goes: its own file name (with `{name}`,
+/// `{date}` and `{time}` filled in, relative names in the captures folder),
+/// or `name-date-seconds.ans` there.
+pub(super) fn capture_file(e: &Entry, captures: &std::path::Path, now: u64) -> PathBuf {
+    let pattern = e.capture_file.trim();
+    if pattern.is_empty() {
+        return captures.join(format!("{}-{}.ans", file_stem(&e.name), stamp(now)));
+    }
+    let secs = now % 86_400;
+    let time = format!("{:02}{:02}{:02}", secs / 3600, secs / 60 % 60, secs % 60);
+    let name =
+        pattern.replace("{name}", &file_stem(&e.name)).replace("{date}", &format_date(now)).replace("{time}", &time);
+    let path = expand_home(&name);
+    if path.is_absolute() { path } else { captures.join(path) }
 }

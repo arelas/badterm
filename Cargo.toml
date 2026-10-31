@@ -30,6 +30,9 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 webpki-roots = "1.0.9"
 ring = "0.17"
 zmodem2 = "0.7"
+# Modems. Without libudev, so the Linux build needs nothing beyond glibc;
+# the port list then comes from /sys.
+serialport = { version = "4.10", default-features = false }
 windows-sys = { version = "0.61", features = ["Win32_System_Console", "Win32_UI_WindowsAndMessaging"] }
 directories = "6.0"
 winit = "0.30.13"

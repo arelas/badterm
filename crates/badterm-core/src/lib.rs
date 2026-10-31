@@ -1,17 +1,21 @@
 //! Front-end independent core of the BadTerm BBS client: CP437 handling,
 //! ANSI-BBS terminal emulation, the telnet protocol, the dialing directory and
 //! connection sessions
-//! (telnet, raw TCP and SSH) with ZMODEM file transfers.
+//! (telnet, raw TCP, SSH, RLogin and modems) with file transfers.
 
 pub mod ansi;
 pub mod atascii;
 pub mod autologin;
+pub mod avatar;
 pub mod cp437;
 pub mod dialer;
 pub mod export;
+pub mod kermit;
+pub mod modem;
 pub mod music;
 pub mod palette;
 pub mod petscii;
+pub mod rip;
 pub mod sauce;
 pub mod screen;
 pub mod session;

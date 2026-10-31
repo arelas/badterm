@@ -10,7 +10,9 @@ use super::theme::{self, Attr, SCHEMES, Theme};
 use super::*;
 use crate::crt::{CrtMode, Curvature, Scanlines};
 use crate::input::{Key, Mods};
-use crate::settings::{Aspect, Music, ScaleMode, Settings};
+use badterm_core::modem::FlowControl;
+
+use crate::settings::{Aspect, BellMode, Music, ScaleMode, Settings};
 
 pub const COLS: usize = 80;
 pub const ROWS: usize = 25;
@@ -28,7 +30,7 @@ pub enum Action {
     Export(String),
 }
 
-const ITEMS: [&str; 21] = [
+const ITEMS: [&str; 27] = [
     "Phosphor mode",
     "Scanlines",
     "Character cells",
@@ -50,6 +52,12 @@ const ITEMS: [&str; 21] = [
     "Curvature",
     "Scaling",
     "Splash screen",
+    "Bell",
+    "Serial port",
+    "Speed",
+    "Flow control",
+    "Init string",
+    "Dial command",
 ];
 const I_CRT: usize = 0;
 const I_SCANLINES: usize = 1;
@@ -69,15 +77,24 @@ const I_FOLDER: usize = 13;
 const I_CURVATURE: usize = 18;
 const I_SCALING: usize = 19;
 const I_SPLASH: usize = 20;
+const I_BELL: usize = 21;
+const I_PORT: usize = 22;
+const I_SPEED: usize = 23;
+const I_FLOW: usize = 24;
+const I_INIT: usize = 25;
+const I_DIAL: usize = 26;
+/// Items typed in, like the folders: Enter opens a prompt.
+const TEXT_ITEMS: [usize; 3] = [I_PORT, I_INIT, I_DIAL];
 /// Items that open something rather than having a value.
 const ACTIONS: [usize; 4] = [I_MACROS, I_COLORS, I_IMPORT, I_EXPORT];
 
 /// The tabs, and the items on each.
-const TABS: [(&str, &[usize]); 4] = [
+const TABS: [(&str, &[usize]); 5] = [
     ("Display", &[I_CRT, I_SCANLINES, I_CURVATURE, I_NINE_DOT, I_ASPECT, I_SCALING, I_BEZEL]),
-    ("General", &[I_SPLASH, I_MUSIC, I_REDIAL, I_UPDATES, I_MACROS]),
+    ("General", &[I_SPLASH, I_MUSIC, I_BELL, I_REDIAL, I_UPDATES, I_MACROS]),
     ("Folders", &[I_FOLDER, I_FOLDER + 1, I_FOLDER + 2, I_FOLDER + 3, I_FOLDER + 4]),
     ("Colors", &[I_SCHEME, I_COLORS, I_IMPORT, I_EXPORT]),
+    ("Modem", &[I_PORT, I_SPEED, I_FLOW, I_INIT, I_DIAL]),
 ];
 
 fn is_folder(item: usize) -> bool {
@@ -109,7 +126,7 @@ enum Mode {
 pub struct SettingsUi {
     tab: usize,
     /// The item chosen on each tab (its position there).
-    item_on: [usize; 4],
+    item_on: [usize; 5],
     /// The item chosen (its number), as `item_on` gives it.
     item: usize,
     part: usize,
@@ -192,6 +209,18 @@ impl SettingsUi {
                     match item {
                         // An empty folder is the default one.
                         _ if is_folder(item) => self.set_folder(item, &value, settings),
+                        I_PORT => {
+                            settings.modem.device = value;
+                            Action::Changed
+                        }
+                        I_INIT => {
+                            settings.modem.init = value;
+                            Action::Changed
+                        }
+                        I_DIAL => {
+                            settings.modem.dial = value;
+                            Action::Changed
+                        }
                         _ if value.is_empty() => Action::None,
                         I_IMPORT => Action::Import(PathBuf::from(value)),
                         _ => Action::Export(value),
@@ -296,6 +325,31 @@ impl SettingsUi {
                 return Action::Changed;
             }
             _ if is_folder(self.item) => {}
+            Key::Enter if TEXT_ITEMS.contains(&self.item) => {
+                let m = &settings.modem;
+                let value = match self.item {
+                    I_PORT => m.device.clone(),
+                    I_INIT => m.init.clone(),
+                    _ => m.dial.clone(),
+                };
+                self.mode = Mode::Prompt(self.item, TextField::new(&value, 200));
+            }
+            // The serial port also steps through the ports the system lists.
+            Key::Left | Key::Right if self.item == I_PORT => {
+                let ports = badterm_core::modem::ports();
+                if !ports.is_empty() {
+                    let i = ports.iter().position(|p| *p == settings.modem.device);
+                    let n = ports.len();
+                    let next = match (i, back) {
+                        (None, _) => 0,
+                        (Some(i), true) => (i + n - 1) % n,
+                        (Some(i), false) => (i + 1) % n,
+                    };
+                    settings.modem.device = ports[next].clone();
+                    return Action::Changed;
+                }
+            }
+            _ if TEXT_ITEMS.contains(&self.item) => {}
             Key::Enter if self.item == I_COLORS => self.mode = Mode::Parts,
             Key::Enter if self.item == I_MACROS => {
                 let first = settings.macros.first().cloned().unwrap_or_default();
@@ -358,6 +412,21 @@ impl SettingsUi {
                 let i = all.iter().position(|&m| m == s.music).unwrap_or(0);
                 s.music = all[step(i, all.len())];
             }
+            I_BELL => {
+                let all = BellMode::ALL;
+                let i = all.iter().position(|&m| m == s.bell).unwrap_or(0);
+                s.bell = all[step(i, all.len())];
+            }
+            I_SPEED => {
+                let all = badterm_core::modem::SPEEDS;
+                let i = all.iter().position(|&v| v == s.modem.speed).unwrap_or(all.len() - 2);
+                s.modem.speed = all[step(i, all.len())];
+            }
+            I_FLOW => {
+                let all = FlowControl::ALL;
+                let i = all.iter().position(|&f| f == s.modem.flow).unwrap_or(0);
+                s.modem.flow = all[step(i, all.len())];
+            }
             I_REDIAL => s.redial = !s.redial,
             I_SPLASH => s.splash = !s.splash,
             I_UPDATES => s.check_updates = !s.check_updates,
@@ -396,10 +465,13 @@ impl SettingsUi {
             Mode::Parts | Mode::Grid { .. } => self.draw_colors(s, settings),
             Mode::Prompt(item, field) => {
                 self.draw_menu(s, settings, own_crt, update);
-                let (title, hint) = if *item == I_IMPORT {
-                    ("Import a Theme", "A BadTerm theme file (.toml), from anywhere")
-                } else {
-                    ("Save as a Theme", "A name for these colors, to share or keep")
+                let (title, hint) = match *item {
+                    I_IMPORT => ("Import a Theme", "A BadTerm theme file (.toml), from anywhere"),
+                    I_PORT => ("Serial Port", "/dev/ttyUSB0, /dev/cu.usbmodem1101, COM3..."),
+                    I_INIT => ("Init String", "Sent before dialing, e.g. ATZ or AT&F E1 V1 X4"),
+                    I_DIAL => ("Dial Command", "Before the number: ATDT for tone, ATDP for pulse"),
+                    i if is_folder(i) => ("Folder", "Empty for the default"),
+                    _ => ("Save as a Theme", "A name for these colors, to share or keep"),
                 };
                 let (x, y, w) = (6, 9, 68);
                 frame(s, x, y, w, 6, title, t.window.fg(), t.window.bg());
@@ -506,6 +578,11 @@ impl SettingsUi {
         let note = match (self.item, own_crt, update) {
             (I_UPDATES, _, Some(v)) => format!("BadTerm {v} is out: {}", badterm_core::update::DOWNLOAD_PAGE),
             (I_UPDATES, _, None) => "When on, asks git.badcluster.dev for the newest version".to_string(),
+            (I_BELL, ..) => "Ctrl-G from the BBS; an entry in the directory can have its own".to_string(),
+            (I_PORT, ..) => "Enter to type it; \u{2190}\u{2192} step through the ports found".to_string(),
+            (I_SPEED, ..) => "Between the computer and the modem, not the call's speed".to_string(),
+            (I_FLOW, ..) => "RTS/CTS for almost every modem".to_string(),
+            (I_INIT | I_DIAL, ..) => "For directory entries whose protocol is Modem".to_string(),
             (I_CRT, Some(own), _) => format!("This BBS has its own phosphor mode: {own}"),
             (I_SCANLINES, ..) => "In phosphor mode; they show from twice the size up".to_string(),
             (I_CURVATURE, ..) => "How much phosphor mode's glass bulges".to_string(),
@@ -544,6 +621,17 @@ impl SettingsUi {
             }
             .into(),
             I_REDIAL => if s.redial { "On" } else { "Off" }.into(),
+            I_BELL => {
+                let name = s.bell.name();
+                let mut c = name.chars();
+                c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+            }
+            I_PORT if s.modem.device.is_empty() => "(none chosen)".into(),
+            I_PORT => s.modem.device.clone(),
+            I_SPEED => format!("{} bps", s.modem.speed),
+            I_FLOW => s.modem.flow.name().into(),
+            I_INIT => s.modem.init.clone(),
+            I_DIAL => s.modem.dial.clone(),
             I_SPLASH => if s.splash { "On, 2 seconds" } else { "Off" }.into(),
             I_UPDATES => if s.check_updates { "On, at each start" } else { "Off" }.into(),
             I_SCHEME => self.scheme_name(&s.colors).unwrap_or("Custom").into(),
@@ -614,6 +702,18 @@ mod tests {
         let mut s = Settings::default();
         // Shift-Tab goes back, round to the last tab.
         ui.handle_key(Key::Tab, Mods { shift: true, ..Mods::default() }, &mut s);
+        assert_eq!((ui.tab, ui.item), (4, I_PORT));
+        // The modem: a speed to step through, a port to type.
+        ui.handle_key_test(Key::Down, &mut s);
+        assert_eq!(ui.handle_key_test(Key::Right, &mut s), Action::Changed);
+        assert_eq!(s.modem.speed, 230_400);
+        ui.handle_key_test(Key::Up, &mut s);
+        ui.handle_key_test(Key::Enter, &mut s);
+        let Mode::Prompt(_, field) = &mut ui.mode else { panic!() };
+        *field = TextField::new("/dev/ttyS0", 200);
+        assert_eq!(ui.handle_key_test(Key::Enter, &mut s), Action::Changed);
+        assert_eq!(s.modem.device, "/dev/ttyS0");
+        ui.handle_key_test(Key::PageUp, &mut s);
         assert_eq!((ui.tab, ui.item), (3, I_SCHEME));
         ui.handle_key_test(Key::PageUp, &mut s);
         assert_eq!((ui.tab, ui.item), (2, I_FOLDER));

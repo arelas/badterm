@@ -75,7 +75,7 @@ The next things to do, in order.
 
 ## Connections
 
-- [ ] Serial port / modem dialing (`serialport` crate), AT command init strings
+- [x] Serial port / modem dialing (`serialport` crate), AT command init strings
 
 ## Emulation
 
@@ -85,22 +85,23 @@ The next things to do, in order.
 - [ ] Configurable Device Attributes identity (e.g. CTerm, once its
       extensions are supported)
 - [ ] More screen modes: 40-column, resizable
-- [ ] Avatar/0+ emulation
+- [x] Avatar/0+ emulation
 - [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
 - [ ] Sixel graphics
-- [ ] RIPscrip graphics
-- [ ] Visual and audible bell options
+- [x] RIPscrip graphics (not yet: icon and scene files, RIP file transfers)
+- [x] Visual and audible bell options
 
 ## File transfer
 
-- [ ] Kermit
+- [x] Kermit (not yet: sliding windows)
 - [ ] Per-entry upload/download directories
 
 ## Dialer and UI
 
-- [ ] More per-entry settings: capture/log files, hide status line
+- [x] Per-entry capture and text log files
+- [ ] More per-entry settings: hide status line
 - [ ] Multiple directories / groups
-- [ ] Import more formats: qodem
+- [x] Import more formats: qodem
 - [ ] More in the settings screen: default font and screen mode, scaling,
       key bindings
 - [ ] Multiple simultaneous sessions (tabs)

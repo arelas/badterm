@@ -11,7 +11,8 @@ use crate::music::{self, Tone};
 use crate::palette::{ANSI_TO_VGA, rgb};
 use crate::screen::{Cell, Color, DEFAULT_BG, DEFAULT_FG, Look, Screen, flags};
 
-/// Character set used to interpret incoming bytes.
+/// How incoming bytes are interpreted: the character set, and the
+/// emulations that go with it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Encoding {
@@ -22,10 +23,15 @@ pub enum Encoding {
     Petscii,
     /// Atari 8-bit (see [`crate::atascii`]).
     Atascii,
+    /// CP437 with AVT/0+ codes as well as ANSI (see [`crate::avatar`]).
+    Avatar,
+    /// CP437 ANSI with RIPscrip graphics (see [`crate::rip`]).
+    Rip,
 }
 
 impl Encoding {
-    pub const ALL: [Encoding; 4] = [Encoding::Cp437, Encoding::Utf8, Encoding::Petscii, Encoding::Atascii];
+    pub const ALL: [Encoding; 6] =
+        [Encoding::Cp437, Encoding::Utf8, Encoding::Petscii, Encoding::Atascii, Encoding::Avatar, Encoding::Rip];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -33,6 +39,8 @@ impl Encoding {
             Encoding::Utf8 => "UTF-8",
             Encoding::Petscii => "PETSCII",
             Encoding::Atascii => "ATASCII",
+            Encoding::Avatar => "Avatar",
+            Encoding::Rip => "RIPscrip",
         }
     }
 
@@ -46,6 +54,7 @@ impl Encoding {
         match self {
             Encoding::Petscii => Some((crate::petscii::COLS, crate::petscii::ROWS)),
             Encoding::Atascii => Some((crate::atascii::COLS, crate::atascii::ROWS)),
+            Encoding::Rip => Some((crate::rip::COLS, crate::rip::ROWS)),
             _ => None,
         }
     }
@@ -54,7 +63,7 @@ impl Encoding {
     /// the system's own end of line.
     pub fn encode_text(self, text: &str) -> Vec<u8> {
         match self {
-            Encoding::Cp437 => cp437::encode(text),
+            Encoding::Cp437 | Encoding::Avatar | Encoding::Rip => cp437::encode(text),
             Encoding::Utf8 => text.as_bytes().to_vec(),
             Encoding::Petscii => text
                 .chars()
@@ -118,6 +127,12 @@ pub struct Terminal {
     events: Vec<TermEvent>,
     petscii: crate::petscii::Petscii,
     atascii: crate::atascii::Atascii,
+    avatar: crate::avatar::Avatar,
+    /// The RIPscrip canvas, when the encoding is RIP.
+    rip: Option<Box<crate::rip::Rip>>,
+    /// Nothing has been printed on this line yet (where a RIP line can
+    /// start).
+    line_start: bool,
 }
 
 impl Terminal {
@@ -140,6 +155,9 @@ impl Terminal {
             events: Vec::new(),
             petscii: Default::default(),
             atascii: Default::default(),
+            avatar: Default::default(),
+            rip: None,
+            line_start: true,
         }
     }
 
@@ -149,8 +167,18 @@ impl Terminal {
         match self.encoding {
             Encoding::Petscii => self.petscii.start(&mut self.screen),
             Encoding::Atascii => self.atascii.start(&mut self.screen),
+            Encoding::Rip => self.rip = Some(Box::default()),
             _ => {}
         }
+    }
+
+    /// The RIPscrip canvas, for a RIP system.
+    pub fn rip(&self) -> Option<&crate::rip::Rip> {
+        self.rip.as_deref()
+    }
+
+    pub fn rip_mut(&mut self) -> Option<&mut crate::rip::Rip> {
+        self.rip.as_deref_mut()
     }
 
     /// Bytes the terminal wants sent to the remote (e.g. CPR replies).
@@ -183,6 +211,16 @@ impl Terminal {
     }
 
     fn byte(&mut self, b: u8) {
+        if self.state == State::Ground {
+            let taken = match self.encoding {
+                Encoding::Avatar => self.avatar_byte(b),
+                Encoding::Rip => self.rip_byte(b),
+                _ => false,
+            };
+            if taken {
+                return;
+            }
+        }
         // CAN and SUB abort any sequence in progress (ECMA-48).
         if self.state != State::Ground && (b == 0x18 || b == 0x1A) {
             self.state = State::Ground;
@@ -223,6 +261,38 @@ impl Terminal {
         }
     }
 
+    /// AVATAR codes, in the text stream (see [`crate::avatar`]).
+    fn avatar_byte(&mut self, b: u8) -> bool {
+        use crate::avatar::Outcome;
+        match self.avatar.byte(&mut self.screen, b) {
+            Outcome::Pass => false,
+            Outcome::Done => true,
+            Outcome::Show(bytes) => {
+                for b in bytes {
+                    self.byte(b);
+                }
+                true
+            }
+        }
+    }
+
+    /// RIP lines, which start a line with `!|` (see [`crate::rip`]).
+    fn rip_byte(&mut self, b: u8) -> bool {
+        use crate::rip::Feed;
+        let Some(rip) = self.rip.as_mut() else { return false };
+        match rip.byte(&mut self.screen, b, self.line_start) {
+            Feed::Pass => false,
+            Feed::Done => true,
+            Feed::Text(bytes) => {
+                self.line_start = false;
+                for b in bytes {
+                    self.byte(b);
+                }
+                true
+            }
+        }
+    }
+
     fn ground(&mut self, b: u8) {
         if self.encoding == Encoding::Utf8 && self.utf8_need > 0 {
             if b & 0xC0 == 0x80 {
@@ -244,14 +314,26 @@ impl Terminal {
             0x07 => self.events.push(TermEvent::Bell),
             0x08 => self.screen.backspace(),
             0x09 => self.screen.tab(),
-            0x0A => self.screen.line_feed(),
+            0x0A => {
+                self.screen.line_feed();
+                self.line_start = true;
+            }
             0x0C => self.screen.erase_display(2),
-            0x0D => self.screen.carriage_return(),
+            0x0D => {
+                self.screen.carriage_return();
+                self.line_start = true;
+            }
             0x1B => self.state = State::Escape,
             _ => match self.encoding {
                 // Like ANSI.SYS, every other byte is a glyph, including the
                 // "graphic" control characters (☺, ♥, ►, ...).
-                Encoding::Cp437 | Encoding::Petscii | Encoding::Atascii => self.screen.put(b),
+                Encoding::Cp437 | Encoding::Petscii | Encoding::Atascii | Encoding::Avatar | Encoding::Rip => {
+                    if self.avatar.insert {
+                        self.screen.insert_chars(1);
+                    }
+                    self.line_start = false;
+                    self.screen.put(b)
+                }
                 Encoding::Utf8 => match b {
                     0x01..=0x1F => {}
                     0x20..=0x7E => self.screen.put(b),
@@ -371,6 +453,11 @@ impl Terminal {
                 if !self.param_present && self.private == 0 {
                     self.private = b;
                 }
+            }
+            // `ESC [ !` asks whether this is a RIPscrip terminal.
+            b'!' if self.encoding == Encoding::Rip && self.params.is_empty() && self.private == 0 => {
+                self.state = State::Ground;
+                self.replies.extend_from_slice(crate::rip::VERSION_REPLY);
             }
             0x20..=0x2F => self.intermediate = b,
             0x40..=0x7E => {

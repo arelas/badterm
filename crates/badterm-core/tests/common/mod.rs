@@ -24,6 +24,7 @@ pub fn config(name: &str) -> SessionConfig {
         // Never the developer's own agent or ~/.ssh keys.
         ssh_agent: false,
         ssh_key_dir: None,
+        modem: Default::default(),
     }
 }
 

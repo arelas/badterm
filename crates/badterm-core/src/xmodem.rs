@@ -174,6 +174,10 @@ impl XyReceive {
         &self.c.progress
     }
 
+    pub fn protocol(&self) -> XyProtocol {
+        self.proto
+    }
+
     fn fail(&mut self, msg: impl Into<String>, out: &mut Vec<u8>) {
         if self.c.outcome.is_none() {
             out.extend_from_slice(transfer::CANCEL);
@@ -494,6 +498,10 @@ impl XySend {
 
     pub(crate) fn progress(&self) -> &Progress {
         &self.c.progress
+    }
+
+    pub fn protocol(&self) -> XyProtocol {
+        self.proto
     }
 
     pub fn enqueue(&mut self, path: PathBuf) -> Result<()> {

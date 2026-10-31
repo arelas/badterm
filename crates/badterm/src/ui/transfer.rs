@@ -1,4 +1,5 @@
-//! File transfer overlays: the ZMODEM progress window and the upload prompt.
+//! File transfer overlays: the progress window, and the windows that
+//! start uploads and downloads.
 
 use std::path::PathBuf;
 
@@ -12,15 +13,15 @@ use super::*;
 
 const W: usize = 64;
 
-/// Draw the progress window for an active transfer.
-pub fn draw_progress(s: &mut Screen, p: &Progress) {
+/// Draw the progress window for an active transfer with `protocol`.
+pub fn draw_progress(s: &mut Screen, protocol: &str, p: &Progress) {
     let (x, y, h) = ((s.cols() - W) / 2, 8, 9);
     let title = match p.direction {
-        Direction::Download => "ZMODEM Download",
-        Direction::Upload => "ZMODEM Upload",
+        Direction::Download => format!("{protocol} Download"),
+        Direction::Upload => format!("{protocol} Upload"),
     };
     let t = theme::current();
-    frame(s, x, y, W, h, title, t.window.fg(), t.window.bg());
+    frame(s, x, y, W, h, &title, t.window.fg(), t.window.bg());
     let inner = W - 6;
     let name = if p.file_name.is_empty() { "waiting for the other side..." } else { p.file_name.as_str() };
     text(s, x + 3, y + 2, inner, &format!("File: {name}"), t.window.fg(), t.window.bg());
@@ -65,26 +66,49 @@ pub fn draw_progress(s: &mut Screen, p: &Progress) {
     label(s, x + (W - hint.len()) / 2, y + 7, hint, t.keys.fg(), t.keys.bg());
 }
 
-/// Upload protocols in the order offered: ZMODEM, then the others.
-pub const UPLOAD_PROTOCOLS: [Option<XyProtocol>; 6] = [
-    None,
-    Some(XyProtocol::Ymodem),
-    Some(XyProtocol::YmodemG),
-    Some(XyProtocol::Xmodem1k),
-    Some(XyProtocol::XmodemCrc),
-    Some(XyProtocol::Xmodem),
-];
-
-pub fn protocol_name(p: Option<XyProtocol>) -> &'static str {
-    p.map_or("ZMODEM", XyProtocol::name)
+/// The file transfer protocols, as offered.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Proto {
+    Zmodem,
+    Xy(XyProtocol),
+    Kermit,
 }
+
+impl Proto {
+    pub fn name(self) -> &'static str {
+        match self {
+            Proto::Zmodem => "ZMODEM",
+            Proto::Xy(p) => p.name(),
+            Proto::Kermit => "Kermit",
+        }
+    }
+
+    /// Several files at once, with their names.
+    fn batch(self) -> bool {
+        match self {
+            Proto::Xy(p) => p.batch(),
+            Proto::Zmodem | Proto::Kermit => true,
+        }
+    }
+}
+
+/// Upload protocols in the order offered: ZMODEM, then the others.
+pub const UPLOAD_PROTOCOLS: [Proto; 7] = [
+    Proto::Zmodem,
+    Proto::Xy(XyProtocol::Ymodem),
+    Proto::Xy(XyProtocol::YmodemG),
+    Proto::Xy(XyProtocol::Xmodem1k),
+    Proto::Xy(XyProtocol::XmodemCrc),
+    Proto::Xy(XyProtocol::Xmodem),
+    Proto::Kermit,
+];
 
 /// What the upload window decided.
 pub enum UploadAction {
     None,
     Cancel,
-    /// Send these, with this protocol (None: ZMODEM).
-    Send(Option<XyProtocol>, Vec<PathBuf>),
+    /// Send these, with this protocol.
+    Send(Proto, Vec<PathBuf>),
 }
 
 /// The upload window: a file picker and the protocol. `requested` is set
@@ -102,7 +126,7 @@ impl UploadPrompt {
         UploadPrompt { picker: FilePicker::new(dir, true, &[]), protocol, requested }
     }
 
-    pub fn protocol(&self) -> Option<XyProtocol> {
+    pub fn protocol(&self) -> Proto {
         UPLOAD_PROTOCOLS[self.protocol]
     }
 
@@ -131,13 +155,13 @@ impl UploadPrompt {
         frame(s, x, y, w, h, title, t.window.fg(), t.window.bg());
         let name_attr = if self.requested { t.field_name } else { t.keys };
         label(s, x + 2, y + 1, "Protocol:", name_attr.fg(), name_attr.bg());
-        let v = format!("\u{25C4} {:<10} \u{25BA}", protocol_name(self.protocol()));
+        let v = format!("\u{25C4} {:<10} \u{25BA}", self.protocol().name());
         label(s, x + 12, y + 1, &v, t.field_value.fg(), t.field_value.bg());
         let note = match self.protocol() {
-            None if self.requested => "(the BBS started ZMODEM)",
-            Some(p) if !p.batch() => "(one file; start the BBS's receive first)",
-            Some(_) => "(start the BBS's receive first)",
-            None => "(drop files on the window, too)",
+            Proto::Zmodem if self.requested => "(the BBS started ZMODEM)",
+            Proto::Zmodem => "(drop files on the window, too)",
+            p if !p.batch() => "(one file; start the BBS's receive first)",
+            _ => "(start the BBS's receive first)",
         };
         label(s, x + 28, y + 1, note, t.note.fg(), t.note.bg());
         let cursor = self.picker.draw(s, x + 2, y + 3, w - 4, h - 6);
@@ -152,14 +176,22 @@ impl UploadPrompt {
     }
 }
 
-/// Download protocols that need starting (ZMODEM starts by itself).
-pub const DOWNLOAD_PROTOCOLS: [XyProtocol; 5] = XyProtocol::ALL;
+/// Download protocols that may need starting (ZMODEM starts by itself, and
+/// Kermit does when the BBS's starts after this side).
+pub const DOWNLOAD_PROTOCOLS: [Proto; 6] = [
+    Proto::Xy(XyProtocol::Ymodem),
+    Proto::Xy(XyProtocol::YmodemG),
+    Proto::Xy(XyProtocol::Xmodem1k),
+    Proto::Xy(XyProtocol::XmodemCrc),
+    Proto::Xy(XyProtocol::Xmodem),
+    Proto::Kermit,
+];
 
 pub enum DownloadAction {
     None,
     Cancel,
     /// Receive with this protocol; the name is for XMODEM.
-    Receive(XyProtocol, Option<String>),
+    Receive(Proto, Option<String>),
 }
 
 /// The window that starts an XMODEM or YMODEM download.
@@ -174,7 +206,7 @@ impl DownloadPrompt {
         DownloadPrompt { protocol: protocol.min(DOWNLOAD_PROTOCOLS.len() - 1), name: TextField::new("", 200) }
     }
 
-    fn proto(&self) -> XyProtocol {
+    fn proto(&self) -> Proto {
         DOWNLOAD_PROTOCOLS[self.protocol]
     }
 
@@ -201,7 +233,7 @@ impl DownloadPrompt {
     }
 
     pub fn draw(&self, s: &mut Screen) -> Option<(usize, usize)> {
-        let (w, h) = (60, 13);
+        let (w, h) = (60, 14);
         let (x, y) = ((s.cols() - w) / 2, (s.rows().saturating_sub(h)) / 2);
         let t = theme::current();
         frame(s, x, y, w, h, "Download", t.window.fg(), t.window.bg());
@@ -209,22 +241,23 @@ impl DownloadPrompt {
         for (i, p) in DOWNLOAD_PROTOCOLS.iter().enumerate() {
             let a = if i == self.protocol { t.selected } else { t.field_value };
             let what = match p {
-                XyProtocol::Ymodem => "names and sizes, several files",
-                XyProtocol::YmodemG => "YMODEM without waiting: fastest",
-                XyProtocol::Xmodem1k => "1K blocks, one file",
-                XyProtocol::XmodemCrc => "128-byte blocks, one file",
-                XyProtocol::Xmodem => "the original, one file",
+                Proto::Xy(XyProtocol::Ymodem) => "names and sizes, several files",
+                Proto::Xy(XyProtocol::YmodemG) => "YMODEM without waiting: fastest",
+                Proto::Xy(XyProtocol::Xmodem1k) => "1K blocks, one file",
+                Proto::Xy(XyProtocol::XmodemCrc) => "128-byte blocks, one file",
+                Proto::Xy(XyProtocol::Xmodem) => "the original, one file",
+                Proto::Kermit | Proto::Zmodem => "several files; also starts by itself",
             };
             text(s, x + 3, y + 3 + i, w - 6, &format!(" {:<11} {what}", p.name()), a.fg(), a.bg());
         }
         let mut cursor = None;
         if self.proto().batch() {
-            label(s, x + 2, y + 9, "Files keep the names the BBS sends.", t.note.fg(), t.note.bg());
+            label(s, x + 2, y + 10, "Files keep the names the BBS sends.", t.note.fg(), t.note.bg());
         } else {
-            label(s, x + 2, y + 9, "Save as:", t.field_name.fg(), t.field_name.bg());
-            cursor = Some(self.name.draw(s, x + 11, y + 9, w - 13, false, t.input.fg(), t.input.bg()));
+            label(s, x + 2, y + 10, "Save as:", t.field_name.fg(), t.field_name.bg());
+            cursor = Some(self.name.draw(s, x + 11, y + 10, w - 13, false, t.input.fg(), t.input.bg()));
         }
-        label(s, x + 2, y + 11, "\u{2191}\u{2193} protocol   Enter start   Esc cancel", t.keys.fg(), t.keys.bg());
+        label(s, x + 2, y + 12, "\u{2191}\u{2193} protocol   Enter start   Esc cancel", t.keys.fg(), t.keys.bg());
         cursor
     }
 }

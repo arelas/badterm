@@ -14,7 +14,9 @@ use crate::autologin::{AutoLogin, Step};
 use crate::dialer::Entry;
 use crate::screen::Screen;
 use crate::telnet::Telnet;
-use crate::transfer::{self, Download, Outcome, TrailerFilter, Transfer, Upload, XyProtocol, XyReceive, XySend};
+use crate::transfer::{
+    self, Download, Kermit, Outcome, TrailerFilter, Transfer, Upload, XyProtocol, XyReceive, XySend,
+};
 pub use crate::transport::{AuthPrompt, ConnectOptions, NetEvent, PromptKind, Writer, spawn_connection};
 
 /// How long the BBS must be quiet before the text at the cursor is taken
@@ -50,6 +52,8 @@ pub struct SessionConfig {
     pub ssh_agent: bool,
     /// Where default SSH keys (`id_ed25519`, ...) are looked for.
     pub ssh_key_dir: Option<PathBuf>,
+    /// The modem, for modem entries.
+    pub modem: crate::modem::ModemConfig,
 }
 
 /// Things the front end should react to.
@@ -79,7 +83,7 @@ pub struct Session {
     config: SessionConfig,
     telnet: Option<Telnet>,
     writer: Option<Writer>,
-    capture: Option<(PathBuf, BufWriter<File>)>,
+    capture: Option<Capture>,
     transfer: Option<Transfer>,
     /// Bytes received since the BBS asked for an upload, held until the user
     /// picks files (they include the ZRINIT the sender needs to see).
@@ -152,6 +156,7 @@ impl Session {
             known_hosts: self.config.known_hosts.clone(),
             ssh_agent: self.config.ssh_agent,
             ssh_key_dir: self.config.ssh_key_dir.clone(),
+            modem: self.config.modem.clone(),
         };
         spawn_connection(&self.entry, &opts, sink);
     }
@@ -324,6 +329,14 @@ impl Session {
             self.events.push(SessionEvent::UploadRequested);
             return;
         }
+        // A Kermit sending: its Send-Init packet.
+        if let Some(i) = crate::kermit::find_send_init(&scan) {
+            self.show(&scan[already_shown.min(i)..i]);
+            self.transfer = Some(Transfer::Kermit(Kermit::receive(self.config.download_dir.clone())));
+            self.events.push(SessionEvent::TransferStarted);
+            self.process(scan[i..].to_vec());
+            return;
+        }
         let keep = scan.len().min(transfer::ZRQINIT.len() - 1);
         self.scan_tail = scan[scan.len() - keep..].to_vec();
         self.show(&data);
@@ -333,8 +346,8 @@ impl Session {
         if data.is_empty() {
             return;
         }
-        if let Some((_, f)) = &mut self.capture {
-            let _ = f.write_all(data);
+        if let Some(c) = &mut self.capture {
+            c.write(data, self.term.encoding);
         }
         self.term.feed(data);
         let replies = self.term.take_replies();
@@ -430,6 +443,32 @@ impl Session {
         Ok(())
     }
 
+    /// Send files with Kermit to the BBS's Kermit, once it is receiving.
+    pub fn start_kermit_upload(&mut self, paths: Vec<PathBuf>) -> Result<()> {
+        if self.transfer.is_some() {
+            anyhow::bail!("a transfer is already in progress");
+        }
+        let mut t = Transfer::Kermit(Kermit::send(paths)?);
+        let mut out = Vec::new();
+        t.start(&mut out);
+        self.upload_wait = None;
+        self.transfer = Some(t);
+        self.send(&out);
+        self.events.push(SessionEvent::TransferStarted);
+        Ok(())
+    }
+
+    /// Receive with Kermit: for a BBS whose Kermit is already sending (one
+    /// that starts afterwards is picked up by itself).
+    pub fn start_kermit_download(&mut self) -> Result<()> {
+        if self.transfer.is_some() {
+            anyhow::bail!("a transfer is already in progress");
+        }
+        self.transfer = Some(Transfer::Kermit(Kermit::receive(self.config.download_dir.clone())));
+        self.events.push(SessionEvent::TransferStarted);
+        Ok(())
+    }
+
     /// The user chose not to upload: make the BBS's receiver give up.
     pub fn decline_upload(&mut self) {
         if self.upload_wait.take().is_some() {
@@ -512,10 +551,11 @@ impl Session {
     }
 
     pub fn capture_path(&self) -> Option<&Path> {
-        self.capture.as_ref().map(|(p, _)| p.as_path())
+        self.capture.as_ref().map(|c| c.path.as_path())
     }
 
-    /// Start recording received data (after telnet decoding) to a file.
+    /// Start recording received data (after telnet decoding) to a file: all
+    /// of it, or for a `.txt` file only the text (see [`CaptureKind`]).
     pub fn start_capture(&mut self, path: PathBuf) -> Result<()> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
@@ -525,19 +565,122 @@ impl Session {
             .append(true)
             .open(&path)
             .with_context(|| format!("opening {}", path.display()))?;
-        self.capture = Some((path, BufWriter::new(f)));
+        let kind = CaptureKind::for_path(&path);
+        self.capture = Some(Capture { path, file: BufWriter::new(f), kind, text: TextState::Ground });
         Ok(())
     }
 
     pub fn stop_capture(&mut self) {
-        if let Some((_, mut f)) = self.capture.take() {
-            let _ = f.flush();
+        if let Some(mut c) = self.capture.take() {
+            let _ = c.file.flush();
         }
+    }
+}
+
+/// What a capture keeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CaptureKind {
+    /// Everything the BBS sent, ANSI codes and all (`.ans`), to view later.
+    Raw,
+    /// Only the text, as UTF-8 (`.txt`): a log to read or search.
+    Text,
+}
+
+impl CaptureKind {
+    pub fn for_path(path: &Path) -> CaptureKind {
+        match path.extension().and_then(|e| e.to_str()) {
+            Some(e) if e.eq_ignore_ascii_case("txt") || e.eq_ignore_ascii_case("log") => CaptureKind::Text,
+            _ => CaptureKind::Raw,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TextState {
+    Ground,
+    Escape,
+    Csi,
+    /// An OSC or other string, up to BEL or ST.
+    String,
+}
+
+struct Capture {
+    path: PathBuf,
+    file: BufWriter<File>,
+    kind: CaptureKind,
+    text: TextState,
+}
+
+impl Capture {
+    fn write(&mut self, data: &[u8], encoding: crate::ansi::Encoding) {
+        if self.kind == CaptureKind::Raw {
+            let _ = self.file.write_all(data);
+            return;
+        }
+        let utf8 = encoding == crate::ansi::Encoding::Utf8;
+        let mut out = Vec::with_capacity(data.len());
+        for &b in data {
+            self.text = match (self.text, b) {
+                (_, 0x18 | 0x1A) => TextState::Ground,
+                (TextState::Ground, 0x1B) => TextState::Escape,
+                (TextState::Ground, b'\n' | b'\t') => {
+                    out.push(b);
+                    TextState::Ground
+                }
+                (TextState::Ground, 0x0C) => {
+                    out.extend_from_slice(b"\n\n");
+                    TextState::Ground
+                }
+                (TextState::Ground, 0x00..=0x1F | 0x7F) => TextState::Ground,
+                (TextState::Ground, _) if utf8 || b < 0x80 => {
+                    out.push(b);
+                    TextState::Ground
+                }
+                (TextState::Ground, _) => {
+                    let mut buf = [0; 4];
+                    out.extend_from_slice(crate::cp437::to_unicode(b).encode_utf8(&mut buf).as_bytes());
+                    TextState::Ground
+                }
+                (TextState::Escape, b'[') => TextState::Csi,
+                (TextState::Escape, b']' | b'P' | b'X' | b'^' | b'_') => TextState::String,
+                (TextState::Escape, 0x20..=0x2F) => TextState::Escape,
+                (TextState::Escape, _) => TextState::Ground,
+                (TextState::Csi, 0x40..=0x7E) => TextState::Ground,
+                (TextState::Csi, _) => TextState::Csi,
+                (TextState::String, 0x07) => TextState::Ground,
+                (TextState::String, 0x1B) => TextState::Escape,
+                (TextState::String, _) => TextState::String,
+            };
+        }
+        let _ = self.file.write_all(&out);
     }
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
         self.hang_up();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ansi::Encoding;
+
+    #[test]
+    fn text_captures_keep_only_the_words() {
+        let path = std::env::temp_dir().join(format!("badterm-capture-{}.txt", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(CaptureKind::for_path(&path), CaptureKind::Text);
+        assert_eq!(CaptureKind::for_path(Path::new("x.ans")), CaptureKind::Raw);
+        let f = File::create(&path).unwrap();
+        let mut c =
+            Capture { path: path.clone(), file: BufWriter::new(f), kind: CaptureKind::Text, text: TextState::Ground };
+        // Colors, a title, CR LF and a CP437 box character, split mid-sequence.
+        c.write(b"\x1b[1;3", Encoding::Cp437);
+        c.write(b"1mHello\x1b]2;title\x07\r\n\xc4\xc4 bye\x07", Encoding::Cp437);
+        c.file.flush().unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "Hello\n\u{2500}\u{2500} bye");
+        let _ = std::fs::remove_file(&path);
     }
 }

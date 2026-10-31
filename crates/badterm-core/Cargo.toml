@@ -26,8 +26,11 @@ tokio.workspace = true
 tokio-rustls.workspace = true
 webpki-roots.workspace = true
 zmodem2.workspace = true
+serialport.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "net"] }
+# Pseudo-terminals, for the modem and Kermit tests.
+serialport = { workspace = true }
 # A TLS test server's certificate.
 rcgen = { version = "0.14", default-features = false, features = ["ring", "crypto"] }

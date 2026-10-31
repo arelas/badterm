@@ -56,13 +56,14 @@ jobs:
       # can hold apt's lock: on 2026-10-29 the v0.1.1 tag run failed with "Could not
       # get lock /var/lib/apt/lists/lock" while the main run was installing lrzsz.
       # Wait for the lock and retry, and stop as soon as sz exists either way.
-      - name: Install lrzsz
+      # C-Kermit, likewise, for crates/badterm-core/tests/kermit.rs.
+      - name: Install lrzsz and C-Kermit
         run: |
-          command -v sz >/dev/null && exit 0
+          command -v sz >/dev/null && command -v kermit >/dev/null && exit 0
           for i in $(seq 1 30); do
             sudo apt-get -o DPkg::Lock::Timeout=60 update -qq \
-              && sudo apt-get -o DPkg::Lock::Timeout=60 install -y -qq lrzsz && exit 0
-            command -v sz >/dev/null && exit 0
+              && sudo apt-get -o DPkg::Lock::Timeout=60 install -y -qq lrzsz ckermit && exit 0
+            command -v sz >/dev/null && command -v kermit >/dev/null && exit 0
             echo "apt busy (attempt $i/30), retrying in 10s"
             sleep 10
           done
@@ -76,11 +77,13 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      # BADTERM_REQUIRE_LRZSZ turns a missing sz/rz into a failure instead
-      # of a skipped test, so interop can't silently stop being checked.
+      # BADTERM_REQUIRE_LRZSZ and _KERMIT turn a missing sz/rz or kermit into
+      # a failure instead of a skipped test, so interop can't silently stop
+      # being checked.
       - name: Test
         env:
           BADTERM_REQUIRE_LRZSZ: '1'
+          BADTERM_REQUIRE_KERMIT: '1'
         run: cargo test --locked
 
       # Against glibc 2.28 (cargo-zigbuild), not the runner's own, which is

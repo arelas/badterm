@@ -1,4 +1,5 @@
-//! File transfers: ZMODEM here, and XMODEM and YMODEM in [`crate::xmodem`].
+//! File transfers: ZMODEM here, XMODEM and YMODEM in [`crate::xmodem`], and
+//! Kermit in [`crate::kermit`].
 //!
 //! ZMODEM transfers drive the caller-owned state machines of the
 //! `zmodem2` crate with file I/O, progress tracking and timeouts.
@@ -16,6 +17,7 @@ use std::time::{Duration, Instant, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use zmodem2::{Action, Event, FileInfo, Position, Receiver, Sender};
 
+pub use crate::kermit::Kermit;
 pub use crate::xmodem::{XyProtocol, XyReceive, XySend};
 
 /// `ZPAD ZPAD ZDLE 'B' "00"`: the hex ZRQINIT header a sender (`sz`) opens with.
@@ -463,6 +465,8 @@ pub enum Transfer {
     /// XMODEM or YMODEM.
     XyDownload(XyReceive),
     XyUpload(XySend),
+    /// Either way.
+    Kermit(Kermit),
 }
 
 impl Transfer {
@@ -472,6 +476,7 @@ impl Transfer {
             Transfer::Upload(u) => &mut u.c,
             Transfer::XyDownload(d) => &mut d.c,
             Transfer::XyUpload(u) => &mut u.c,
+            Transfer::Kermit(k) => &mut k.c,
         }
     }
 
@@ -481,6 +486,24 @@ impl Transfer {
             Transfer::Upload(u) => u.pump(out),
             Transfer::XyDownload(d) => d.pump(out),
             Transfer::XyUpload(u) => u.pump(out),
+            Transfer::Kermit(k) => k.pump(out),
+        }
+    }
+
+    /// The protocol's name, for the progress window.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Transfer::Download(_) | Transfer::Upload(_) => "ZMODEM",
+            Transfer::XyDownload(d) => d.protocol().name(),
+            Transfer::XyUpload(u) => u.protocol().name(),
+            Transfer::Kermit(_) => "Kermit",
+        }
+    }
+
+    /// Start a side that speaks first (a Kermit sender): call once.
+    pub fn start(&mut self, out: &mut Vec<u8>) {
+        if let Transfer::Kermit(k) = self {
+            k.start(out);
         }
     }
 
@@ -502,6 +525,10 @@ impl Transfer {
                 u.tick(now, out);
                 return self.pump(out);
             }
+            Transfer::Kermit(k) => {
+                k.tick(now, out);
+                return self.pump(out);
+            }
             _ => {}
         }
         if !self.parts().timed_out(now) {
@@ -519,7 +546,7 @@ impl Transfer {
             Transfer::Upload(u) => {
                 let _ = u.tx.timeout();
             }
-            Transfer::XyDownload(_) | Transfer::XyUpload(_) => {}
+            Transfer::XyDownload(_) | Transfer::XyUpload(_) | Transfer::Kermit(_) => {}
         }
         self.pump(out);
     }
@@ -534,6 +561,7 @@ impl Transfer {
             Transfer::Upload(u) => u.tx.abort(),
             Transfer::XyDownload(d) => return d.cancel(out),
             Transfer::XyUpload(u) => return u.cancel(out),
+            Transfer::Kermit(k) => return k.cancel(out),
         }
         self.pump(out);
         // The abort is final whether or not the other side acknowledges it.
@@ -546,6 +574,7 @@ impl Transfer {
             Transfer::Upload(u) => &u.c.progress,
             Transfer::XyDownload(d) => d.progress(),
             Transfer::XyUpload(u) => u.progress(),
+            Transfer::Kermit(k) => k.progress(),
         }
     }
 
@@ -555,6 +584,7 @@ impl Transfer {
             Transfer::Upload(u) => u.c.outcome.is_some(),
             Transfer::XyDownload(d) => d.c.outcome.is_some(),
             Transfer::XyUpload(u) => u.c.outcome.is_some(),
+            Transfer::Kermit(k) => k.c.outcome.is_some(),
         }
     }
 
@@ -574,6 +604,7 @@ impl Transfer {
         match self {
             Transfer::Upload(u) => u.enqueue(path),
             Transfer::XyUpload(u) => u.enqueue(path),
+            Transfer::Kermit(k) => k.enqueue(path),
             Transfer::Download(_) | Transfer::XyDownload(_) => bail!("a download is in progress"),
         }
     }

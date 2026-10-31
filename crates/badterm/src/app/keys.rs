@@ -385,8 +385,9 @@ impl App {
                 }
                 self.upload_prompt = None;
                 match protocol {
-                    None => self.start_upload(paths),
-                    Some(p) => self.start_xy_upload(p, paths),
+                    Proto::Zmodem => self.start_upload(paths),
+                    Proto::Xy(p) => self.start_xy_upload(p, paths),
+                    Proto::Kermit => self.start_kermit_upload(paths),
                 }
             }
         }
@@ -401,7 +402,11 @@ impl App {
                 self.download_protocol = prompt.protocol;
                 self.download_prompt = None;
                 let Some(session) = self.session.as_mut() else { return };
-                if let Err(e) = session.start_xy_download(protocol, name) {
+                let started = match protocol {
+                    Proto::Xy(p) => session.start_xy_download(p, name),
+                    Proto::Kermit | Proto::Zmodem => session.start_kermit_download(),
+                };
+                if let Err(e) = started {
                     self.notify(format!("Download failed: {e:#}"));
                 }
                 self.session_events();

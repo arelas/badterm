@@ -2,7 +2,7 @@
 //! native-resolution frame, then scales it into the window buffer, with an
 //! optional CRT look (see [`crate::crt`]).
 
-use badterm_core::screen::{Cell, Look, flags};
+use badterm_core::screen::{Cell, Color, Look, flags};
 
 use crate::crt::{Crt, CrtMode, Curvature, Scanlines};
 use crate::selection::Selection;
@@ -125,12 +125,24 @@ pub struct Frame<'a> {
     /// screen); the rest (the status bar) are drawn in the standard look.
     pub look: &'a Look,
     pub look_rows: usize,
+    /// RIPscrip graphics under the BBS's screen: they show through cells
+    /// left blank on black.
+    pub graphics: Option<Graphics<'a>>,
+}
+
+/// A picture in 16 palette colors, stretched over the BBS's screen.
+#[derive(Clone, Copy)]
+pub struct Graphics<'a> {
+    pub pixels: &'a [u8],
+    pub width: usize,
+    pub height: usize,
+    pub palette: [u32; 16],
 }
 
 impl<'a> Frame<'a> {
     /// Rows drawn in the standard look.
     pub fn plain(rows: Vec<&'a [Cell]>, cursor: Option<(usize, usize)>, ice: bool) -> Frame<'a> {
-        Frame { rows, cursor, ice, selection: None, look: Look::standard(), look_rows: 0 }
+        Frame { rows, cursor, ice, selection: None, look: Look::standard(), look_rows: 0, graphics: None }
     }
 }
 
@@ -203,6 +215,13 @@ impl Renderer {
                 // A VGA's ninth column repeats the eighth for the line-drawing
                 // glyphs, so their lines join up; otherwise it is background.
                 let extend = font.id == 0 && (0xC0..=0xDF).contains(&cell.ch);
+                // Graphics show through a black background.
+                let graphics = frame.graphics.filter(|_| {
+                    y < frame.look_rows
+                        && cell.bg == Color::Pc(0)
+                        && cell.flags & flags::REVERSE == 0
+                        && bg == look.rgb(Color::Pc(0))
+                });
                 for gy in 0..fh {
                     let mut bits = if hide { 0 } else { font.row(cell.ch, gy) as u16 };
                     if cell.flags & flags::UNDERLINE != 0 && gy == fh - 1 && !hide {
@@ -220,9 +239,42 @@ impl Renderer {
                         let on = bits & 0x100 != 0 || extend && bits & 1 != 0;
                         self.native[base + 8] = if on { fg } else { bg };
                     }
+                    if let Some(g) = graphics {
+                        let (text_w, text_h) = (self.cols * cw, frame.look_rows * fh);
+                        let gyy = ((y * fh + gy) * g.height / text_h).min(g.height - 1);
+                        for gx in 0..cw {
+                            let on = gx < 8 && bits & (0x80 >> gx) != 0 || gx == 8 && self.native[base + 8] == fg;
+                            if !on {
+                                let gxx = ((x * cw + gx) * g.width / text_w).min(g.width - 1);
+                                self.native[base + gx] = g.palette[g.pixels[gyy * g.width + gxx] as usize & 15];
+                            }
+                        }
+                    }
                 }
             }
         }
+    }
+
+    /// Invert the top `rows` text rows, for a visual bell.
+    pub fn flash(&mut self, rows: usize) {
+        let n = (rows * self.font.height * self.native_width()).min(self.native.len());
+        for p in &mut self.native[..n] {
+            *p ^= 0x00FF_FFFF;
+        }
+    }
+
+    /// Where a point of the native frame is in a picture `width` x `height`
+    /// stretched over the top `rows` text rows, if it is over them.
+    pub fn graphics_point(
+        &self,
+        x: usize,
+        y: usize,
+        rows: usize,
+        width: usize,
+        height: usize,
+    ) -> Option<(usize, usize)> {
+        let (text_w, text_h) = (self.native_width(), rows * self.font.height);
+        (x < text_w && y < text_h).then(|| (x * width / text_w, y * height / text_h))
     }
 
     /// The frame drawn by the last [`Renderer::draw`], as 0RGB pixels.
@@ -376,6 +428,40 @@ mod tests {
         std::fs::write(path, data).unwrap();
     }
 
+    /// A RIPscrip scene under ANSI text, as a PNG:
+    /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm rip_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn rip_snapshot() {
+        use badterm_core::rip;
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut t = Terminal::new(rip::COLS, rip::ROWS, 0);
+        t.encoding = badterm_core::Encoding::Rip;
+        t.start_emulation();
+        // A sky, ground, sun, hills, a framed title and two buttons.
+        let scene: &[&str] = &[
+            "!|*|S0109|B0000HR6Q|S0102|B006QHR9P|c0E|S010E|o8Q1E0U0O",
+            "!|c02|S010A|i5A6Q00503C1E|iDE6Q0050461Q|c0F|=00000003|R0A0A6E1O|c0B|Y00000300|@0O0FBADTERM",
+            "!|Y00000100|c0F|@0O1BThe badass terminal|c0C|S0104|C9W3K0Y|F9W3K0C",
+            "!|1B000000000002000F0F0807000000000000|1U0A8C32960000<>Files<>F^M|1U3M8C6E960000<>Goodbye<>G^M",
+        ];
+        for line in scene {
+            t.feed(line.as_bytes());
+            t.feed(b"\r\n");
+        }
+        t.feed(b"\x1b[38;1H\x1b[1;37;44m Text over graphics: ANSI on a blue bar \x1b[0m");
+        let r_rip = t.rip().unwrap();
+        let graphics =
+            Some(Graphics { pixels: r_rip.pixels(), width: rip::WIDTH, height: rip::HEIGHT, palette: r_rip.palette() });
+        let mut r = Renderer::new(Font::vga_8x8(), rip::COLS, rip::ROWS);
+        let rows: Vec<&[Cell]> = (0..rip::ROWS).map(|y| t.screen.row(y)).collect();
+        let frame = Frame { look_rows: rip::ROWS, graphics, ..Frame::plain(rows, None, true) };
+        r.draw(&frame, true, true);
+        let png = crate::png::encode(r.pixels(), r.native_width(), r.native_height());
+        std::fs::write(dir.join("rip.png"), png).unwrap();
+    }
+
     /// Renders sample frames to PPM images for visual inspection:
     /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm snapshot -- --ignored`
     #[test]
@@ -435,7 +521,7 @@ mod tests {
             file_started: std::time::Instant::now() - std::time::Duration::from_secs(4),
             resumed_at: None,
         };
-        crate::ui::transfer::draw_progress(&mut over, &progress);
+        crate::ui::transfer::draw_progress(&mut over, "ZMODEM", &progress);
         let rows: Vec<&[Cell]> = (0..25).map(|y| over.row(y)).collect();
         r.draw(&Frame::plain(rows, None, true), true, true);
         write_ppm(&mut r, &dir.join("transfer.ppm"));
@@ -632,7 +718,7 @@ mod tests {
         art.push(0x1A);
         let mut rec = vec![0u8; 128];
         rec[..7].copy_from_slice(b"SAUCE00");
-        rec[7..19].copy_from_slice(b"BadTerm art");
+        rec[7..18].copy_from_slice(b"BadTerm art");
         rec[42..48].copy_from_slice(b"arelas");
         rec[82..90].copy_from_slice(b"20261030");
         rec[94] = 1;
