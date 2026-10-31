@@ -1,0 +1,44 @@
+# A BadTerm color theme. Import it in Settings (Alt-O), Colors, "Import a theme".
+
+name = "Green rain"
+author = "Bad Cluster"
+description = "Every shade of green, like code falling down a screen."
+
+[colors]
+title_bar = { fg = "yellow", bg = "magenta" }
+border = { fg = "dark gray", bg = "black" }
+headings = { fg = "brown", bg = "black" }
+entries = { fg = "white", bg = "black" }
+selected = { fg = "light cyan", bg = "green" }
+info = { fg = "light gray", bg = "black" }
+help = { fg = "dark gray", bg = "black" }
+help_key = { fg = "cyan", bg = "black" }
+status = { fg = "black", bg = "brown" }
+status_alt = { fg = "black", bg = "cyan" }
+window = { fg = "white", bg = "blue" }
+window_title = { fg = "yellow", bg = "blue" }
+window_text = { fg = "light gray", bg = "blue" }
+field_name = { fg = "cyan", bg = "blue" }
+field_value = { fg = "white", bg = "blue" }
+input = { fg = "light cyan", bg = "green" }
+keys = { fg = "brown", bg = "blue" }
+note = { fg = "dark gray", bg = "blue" }
+error = { fg = "light red", bg = "blue" }
+palette = [
+    "#050A05",
+    "#0B160B",
+    "#134A1C",
+    "#2FD84F",
+    "#4A1A1A",
+    "#0F1E10",
+    "#7CFF8E",
+    "#5FA86A",
+    "#2E5A35",
+    "#163A1C",
+    "#9CFFA8",
+    "#B6FFC2",
+    "#FF5A5A",
+    "#1E5A28",
+    "#D2FFD8",
+    "#C8F5CF",
+]

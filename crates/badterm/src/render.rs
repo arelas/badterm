@@ -491,6 +491,74 @@ mod tests {
         theme::set_current(theme::Theme::default());
     }
 
+    /// Previews of the themes and bezels offered on the website, from
+    /// `extras/`, into `extras/previews`:
+    /// `cargo test -p badterm make_extra_previews -- --ignored`
+    #[test]
+    #[ignore]
+    fn make_extra_previews() {
+        use crate::ui::theme;
+        let extras = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extras");
+        let out_dir = extras.join("previews");
+        std::fs::create_dir_all(&out_dir).unwrap();
+        let png = |pixels: &[u32], w: usize, h: usize, path: std::path::PathBuf| {
+            let rgb: Vec<u8> = pixels.iter().flat_map(|&p| [(p >> 16) as u8, (p >> 8) as u8, p as u8]).collect();
+            let mut out = Vec::new();
+            {
+                let mut enc = png::Encoder::new(&mut out, w as u32, h as u32);
+                enc.set_color(png::ColorType::Rgb);
+                enc.set_compression(png::Compression::High);
+                enc.write_header().unwrap().write_image_data(&rgb).unwrap();
+            }
+            std::fs::write(path, out).unwrap();
+        };
+        let mut d = Directory::default();
+        d.merge(vec![
+            Entry {
+                name: "Example BBS".into(),
+                comment: "Runs Synchronet".into(),
+                ..Entry::from_address("bbs.example.org").unwrap()
+            },
+            Entry::from_address("ssh://secure.example.net:2222").unwrap(),
+            Entry::from_address("telnet://another.example.com:2323").unwrap(),
+        ]);
+        d.offer_defaults();
+        d.sort();
+        let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
+        let mut s = badterm_core::Screen::new(80, 25, 0);
+        let mut themes: Vec<_> = std::fs::read_dir(extras.join("themes")).unwrap().map(|e| e.unwrap().path()).collect();
+        themes.sort();
+        for path in themes.iter().filter(|p| p.extension().is_some_and(|x| x == "toml")) {
+            theme::set_current(theme::ThemeFile::load(path).unwrap().colors);
+            let look = theme::ui_look();
+            let mut ui =
+                DialerUi::new(std::env::temp_dir(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
+            ui.draw(&mut s, &d);
+            let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+            r.draw(&Frame { ui_look: &look, ..Frame::plain(rows, None, true) }, true, true);
+            let stem = path.file_stem().unwrap().to_string_lossy();
+            png(r.pixels(), r.native_width(), r.native_height(), out_dir.join(format!("theme-{stem}.png")));
+        }
+        // Each bezel around the splash screen, in the default colors.
+        theme::set_current(theme::Theme::default());
+        crate::ui::splash::draw(&mut s);
+        let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+        r.draw(&Frame::plain(rows, None, true), true, true);
+        let mut bezels: Vec<_> = std::fs::read_dir(extras.join("bezels")).unwrap().map(|e| e.unwrap().path()).collect();
+        bezels.sort();
+        for path in bezels.iter().filter(|p| p.extension().is_some_and(|x| x == "png")) {
+            let bezel = crate::bezel::Bezel::load(path).unwrap();
+            let (w, h) = (640, 560);
+            let frame = bezel.render(w, h);
+            let mut out = vec![0u32; w * h];
+            let display = Display { scaling: Scaling::Fill, crt: CrtMode::Color, ..Display::default() };
+            r.blit_in(&mut out, w, h, frame.screen, &display);
+            crate::bezel::composite(&mut out, &frame.pixels);
+            let stem = path.file_stem().unwrap().to_string_lossy().to_lowercase().replace(' ', "-");
+            png(&out, w, h, out_dir.join(format!("bezel-{stem}.png")));
+        }
+    }
+
     /// The C64 and Atari screens shown on the website, as PNGs at 4x:
     /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm retro_site_snapshot -- --ignored`
     #[test]

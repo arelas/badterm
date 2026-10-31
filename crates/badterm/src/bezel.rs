@@ -416,6 +416,115 @@ pub fn composite(out: &mut [u32], bezel: &[u32]) {
 mod tests {
     use super::*;
 
+    /// The bezels offered as downloads on the website (`extras/bezels`),
+    /// drawn as the built-in ones are and saved as PNGs with a see-through
+    /// screen, the same as anyone's own: original designs too.
+    const EXTRA_STYLES: [Style; 4] = [
+        Style {
+            name: "Avocado 1970s",
+            body: (0.47, 0.50, 0.25),
+            side: 0.11,
+            top: 0.10,
+            bottom: 0.22,
+            corner: 0.04,
+            recess: 0.04,
+            recess_color: (0.30, 0.32, 0.15),
+            led: (1.0, 0.55, 0.1),
+            knobs: true,
+            vents: true,
+            gloss: 0.04,
+        },
+        Style {
+            name: "Ivory terminal",
+            body: (0.90, 0.88, 0.80),
+            side: 0.13,
+            top: 0.12,
+            bottom: 0.18,
+            corner: 0.10,
+            recess: 0.05,
+            recess_color: (0.70, 0.68, 0.60),
+            led: (0.25, 0.95, 0.35),
+            knobs: false,
+            vents: true,
+            gloss: 0.05,
+        },
+        Style {
+            name: "Gunmetal",
+            body: (0.30, 0.33, 0.37),
+            side: 0.07,
+            top: 0.07,
+            bottom: 0.12,
+            corner: 0.03,
+            recess: 0.025,
+            recess_color: (0.18, 0.20, 0.22),
+            led: (0.3, 0.85, 1.0),
+            knobs: false,
+            vents: false,
+            gloss: 0.10,
+        },
+        Style {
+            name: "Bad Cluster",
+            body: (0.086, 0.098, 0.133),
+            side: 0.06,
+            top: 0.06,
+            bottom: 0.10,
+            corner: 0.05,
+            recess: 0.02,
+            recess_color: (0.055, 0.063, 0.082),
+            led: (0.85, 0.56, 0.24),
+            knobs: false,
+            vents: false,
+            gloss: 0.12,
+        },
+    ];
+
+    pub(crate) fn extras_dir() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extras")
+    }
+
+    /// Write the extra bezels to `extras/bezels`:
+    /// `cargo test -p badterm make_extra_bezels -- --ignored`
+    #[test]
+    #[ignore]
+    fn make_extra_bezels() {
+        let dir = extras_dir().join("bezels");
+        std::fs::create_dir_all(&dir).unwrap();
+        for s in &EXTRA_STYLES {
+            let w = 1280;
+            let h = (w as f64 * (1.0 / SCREEN_ASPECT + s.top + s.bottom) / (1.0 + 2.0 * s.side)).round() as usize;
+            let r = render_builtin(s, w, h);
+            // Outside the rounded body: see-through too.
+            let rgba: Vec<u8> = r
+                .pixels
+                .iter()
+                .flat_map(|&p| {
+                    let a = if p == 0xFF00_0000 { 0 } else { (p >> 24) as u8 };
+                    [(p >> 16) as u8, (p >> 8) as u8, p as u8, a]
+                })
+                .collect();
+            let mut out = Vec::new();
+            {
+                let mut enc = png::Encoder::new(&mut out, w as u32, h as u32);
+                enc.set_color(png::ColorType::Rgba);
+                enc.set_compression(png::Compression::High);
+                enc.write_header().unwrap().write_image_data(&rgba).unwrap();
+            }
+            std::fs::write(dir.join(format!("{}.png", s.name)), out).unwrap();
+        }
+    }
+
+    /// Every bezel offered for download loads, with a 4:3 screen.
+    #[test]
+    fn extra_bezels_load() {
+        let dir = extras_dir().join("bezels");
+        let files = user_files(&dir);
+        assert!(!files.is_empty(), "no bezels in {}", dir.display());
+        for path in files {
+            let Bezel::Image { screen: (_, _, w, h), .. } = Bezel::load(&path).unwrap() else { unreachable!() };
+            assert!((w as f64 / h as f64 - 4.0 / 3.0).abs() < 0.03, "{}: {w}x{h}", path.display());
+        }
+    }
+
     #[test]
     fn builtin_bezels_leave_a_4_3_screen() {
         for (i, s) in STYLES.iter().enumerate() {

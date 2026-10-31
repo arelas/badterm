@@ -1,0 +1,44 @@
+# A BadTerm color theme. Import it in Settings (Alt-O), Colors, "Import a theme".
+
+name = "Ice"
+author = "Bad Cluster"
+description = "Cold blues and white on a midnight navy."
+
+[colors]
+title_bar = { fg = "yellow", bg = "magenta" }
+border = { fg = "dark gray", bg = "black" }
+headings = { fg = "brown", bg = "black" }
+entries = { fg = "white", bg = "black" }
+selected = { fg = "light cyan", bg = "green" }
+info = { fg = "light gray", bg = "black" }
+help = { fg = "dark gray", bg = "black" }
+help_key = { fg = "cyan", bg = "black" }
+status = { fg = "black", bg = "brown" }
+status_alt = { fg = "black", bg = "cyan" }
+window = { fg = "white", bg = "blue" }
+window_title = { fg = "yellow", bg = "blue" }
+window_text = { fg = "light gray", bg = "blue" }
+field_name = { fg = "cyan", bg = "blue" }
+field_value = { fg = "white", bg = "blue" }
+input = { fg = "light cyan", bg = "green" }
+keys = { fg = "brown", bg = "blue" }
+note = { fg = "dark gray", bg = "blue" }
+error = { fg = "light red", bg = "blue" }
+palette = [
+    "#0B1622",
+    "#12212F",
+    "#1F4A5C",
+    "#5CC8E8",
+    "#6A2A30",
+    "#172A3B",
+    "#8EC5FF",
+    "#8FA5B8",
+    "#4E6275",
+    "#1E3142",
+    "#8FE3C0",
+    "#A8F0FF",
+    "#FF7A85",
+    "#2E4A6A",
+    "#CFE8FF",
+    "#EAF6FF",
+]

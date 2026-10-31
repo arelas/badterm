@@ -665,6 +665,24 @@ mod tests {
         assert!(toml::from_str::<Theme>("palette = [\"#123456\"]").is_err());
     }
 
+    /// Every theme offered for download on the website (`extras/themes`)
+    /// loads, and none has a built-in scheme's name.
+    #[test]
+    fn extra_themes_load() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../extras/themes");
+        let mut n = 0;
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|x| x == "toml") {
+                let file = ThemeFile::load(&path).unwrap();
+                assert!(SCHEMES.iter().all(|(name, _)| !name.eq_ignore_ascii_case(&file.name)), "{}", file.name);
+                assert!(!file.author.is_empty(), "{}", path.display());
+                n += 1;
+            }
+        }
+        assert!(n > 0, "no themes in {}", dir.display());
+    }
+
     #[test]
     fn partial_toml_keeps_the_rest() {
         let t: Theme = toml::from_str("selected = { fg = 14, bg = 4 }").unwrap();

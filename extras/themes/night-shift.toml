@@ -1,0 +1,26 @@
+# A BadTerm color theme. Import it in Settings (Alt-O), Colors, "Import a theme".
+
+name = "Night shift"
+author = "Bad Cluster"
+description = "Red on black, easy on the eyes in the dark. VGA colors only."
+
+[colors]
+title_bar = { fg = "black", bg = "red" }
+border = { fg = "red", bg = "black" }
+headings = { fg = "light red", bg = "black" }
+entries = { fg = "light gray", bg = "black" }
+selected = { fg = "white", bg = "red" }
+info = { fg = "light red", bg = "black" }
+help = { fg = "dark gray", bg = "black" }
+help_key = { fg = "light red", bg = "black" }
+status = { fg = "black", bg = "red" }
+status_alt = { fg = "white", bg = "magenta" }
+window = { fg = "white", bg = "black" }
+window_title = { fg = "light red", bg = "black" }
+window_text = { fg = "light gray", bg = "black" }
+field_name = { fg = "red", bg = "black" }
+field_value = { fg = "white", bg = "black" }
+input = { fg = "yellow", bg = "red" }
+keys = { fg = "light red", bg = "black" }
+note = { fg = "dark gray", bg = "black" }
+error = { fg = "yellow", bg = "black" }

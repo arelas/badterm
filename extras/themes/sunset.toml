@@ -1,0 +1,44 @@
+# A BadTerm color theme. Import it in Settings (Alt-O), Colors, "Import a theme".
+
+name = "Sunset"
+author = "Bad Cluster"
+description = "Warm evening colors: orange and pink on deep plum."
+
+[colors]
+title_bar = { fg = "yellow", bg = "magenta" }
+border = { fg = "dark gray", bg = "black" }
+headings = { fg = "brown", bg = "black" }
+entries = { fg = "white", bg = "black" }
+selected = { fg = "light cyan", bg = "green" }
+info = { fg = "light gray", bg = "black" }
+help = { fg = "dark gray", bg = "black" }
+help_key = { fg = "cyan", bg = "black" }
+status = { fg = "black", bg = "brown" }
+status_alt = { fg = "black", bg = "cyan" }
+window = { fg = "white", bg = "blue" }
+window_title = { fg = "yellow", bg = "blue" }
+window_text = { fg = "light gray", bg = "blue" }
+field_name = { fg = "cyan", bg = "blue" }
+field_value = { fg = "white", bg = "blue" }
+input = { fg = "light cyan", bg = "green" }
+keys = { fg = "brown", bg = "blue" }
+note = { fg = "dark gray", bg = "blue" }
+error = { fg = "light red", bg = "blue" }
+palette = [
+    "#1B1026",
+    "#2A1838",
+    "#5A2A4A",
+    "#FF4F9A",
+    "#7A2E2E",
+    "#33204A",
+    "#FF8C42",
+    "#B8A6C9",
+    "#6E5A80",
+    "#3A2850",
+    "#9FE6A0",
+    "#FF8FC2",
+    "#FF6B6B",
+    "#7A4524",
+    "#FFC07A",
+    "#FFF1E6",
+]

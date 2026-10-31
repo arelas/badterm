@@ -1,0 +1,26 @@
+# A BadTerm color theme. Import it in Settings (Alt-O), Colors, "Import a theme".
+
+name = "Teletext"
+author = "Bad Cluster"
+description = "Bold primary colors on black, as on a broadcast text page. VGA colors only."
+
+[colors]
+title_bar = { fg = "yellow", bg = "blue" }
+border = { fg = "white", bg = "black" }
+headings = { fg = "yellow", bg = "black" }
+entries = { fg = "light cyan", bg = "black" }
+selected = { fg = "black", bg = "brown" }
+info = { fg = "light green", bg = "black" }
+help = { fg = "white", bg = "black" }
+help_key = { fg = "yellow", bg = "black" }
+status = { fg = "black", bg = "cyan" }
+status_alt = { fg = "black", bg = "green" }
+window = { fg = "white", bg = "black" }
+window_title = { fg = "yellow", bg = "black" }
+window_text = { fg = "light cyan", bg = "black" }
+field_name = { fg = "light green", bg = "black" }
+field_value = { fg = "white", bg = "black" }
+input = { fg = "black", bg = "cyan" }
+keys = { fg = "yellow", bg = "black" }
+note = { fg = "light magenta", bg = "black" }
+error = { fg = "light red", bg = "black" }

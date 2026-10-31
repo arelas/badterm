@@ -1,0 +1,26 @@
+# The bezels in this folder, for the website's extras page. Each is a PNG
+# whose screen area is see-through; add yours with an entry here.
+
+[[bezel]]
+file = "Avocado 1970s.png"
+name = "Avocado, 1970s"
+author = "Bad Cluster"
+description = "Olive-green plastic with knobs and a vented chin, from the decade of shag carpet."
+
+[[bezel]]
+file = "Ivory terminal.png"
+name = "Ivory terminal"
+author = "Bad Cluster"
+description = "A chunky off-white terminal with a deep-set screen."
+
+[[bezel]]
+file = "Gunmetal.png"
+name = "Gunmetal"
+author = "Bad Cluster"
+description = "A slim blue-gray monitor from the end of the CRT era."
+
+[[bezel]]
+file = "Bad Cluster.png"
+name = "Bad Cluster"
+author = "Bad Cluster"
+description = "Navy and glossy, with a copper power light: made to go with the Bad Cluster colors."
