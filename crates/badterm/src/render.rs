@@ -440,7 +440,7 @@ mod tests {
         std::fs::write(path, data).unwrap();
     }
 
-    /// The dialing directory and settings in the Bad Cluster theme, as PNGs:
+    /// The dialing directory and settings in some of the color schemes, as PNGs:
     /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm theme_snapshot -- --ignored`
     #[test]
     #[ignore]
@@ -448,43 +448,46 @@ mod tests {
         use crate::ui::theme;
         let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
         std::fs::create_dir_all(&dir).unwrap();
-        let bc = theme::SCHEMES.iter().find(|(n, _)| *n == "Bad Cluster").unwrap().1;
-        theme::set_current(bc);
-        let look = theme::ui_look();
-        let mut d = Directory::default();
-        d.merge(vec![
-            Entry {
-                name: "Example BBS".into(),
-                comment: "Runs Synchronet".into(),
-                ..Entry::from_address("bbs.example.org").unwrap()
-            },
-            Entry::from_address("ssh://secure.example.net:2222").unwrap(),
-            Entry::from_address("telnet://another.example.com:2323").unwrap(),
-        ]);
-        d.offer_defaults();
-        d.sort();
-        let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
-        let shot = |r: &mut Renderer, s: &badterm_core::Screen, cursor, name: &str| {
-            let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
-            r.draw(&Frame { ui_look: &look, ..Frame::plain(rows, cursor, true) }, true, true);
-            let png = crate::png::encode(r.pixels(), r.native_width(), r.native_height());
-            std::fs::write(dir.join(name), png).unwrap();
-        };
-        let mut ui = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
-        let mut s = badterm_core::Screen::new(80, 25, 0);
-        ui.draw(&mut s, &d);
-        shot(&mut r, &s, None, "badcluster-dialer.png");
-        ui.handle_key(crate::input::Key::Char('e'), crate::input::Mods::default(), &mut d);
-        let cursor = ui.draw(&mut s, &d);
-        shot(&mut r, &s, cursor, "badcluster-edit.png");
-        let mut settings = crate::settings::Settings { colors: bc, ..Default::default() };
-        settings.colors = bc;
-        let mut sui = crate::ui::settings::SettingsUi::default();
-        sui.open(Vec::new(), Vec::new(), vec![std::path::PathBuf::from("/home/sysop/Downloads"); 5]);
-        let cursor = sui.draw(&mut s, &settings, None, None);
-        shot(&mut r, &s, cursor, "badcluster-settings.png");
-        crate::ui::splash::draw(&mut s);
-        shot(&mut r, &s, None, "badcluster-splash.png");
+        for name in ["Bad Cluster", "Dark blue", "Dark cyan"] {
+            let bc = theme::SCHEMES.iter().find(|(n, _)| *n == name).unwrap().1;
+            let prefix = name.to_lowercase().replace(' ', "");
+            theme::set_current(bc);
+            let look = theme::ui_look();
+            let mut d = Directory::default();
+            d.merge(vec![
+                Entry {
+                    name: "Example BBS".into(),
+                    comment: "Runs Synchronet".into(),
+                    ..Entry::from_address("bbs.example.org").unwrap()
+                },
+                Entry::from_address("ssh://secure.example.net:2222").unwrap(),
+                Entry::from_address("telnet://another.example.com:2323").unwrap(),
+            ]);
+            d.offer_defaults();
+            d.sort();
+            let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
+            let shot = |r: &mut Renderer, s: &badterm_core::Screen, cursor, name: &str| {
+                let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+                r.draw(&Frame { ui_look: &look, ..Frame::plain(rows, cursor, true) }, true, true);
+                let png = crate::png::encode(r.pixels(), r.native_width(), r.native_height());
+                std::fs::write(dir.join(name), png).unwrap();
+            };
+            let mut ui = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
+            let mut s = badterm_core::Screen::new(80, 25, 0);
+            ui.draw(&mut s, &d);
+            shot(&mut r, &s, None, &format!("{prefix}-dialer.png"));
+            ui.handle_key(crate::input::Key::Char('e'), crate::input::Mods::default(), &mut d);
+            let cursor = ui.draw(&mut s, &d);
+            shot(&mut r, &s, cursor, &format!("{prefix}-edit.png"));
+            let mut settings = crate::settings::Settings { colors: bc, ..Default::default() };
+            settings.colors = bc;
+            let mut sui = crate::ui::settings::SettingsUi::default();
+            sui.open(Vec::new(), Vec::new(), vec![std::path::PathBuf::from("/home/sysop/Downloads"); 5]);
+            let cursor = sui.draw(&mut s, &settings, None, None);
+            shot(&mut r, &s, cursor, &format!("{prefix}-settings.png"));
+            crate::ui::splash::draw(&mut s);
+            shot(&mut r, &s, None, &format!("{prefix}-splash.png"));
+        }
         theme::set_current(theme::Theme::default());
     }
 

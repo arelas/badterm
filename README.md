@@ -263,8 +263,9 @@ and fit in full screen; always whole numbers; or stretch to fill),
 character cells, ANSI music, redialing, and the colors
 of BadTerm's own screens. Pick one of the color schemes (Midnight, the
 default; Classic blue, Gray windows, Green phosphor, Amber, Monochrome,
-Ocean, Crimson, Plum, or Bad Cluster, in the copper and teal of
-badcluster.dev), or, under "Edit
+Ocean, Crimson, Plum, Dark blue and Dark cyan, which have no colored
+backgrounds, or Bad Cluster, in the copper and teal of badcluster.dev), or,
+under "Edit
 colors", give each part of the interface (title bar, selected entry,
 windows, input fields, key hints, ...) its own foreground and background
 from a grid of the 16 x 8 combinations, as in QModem and Telix. Changes

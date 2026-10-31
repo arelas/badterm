@@ -231,8 +231,36 @@ const BAD_CLUSTER: Palette = Palette([
     0xE9E7E2, // white: ink
 ]);
 
+/// A scheme with no fills: everything on black, the borders in the dark
+/// shade of one color, text in its bright shade, and white for what is
+/// chosen or typed. (VGA's dark blue is too dark to read as text.)
+const fn unfilled(dark: u8, bright: u8) -> Theme {
+    Theme {
+        title_bar: a(bright, BLACK),
+        border: a(dark, BLACK),
+        headings: a(WHITE, BLACK),
+        entries: a(bright, BLACK),
+        selected: a(WHITE, BLACK),
+        info: a(bright, BLACK),
+        help: a(bright, BLACK),
+        help_key: a(WHITE, BLACK),
+        status: a(bright, BLACK),
+        status_alt: a(WHITE, BLACK),
+        window: a(dark, BLACK),
+        window_title: a(WHITE, BLACK),
+        window_text: a(bright, BLACK),
+        field_name: a(bright, BLACK),
+        field_value: a(WHITE, BLACK),
+        input: a(WHITE, BLACK),
+        keys: a(WHITE, BLACK),
+        note: a(DARK_GRAY, BLACK),
+        error: a(LIGHT_RED, BLACK),
+        palette: None,
+    }
+}
+
 /// The built-in schemes, by name; the first is the default.
-pub const SCHEMES: [(&str, Theme); 10] = [
+pub const SCHEMES: [(&str, Theme); 12] = [
     (
         "Midnight",
         Theme {
@@ -458,6 +486,8 @@ pub const SCHEMES: [(&str, Theme); 10] = [
             palette: None,
         },
     ),
+    ("Dark blue", unfilled(BLUE, LIGHT_BLUE)),
+    ("Dark cyan", unfilled(CYAN, LIGHT_CYAN)),
     (
         "Bad Cluster",
         Theme {
