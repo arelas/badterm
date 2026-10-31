@@ -24,7 +24,7 @@ import urllib.request
 API = "https://git.badcluster.dev/api/v1/repos/arelas/badterm/releases?limit=1"
 DEST = os.environ.get("BADTERM_SITE_DEST", "ubuntu@oracle1.badcluster.dev:/var/www/badterm/")
 SITE = os.path.dirname(os.path.abspath(__file__))
-FILES = ["index.html", "style.css", "img"]
+FILES = ["index.html", "style.css", "img", "fonts"]
 
 
 def latest_release():
