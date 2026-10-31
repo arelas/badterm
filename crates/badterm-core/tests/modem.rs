@@ -1,7 +1,11 @@
 //! Dialing out through a modem: a fake Hayes modem on the other side of a
 //! pseudo-terminal answers the init string and the dial, connects, passes
-//! data, and drops the carrier. Unix only (pseudo-terminals).
-#![cfg(unix)]
+//! data, and drops the carrier.
+//!
+//! Linux only: macOS pseudo-terminals refuse the serial port settings
+//! (`ENOTTY`, "Not a typewriter") that real serial ports and Linux
+//! pseudo-terminals take, and Windows has none.
+#![cfg(target_os = "linux")]
 
 use std::io::{Read, Write};
 use std::sync::mpsc;
