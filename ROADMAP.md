@@ -1,16 +1,21 @@
 # Roadmap
 
-The goal is feature parity with the classic BBS clients: SyncTERM, NetRunner
-and mTelnet. Items are roughly in priority order within each section.
+The goal is feature parity with the classic BBS clients: SyncTERM, NetRunner,
+QModem and Telix. Items are roughly in priority order within each section.
 
 ## Punch list
 
 The next things to do, in order.
 
+- [ ] Try the newer features against the real thing: a modem (or tcpser or
+      a WiFi modem), a RIPscrip BBS, an Avatar BBS, a Kermit download from a
+      live board
 - [ ] Try each release on a real desktop on all three OSes. Done on
       0.1.4: calling Vortex, Alt-D while connected, Alt-Enter. Still to try:
       Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
-      mouse copy, Alt-S, directory search and sort
+      mouse copy, Alt-S, directory search and sort, the bell's flash, the
+      color schemes
+- [ ] winget and Homebrew, updated from CI on each release
 
 ## Done (0.1)
 
@@ -72,6 +77,12 @@ The next things to do, in order.
 - [x] NetRunner phone book import
 - [x] ZMODEM crash recovery: interrupted downloads resume
 - [x] PETSCII (Commodore 64) and ATASCII (Atari 8-bit) emulation with their own fonts
+- [x] Renamed from Phosphor to BadTerm, moving folders and passwords over;
+      published on crates.io
+- [x] Color schemes with their own palettes (Bad Cluster), and ones without
+      fills (Dark blue, Dark cyan)
+- [x] Website: help page, and an extras page of themes and bezels from
+      `extras/`
 
 ## Connections
 
@@ -102,13 +113,14 @@ The next things to do, in order.
 - [ ] More per-entry settings: hide status line
 - [ ] Multiple directories / groups
 - [x] Import more formats: qodem
-- [ ] More in the settings screen: default font and screen mode, scaling,
-      key bindings
+- [ ] More in the settings screen: default font and screen mode, key bindings
 - [ ] Multiple simultaneous sessions (tabs)
 - [ ] Scripting (e.g. Lua or Rhai); per-entry macros
+- [ ] More themes and bezels in `extras/`, from others
 - [ ] Optional curses/TUI front end built on `badterm-core`
 
 ## Packaging
 
 - [ ] macOS Developer ID signing and notarization
-- [ ] Flatpak; an MSI for managed Windows deployments
+- [ ] winget and Homebrew (see the punch list); Flathub
+- [ ] An MSI for managed Windows deployments

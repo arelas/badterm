@@ -44,5 +44,6 @@ and the Atari's in ATASCII order, each 128 glyphs followed by the same 128
 inverted. They are BadTerm's own, made by `make_retro_fonts.py`, not
 copies of those machines' character ROMs: the letters, digits and
 punctuation are the VGA 8x8 font's above, and the graphics characters are
-drawn by rules in the script. Which character goes where follows Rebecca
+drawn by rules in the script (so is the Atari's `|`, a solid bar there
+where the VGA's has a gap). Which character goes where follows Rebecca
 Bettencourt's mapping tables (https://github.com/kreativekorp/charset).

@@ -1,7 +1,18 @@
 # Website
 
-A static page: `index.html`, `style.css` and `img/`, published at
-<https://badterm.com/>.
+A static site published at <https://badterm.com/>:
+
+- `index.html`: the home page;
+- `help.html`: how to use BadTerm (keep it in step with the app's keys and
+  settings, and the README);
+- `extras.html`: the themes and bezels to download, listed by `deploy.py`
+  from the repository's [`extras/`](../extras/README.md) folder (in place of
+  its `<!-- themes -->` and `<!-- bezels -->`);
+- `style.css`, `img/`, and `fonts/` (IBM Plex, served from the site itself
+  because its Content-Security-Policy allows nothing else; see
+  `fonts/OFL.txt`).
+
+Its look follows badcluster.dev: the void, copper and teal.
 
 ## Publishing
 
@@ -13,8 +24,11 @@ site/deploy.py            # or --dry-run to build without uploading
 ```
 
 It points the download buttons at the newest release's files, leaving out
-any that release lacks (along with text marked `data-needs` for them), and
-rsyncs the result to `/var/www/badterm` on oracle1, where nginx serves it
+any that release lacks (along with text marked `data-needs` for them),
+fills in the version, builds the extras page, adds `?v=` and a hash of the
+file to every link to a stylesheet, image, font or extra (Cloudflare and
+browsers keep those for a week or more, so a changed file needs a new
+address), and rsyncs the result to `/var/www/badterm` on oracle1, where nginx serves it
 as badterm.com (`/etc/nginx/sites-available/badterm.com`, behind
 Cloudflare). The old address, badcluster.dev/phosphor/, redirects there.
 
@@ -36,11 +50,15 @@ The BBS screenshots come from a real session, drawn by BadTerm itself:
    ```
 
 The text-mode screenshots (`dialer.png`, `find.png`, `login.png`) come from
-the renderer's snapshot test:
+the renderer's snapshot test, `badcluster.png` from its theme snapshot,
+`rip.png` from its RIP snapshot, and `c64.png` and `atari.png` from its
+retro snapshot:
 
 ```sh
 BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm snapshot -- --ignored
 ```
+
+They are saved as palette PNGs (a few kilobytes each).
 
 CRT screenshots are saved as JPEG (they are soft gradients), text-mode
 ones as PNG.

@@ -2,8 +2,10 @@
 
 *The badass terminal.*
 
-A cross-platform ANSI-BBS client (telnet, SSH and RLogin) written in Rust, in the tradition of
-SyncTERM, NetRunner and mTelnet. Runs natively on Windows, macOS and Linux.
+A cross-platform BBS client (telnet, SSH, RLogin and real modems) written in
+Rust, in the tradition of SyncTERM, NetRunner, QModem and Telix. Runs
+natively on Windows, macOS and Linux. Website, help and downloads:
+<https://badterm.com/>.
 
 BadTerm draws its own text-mode screen using real CP437 bitmap fonts, so ANSI
 art renders pixel-for-pixel as it did on a VGA card. It doesn't depend on the
@@ -13,11 +15,11 @@ BadTerm was called Phosphor up to version 0.1.16. Its dialing directory,
 settings, themes, bezels and saved passwords move over the first time
 BadTerm starts.
 
-> **Status:** early development (0.1). Telnet, telnet over TLS, SSH, RLogin
-> and raw TCP connections,
-> ZMODEM file transfers, ANSI-BBS emulation, iCE colors, scrollback, capture and
-> the dialing directory with import/export work. See [ROADMAP.md](ROADMAP.md)
-> for what's planned.
+> **Status:** early development (0.1), in daily use. Telnet, telnet over
+> TLS, SSH, RLogin, raw TCP and modem connections; ZMODEM, YMODEM, XMODEM
+> and Kermit transfers; ANSI-BBS, Avatar, RIPscrip, PETSCII and ATASCII;
+> and the dialing directory with import and export all work. See
+> [ROADMAP.md](ROADMAP.md) for what's planned.
 
 ## Features
 
@@ -177,14 +179,16 @@ badterm bbs.example.org         connect directly (also host:port,
                                  rlogin://user@host, raw://host:port,
                                  ssh://user@host:port)
 badterm --import syncterm.lst   add entries from a SyncTERM, NetRunner (.phn),
-                                 MagiTerm or EtherTerm directory, a CSV list (ours, or the Telnet BBS
+                                 Qodem (fonebook.txt), MagiTerm or EtherTerm
+                                 directory, a CSV list (ours, or the Telnet BBS
                                  Guide's bbslist.csv), JSON or TOML
 badterm --export bbses.csv      write the directory (format from extension)
 badterm --paths                 show where data is stored
 badterm --render art.ans out.png
                                  draw an ANSI file to a PNG (add --screen for
                                  just the last 80x25 screen, --crt color|green|
-                                 amber, --nine-dot, --aspect)
+                                 amber, --scanlines, --curvature, --nine-dot,
+                                 --aspect, --font for Amiga art, --bezel)
 ```
 
 On Windows, BadTerm is a GUI program, so `cmd` doesn't wait for it and its
@@ -229,8 +233,8 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-C` | Start/stop capturing to a file |
 | `Alt-S` | Save the scrollback (`.ans`, `.txt`) or the screen (`.png`) |
 | drag with the mouse | Copy the selected text (`Shift` on release: as ANSI) |
-| `Alt-U` | Upload files: ZMODEM, YMODEM or XMODEM (or drop files on the window) |
-| `Alt-G` | Download with YMODEM or XMODEM (ZMODEM downloads start by themselves) |
+| `Alt-U` | Upload files: ZMODEM, YMODEM, XMODEM or Kermit (or drop files on the window) |
+| `Alt-G` | Download with YMODEM, XMODEM or Kermit (ZMODEM and Kermit downloads start by themselves) |
 | `Alt-V`, `Shift-Ins` | Paste from the clipboard |
 | `Alt-Enter` | Toggle fullscreen (fills the screen, keeping the shape) |
 | `Alt-P` | Phosphor mode: off, color CRT, green screen, amber screen |
@@ -251,7 +255,7 @@ that BBS's mode rather than the global one. Its "iCE colors" setting is Auto (th
 turns them on with `CSI ?33h`, as before), On or Off; with On or Off, `Alt-I`
 changes that BBS's setting too.
 
-`Alt-O` (or `O` in the dialing directory) opens the settings, on four
+`Alt-O` (or `O` in the dialing directory) opens the settings, on five
 tabs (`Tab` and `Shift-Tab`, or `PgUp`/`PgDn`, move between them).
 **Folders** sets where downloads, captures and saved screens go and where
 the upload and ANSI-art pickers start (`Enter` to change, `Del` for the
@@ -260,8 +264,9 @@ mode, its scanlines (off, light, medium or strong) and the curve of its
 glass (off for a flat screen, slight, medium or strong), the aspect ratio,
 scaling (fit keeping the shape; auto, which is whole numbers in a window
 and fit in full screen; always whole numbers; or stretch to fill),
-character cells, ANSI music, redialing, and the colors
-of BadTerm's own screens. Pick one of the color schemes (Midnight, the
+character cells, ANSI music, the bell (a beep, a flash of the screen, both
+or neither; an entry can have its own), redialing, the modem (see "Dialing
+with a modem" below), and the colors of BadTerm's own screens. Pick one of the color schemes (Midnight, the
 default; Classic blue, Gray windows, Green phosphor, Amber, Monochrome,
 Ocean, Crimson, Plum, Dark blue and Dark cyan, which have no colored
 backgrounds, or Bad Cluster, in the copper and teal of badcluster.dev), or,
@@ -303,6 +308,10 @@ A theme can also bring its own 16 colors, in place of the VGA's, for
 BadTerm's screens (the BBS's keep theirs), as the Bad Cluster scheme does:
 `palette = ["#0E1015", "#161922", ...]` under `[colors]`, sixteen
 `#RRGGBB` colors in the order above.
+
+More themes, and more bezels, are on the website's
+[extras page](https://badterm.com/extras.html), from the
+[extras](extras/README.md) folder here, where you can add your own.
 
 "Monitor bezel" draws a monitor around the screen: a beige 1980s monitor,
 a platinum 1990s one, a charcoal late-1990s one, or a terminal (original
@@ -359,6 +368,30 @@ RLogin sends the entry's password as the "client user name" and its user
 name as the "server user name", as SyncTERM does, which is how Synchronet
 and other BBSes log RLogin callers in.
 
+### Dialing with a modem
+
+BadTerm dials out through a modem on a serial port, a USB modem, a WiFi
+modem, or anything that acts like one (tcpser, for example). In Settings,
+on the Modem tab, set the serial port (`/dev/ttyUSB0`, `/dev/cu.usbmodem…`,
+`COM3`; `Enter` types it, `←` `→` step through the ports found), the speed
+between the computer and the modem, the flow control (RTS/CTS for almost
+every modem), the init string (`ATZ`, or `AT&F`) and the dial command
+(`ATDT` for tone, `ATDP` for pulse). Then give a directory entry the
+protocol Modem and the phone number as its address.
+
+Calling it shows the modem's replies as it dials. BUSY, NO ANSWER and the
+like are redialed as a busy BBS is; the call ends when the carrier drops
+(DCD, or NO CARRIER where the port doesn't report it), and `Alt-H` drops
+DTR, then sends `+++` and `ATH0`.
+
+### Emulations
+
+An entry's "Emulation" sets how what the BBS sends is shown: CP437
+(ANSI-BBS, the usual), UTF-8, Avatar (AVT/0 and AVT/0+ alongside ANSI),
+RIPscrip (graphics: click a button or mouse area to send its command; the
+text screen is 80x43 over the 640x350 graphics), PETSCII (Commodore 64:
+F1 to F8 are the C64's, `Esc` is RUN/STOP) or ATASCII (Atari 8-bit).
+
 Passwords you enter in the directory, remember from the login dialog, or
 import with a SyncTERM list are moved into the OS keychain when the
 directory is saved. Exported directories don't include them.
@@ -369,7 +402,9 @@ Keys are sent the way ANSI-BBS software expects: arrows as `ESC [ A..D`,
 
 ## Website
 
-`site/` holds the project's static web page; see [site/README.md](site/README.md).
+`site/` holds the website: the home page, the help page and the extras
+page of themes and bezels (built from `extras/`); see
+[site/README.md](site/README.md).
 
 ## Project layout
 
@@ -378,6 +413,9 @@ crates/badterm-core   front-end independent library: CP437, screen model,
                        ANSI parser, telnet, dialing directory, sessions
 crates/badterm        the windowed client (winit + softbuffer), renderer,
                        text-mode dialer UI
+extras/               themes and bezels offered for download
+site/                 the website
+packaging/            installers and packages (Windows, macOS, Linux)
 ```
 
 `badterm-core` has no GUI dependencies, so it can drive other front ends
@@ -390,14 +428,21 @@ cargo test
 ```
 
 The ZMODEM interoperability tests run against lrzsz's `sz` and `rz` when
-they are installed (`apt install lrzsz`, `brew install lrzsz`) and are skipped
-otherwise; CI sets `BADTERM_REQUIRE_LRZSZ=1` so they can't be skipped there.
+they are installed (`apt install lrzsz`, `brew install lrzsz`), and the
+Kermit ones against C-Kermit (`apt install ckermit`); they are skipped
+otherwise. CI sets `BADTERM_REQUIRE_LRZSZ=1` and `BADTERM_REQUIRE_KERMIT=1`
+so they can't be skipped there. On Linux, a fake modem on a
+pseudo-terminal tests dialing. In CI on Windows and macOS, the move from
+Phosphor's folders and passwords is tested too.
 
 To render sample frames to images for visual inspection:
 
 ```sh
 BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm snapshot -- --ignored
 ```
+
+The extras' previews (and the bezels themselves) are drawn the same way;
+see [extras/README.md](extras/README.md).
 
 ## License
 
@@ -406,5 +451,8 @@ Copyright (C) 2026 Bad Cluster.
 BadTerm is free software, licensed under the GNU General Public License,
 version 3 or (at your option) any later version. See [LICENSE](LICENSE).
 
-The bundled VGA fonts come from DOSBox (GPL-2.0-or-later). See
+The bundled VGA fonts come from DOSBox (GPL-2.0-or-later), and the Amiga
+fonts from TrueSchool's collection (GPL with the font exception). See
 [crates/badterm/assets/fonts/README.md](crates/badterm/assets/fonts/README.md).
+The website uses IBM Plex, under the SIL Open Font License
+([site/fonts/OFL.txt](site/fonts/OFL.txt)).
