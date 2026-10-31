@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BadTerm extras</title>
+  <meta name="description" content="More color themes and monitor bezels for BadTerm, to download and import, and how to share your own.">
+  <meta name="theme-color" content="#0E1015">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="preload" href="fonts/ibm-plex-mono-600.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="wordmark" href="index.html"><img src="img/icon.png" width="28" height="28" alt="">BADTERM</a>
+      <nav aria-label="Pages">
+        <a href="index.html#features">Features</a>
+        <a href="help.html">Help</a>
+        <a href="extras.html" aria-current="page">Extras</a>
+        <a class="nav-download" href="index.html#download">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="wrap section page-head">
+      <p class="eyebrow">Extras</p>
+      <h1 class="doc-title">Themes and bezels</h1>
+      <p class="section-lede">More colors for BadTerm's screens and more monitors to put them in. Download one, bring it in, and it's in the list in Settings. Made one you like? Share it.</p>
+    </section>
+
+    <section class="wrap section" id="themes">
+      <p class="eyebrow">Color themes</p>
+      <h2>Themes</h2>
+      <p class="section-lede">To use one: download it, then in BadTerm open Settings (<kbd>Alt-O</kbd>), Colors, "Import a theme", and give it the file.</p>
+      <div class="catalog">
+        <!-- themes -->
+      </div>
+    </section>
+
+    <section class="wrap section" id="bezels">
+      <p class="eyebrow">Monitor bezels</p>
+      <h2>Bezels</h2>
+      <p class="section-lede">To use one: download it into BadTerm's <code>bezels</code> folder (<code>badterm --paths</code> shows where), then choose it in Settings, Display, "Monitor bezel".</p>
+      <div class="catalog wide-cards">
+        <!-- bezels -->
+      </div>
+    </section>
+
+    <section class="wrap section" id="share">
+      <p class="eyebrow">Share yours</p>
+      <h2>Add to the collection</h2>
+      <div class="prose">
+        <p>These files live in the <a href="https://git.badcluster.dev/arelas/badterm/src/branch/main/extras"><code>extras</code> folder</a> of BadTerm's repository, and the page is made from it.</p>
+        <ul>
+          <li><b>A theme:</b> set up your colors in Settings, then "Save as a theme". Add a <code>description</code> line to the file and put it in <code>extras/themes</code>.</li>
+          <li><b>A bezel:</b> a PNG of a monitor whose screen area is see-through, in <code>extras/bezels</code>, with a few lines about it in <code>bezels.toml</code>. Your own art only, please, and no makers' names or logos.</li>
+        </ul>
+        <p>Then send a pull request, or bring the file to <a href="telnet://vortexbbs.com">The Vortex BBS</a>. The folder's <a href="https://git.badcluster.dev/arelas/badterm/src/branch/main/extras/README.md">README</a> has the details.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <div>
+        <p class="wordmark small"><img src="img/icon.png" width="20" height="20" alt="">BADTERM</p>
+        <p>Free software under the GNU General Public License, version 3 or later. Themes and bezels here are shared under the same license unless they say otherwise.</p>
+      </div>
+      <ul class="links">
+        <li><a href="https://git.badcluster.dev/arelas/badterm">Source code</a></li>
+        <li><a href="https://git.badcluster.dev/arelas/badterm/releases">Releases</a></li>
+        <li><a href="https://crates.io/crates/badterm">crates.io</a></li>
+        <li><a href="https://git.badcluster.dev/arelas/badterm/issues">Report a problem</a></li>
+      </ul>
+    </div>
+    <div class="wrap">
+      <p class="copyright">Copyright &copy; 2026 <a href="https://badcluster.dev/">Bad Cluster</a></p>
+    </div>
+  </footer>
+</body>
+</html>

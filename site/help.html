@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BadTerm help</title>
+  <meta name="description" content="How to use BadTerm: calling BBSes, the dialing directory, file transfers, RIPscrip, PETSCII and ATASCII, modems, themes, bezels and the keys.">
+  <meta name="theme-color" content="#0E1015">
+  <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="preload" href="fonts/ibm-plex-mono-600.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="wordmark" href="index.html"><img src="img/icon.png" width="28" height="28" alt="">BADTERM</a>
+      <nav aria-label="Pages">
+        <a href="index.html#features">Features</a>
+        <a href="help.html" aria-current="page">Help</a>
+        <a href="extras.html">Extras</a>
+        <a class="nav-download" href="index.html#download">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap doc">
+    <aside class="toc" aria-label="Contents">
+      <p class="eyebrow">Help</p>
+      <ol>
+        <li><a href="#start">Getting started</a></li>
+        <li><a href="#keys">Keys</a></li>
+        <li><a href="#directory">The dialing directory</a></li>
+        <li><a href="#login">Logging in</a></li>
+        <li><a href="#transfers">File transfers</a></li>
+        <li><a href="#systems">Emulations and systems</a></li>
+        <li><a href="#modem">Dialing with a modem</a></li>
+        <li><a href="#look">The look</a></li>
+        <li><a href="#saving">Capturing and saving</a></li>
+        <li><a href="#macros">Keyboard macros</a></li>
+        <li><a href="#files">Where things are kept</a></li>
+        <li><a href="#cli">The command line</a></li>
+        <li><a href="#problems">When something's wrong</a></li>
+      </ol>
+    </aside>
+
+    <article class="prose">
+      <h1 class="doc-title">BadTerm help</h1>
+      <p class="lede">Everything BadTerm does, and how to get at it. Inside BadTerm, <kbd>Alt-Z</kbd> shows every key on one screen. On a Mac, every <kbd>Alt</kbd> key below is <kbd>Cmd</kbd>.</p>
+
+      <h2 id="start">Getting started</h2>
+      <p>Install BadTerm from the <a href="index.html#download">downloads</a>, or with <code>cargo install badterm</code>, and start it. After a moment's splash screen it waits, not connected.</p>
+      <ol>
+        <li>Press <kbd>Alt-D</kbd> for the dialing directory. <a href="telnet://vortexbbs.com">The Vortex BBS</a>, BadTerm's home board, is already in it.</li>
+        <li>Choose a BBS with the arrow keys and press <kbd>Enter</kbd> to call it.</li>
+        <li>To call one that isn't in the directory, press <kbd>Q</kbd> (quick connect) and type its address: <code>bbs.example.org</code>, <code>bbs.example.org:2323</code>, <code>ssh://guest@bbs.example.org</code>.</li>
+        <li><kbd>Alt-H</kbd> hangs up; <kbd>Alt-X</kbd> leaves BadTerm.</li>
+      </ol>
+      <p>BadTerm also answers <code>telnet://</code> links in your browser (the Windows installer and the macOS app set that up), and takes an address on its command line: <code>badterm bbs.example.org</code>.</p>
+      <p>Looking for boards to call? The <a href="https://www.telnetbbsguide.com/">Telnet BBS Guide</a> lists hundreds, and its list imports straight into the directory.</p>
+
+      <h2 id="keys">Keys</h2>
+      <div class="keys">
+        <section>
+          <h3>Calling</h3>
+          <dl>
+            <dt><kbd>Alt-D</kbd></dt><dd>Dialing directory</dd>
+            <dt><kbd>Alt-R</kbd></dt><dd>Call again, or redial now</dd>
+            <dt><kbd>Alt-L</kbd></dt><dd>Send your login (name, then password)</dd>
+            <dt><kbd>Alt-1</kbd>…<kbd>Alt-0</kbd></dt><dd>Send a keyboard macro</dd>
+            <dt><kbd>Alt-H</kbd></dt><dd>Hang up</dd>
+            <dt><kbd>Alt-X</kbd></dt><dd>Exit BadTerm</dd>
+          </dl>
+        </section>
+        <section>
+          <h3>Files</h3>
+          <dl>
+            <dt><kbd>Alt-U</kbd></dt><dd>Upload: ZMODEM, YMODEM, XMODEM, Kermit</dd>
+            <dt><kbd>Alt-G</kbd></dt><dd>Download with YMODEM, XMODEM or Kermit</dd>
+            <dt><kbd>Alt-C</kbd></dt><dd>Capture the session to a file</dd>
+            <dt><kbd>Alt-S</kbd></dt><dd>Save the scrollback or the screen</dd>
+            <dt><kbd>Alt-F</kbd></dt><dd>View ANSI art</dd>
+          </dl>
+        </section>
+        <section>
+          <h3>Scrollback and clipboard</h3>
+          <dl>
+            <dt><kbd>Alt-B</kbd></dt><dd>Scrollback (or <kbd>Shift-PgUp</kbd>)</dd>
+            <dt>Drag</dt><dd>Copy text; hold <kbd>Shift</kbd> as you let go to copy it as ANSI</dd>
+            <dt><kbd>Alt-V</kbd></dt><dd>Paste (or <kbd>Shift-Ins</kbd>)</dd>
+          </dl>
+        </section>
+        <section>
+          <h3>Settings and display</h3>
+          <dl>
+            <dt><kbd>Alt-O</kbd></dt><dd>Settings and colors</dd>
+            <dt><kbd>Alt-P</kbd></dt><dd>Phosphor mode (the CRT look)</dd>
+            <dt><kbd>Alt-A</kbd></dt><dd>Aspect ratio</dd>
+            <dt><kbd>Alt-W</kbd></dt><dd>9-dot or 8-dot characters</dd>
+            <dt><kbd>Alt-Enter</kbd></dt><dd>Full screen</dd>
+            <dt><kbd>Alt-I</kbd></dt><dd>iCE colors or blinking</dd>
+            <dt><kbd>Alt-E</kbd></dt><dd>CP437 or UTF-8</dd>
+            <dt><kbd>Alt-M</kbd></dt><dd>ANSI music</dd>
+            <dt><kbd>Alt-Z</kbd></dt><dd>Help</dd>
+          </dl>
+        </section>
+        <section>
+          <h3>In the dialing directory</h3>
+          <dl>
+            <dt><kbd>Enter</kbd></dt><dd>Call</dd>
+            <dt><kbd>Ins</kbd> / <kbd>E</kbd></dt><dd>Add / edit an entry</dd>
+            <dt><kbd>Del</kbd></dt><dd>Remove</dd>
+            <dt><kbd>P</kbd></dt><dd>Pin to the top</dd>
+            <dt><kbd>/</kbd> or <kbd>F3</kbd></dt><dd>Find as you type</dd>
+            <dt><kbd>S</kbd></dt><dd>Sort: by name, last called, or calls</dd>
+            <dt><kbd>Q</kbd></dt><dd>Quick connect</dd>
+            <dt><kbd>I</kbd> / <kbd>X</kbd></dt><dd>Import / export</dd>
+            <dt><kbd>O</kbd></dt><dd>Settings</dd>
+          </dl>
+        </section>
+      </div>
+
+      <h2 id="directory">The dialing directory</h2>
+      <p>Each entry keeps how to reach a BBS and how to show it. In the entry form, <kbd>Tab</kbd> and the arrow keys move between fields, and <kbd>Space</kbd> or <kbd>←</kbd> <kbd>→</kbd> change the ones with choices:</p>
+      <dl class="fields">
+        <dt>Address, Port, Protocol</dt><dd>Telnet, Telnet over TLS ("TelnetS", port 992), SSH, RLogin, raw TCP, or Modem, where the address is a phone number (see <a href="#modem">modems</a>). The address may carry the port: <code>host:2323</code>.</dd>
+        <dt>Emulation</dt><dd>CP437 (ANSI-BBS, the usual), UTF-8, Avatar, RIPscrip, PETSCII (Commodore 64) or ATASCII (Atari). See <a href="#systems">emulations</a>.</dd>
+        <dt>Screen mode, Font</dt><dd>80x25 to 132x52, and the Amiga fonts for Amiga boards.</dd>
+        <dt>iCE colors</dt><dd>Auto leaves it to the BBS; On shows bright backgrounds; Off blinks.</dd>
+        <dt>Phosphor mode, Bell</dt><dd>This BBS's own CRT look and bell, or the defaults from Settings.</dd>
+        <dt>Baud rate</dt><dd>Show what arrives at a modem's speed, so ANSI animations play as they were drawn.</dd>
+        <dt>User name, Password, Auto-login</dt><dd>See <a href="#login">logging in</a>.</dd>
+        <dt>Capture, Capture file</dt><dd>Record every call to this BBS; see <a href="#saving">capturing</a>.</dd>
+      </dl>
+      <p><kbd>I</kbd> imports a directory from SyncTERM (<code>.lst</code>), NetRunner (<code>.phn</code>), Qodem (<code>fonebook.txt</code>), EtherTerm (<code>.xml</code>), MagiTerm (<code>magiterm.ini</code>), CSV (including the Telnet BBS Guide's list), JSON or TOML. You can also drop the file on BadTerm's window. <kbd>X</kbd> exports one; the file name's extension picks the format.</p>
+      <p>A BBS that answers busy, or doesn't answer, is called again every 15 seconds, up to ten times. <kbd>Alt-R</kbd> calls at once; <kbd>Esc</kbd> stops.</p>
+
+      <h2 id="login">Logging in</h2>
+      <p>With <b>Auto-login</b> on, BadTerm answers a BBS's login and password questions with the entry's user name and password. <kbd>Alt-L</kbd> sends them by hand: the name the first time, the password the next. Passwords are kept in your system's keychain (Keychain on macOS, Credential Manager on Windows, the Secret Service on Linux); where there is none, they stay in the directory file.</p>
+      <p><b>RLogin</b> logs straight in with the user name and password. <b>SSH</b> tries, in order: no password (for BBSes that run their own login), the key file set in the entry, your SSH agent, your <code>~/.ssh</code> keys, then a password or code. Anything it needs and doesn't have, it asks for, and offers to remember a password. The first time you call an SSH or TLS BBS, BadTerm remembers its key; if the key ever changes, BadTerm refuses to connect and says why.</p>
+
+      <h2 id="transfers">File transfers</h2>
+      <ul>
+        <li><b>ZMODEM</b> downloads start by themselves when the BBS sends a file. If one is interrupted, it is kept as <code>name.part</code> and picks up where it stopped the next time the BBS sends that file.</li>
+        <li><b>Kermit</b> downloads start by themselves too.</li>
+        <li>For <b>YMODEM</b>, <b>YMODEM-G</b> and <b>XMODEM</b>, start the BBS's side first, then press <kbd>Alt-G</kbd> and choose the protocol. XMODEM asks what to call the file.</li>
+        <li>To <b>upload</b>, press <kbd>Alt-U</kbd> (or drop files on the window), pick the files (<kbd>Space</kbd> marks several), and choose the protocol with <kbd>←</kbd> <kbd>→</kbd>. Start the BBS's receive first, except with ZMODEM, which BadTerm notices by itself.</li>
+      </ul>
+      <p>Downloads go to <code>Downloads/BadTerm</code>; Settings, Folders, changes that. A download never replaces a file that's already there. <kbd>Esc</kbd> cancels a transfer.</p>
+
+      <h2 id="systems">Emulations and systems</h2>
+      <dl class="fields">
+        <dt>CP437</dt><dd>ANSI-BBS in the IBM PC character set: what almost every BBS sends.</dd>
+        <dt>UTF-8</dt><dd>For systems that send Unicode. <kbd>Alt-E</kbd> switches between the two during a call.</dd>
+        <dt>Avatar</dt><dd>AVT/0 and AVT/0+, the compact codes of Opus, Maximus and other FidoNet-era BBSes, alongside ANSI.</dd>
+        <dt>RIPscrip</dt><dd>The graphics of RIPterm-era BBSes: scenes of lines, shapes and fills on a 640x350 screen, with the text screen (80x43) over them. Click a button or a mouse area to send its command. BadTerm tells the BBS it understands RIP when asked, so the BBS sends its graphics. Icon and scene files aren't supported yet.</dd>
+        <dt>PETSCII</dt><dd>Commodore 64 BBSes, on a 40x25 screen in the C64's colors and character sets. The C64's F1 to F8 are on your F1 to F8, and RUN/STOP is <kbd>Esc</kbd>.</dd>
+        <dt>ATASCII</dt><dd>Atari 8-bit BBSes, on a 40x24 screen in light blue on blue.</dd>
+      </dl>
+      <p>Amiga boards look right in an Amiga font (Topaz, MicroKnight, P0T-NOoDLE, mO'sOul), chosen in the entry, or by the BBS itself.</p>
+
+      <h2 id="modem">Dialing with a modem</h2>
+      <p>BadTerm can dial out through a real modem on a serial port, a USB modem, a WiFi modem, or a program that acts like one (such as tcpser).</p>
+      <ol>
+        <li>In Settings (<kbd>Alt-O</kbd>), on the Modem tab, set the <b>serial port</b> (type it with <kbd>Enter</kbd>, or step through the ports BadTerm finds with <kbd>←</kbd> <kbd>→</kbd>): <code>/dev/ttyUSB0</code> on Linux, <code>/dev/cu.usbmodem…</code> on a Mac, <code>COM3</code> on Windows.</li>
+        <li>Set the <b>speed</b> (between the computer and the modem: 115200 suits most), <b>flow control</b> (RTS/CTS for almost every modem), the <b>init string</b> (<code>ATZ</code>, or <code>AT&amp;F</code> for the factory settings) and the <b>dial command</b> (<code>ATDT</code> for tone, <code>ATDP</code> for pulse).</li>
+        <li>Add a directory entry with the protocol <b>Modem</b> and the phone number as its address.</li>
+      </ol>
+      <p>When you call it, you see the modem's replies as it dials. BUSY and NO ANSWER are redialed like a busy BBS; the call ends when the carrier drops (NO CARRIER). <kbd>Alt-H</kbd> hangs up.</p>
+
+      <h2 id="look">The look</h2>
+      <ul>
+        <li><b>Phosphor mode</b> (<kbd>Alt-P</kbd>) draws a CRT: glowing text, scanlines and curved glass, in color or as a green or amber monitor. Settings sets how strong the scanlines are and how curved the glass is.</li>
+        <li><kbd>Alt-W</kbd> switches between 8- and 9-dot characters (a VGA's 9th column joins up the line drawing). <kbd>Alt-A</kbd> picks the shape: square pixels, or 4:3 as on a CRT, or 16:10 or 16:9.</li>
+        <li>Settings, <b>Scaling</b>: whole-number steps for exact pixels, fit, or stretch to fill. <kbd>Alt-Enter</kbd> is full screen.</li>
+        <li>Settings, <b>Monitor bezel</b>: draw a monitor around the screen. There are four built in; more are in the <a href="extras.html#bezels">extras</a>, and you can use a photo of your own (a PNG whose screen is see-through), put in the <code>bezels</code> folder.</li>
+        <li>Settings, Colors: twelve <b>color schemes</b> for BadTerm's own screens, or color each part yourself. More are in the <a href="extras.html#themes">extras</a>. "Import a theme" brings one in; "Save as a theme" writes yours to a file to share.</li>
+        <li>Settings, General, <b>Bell</b>: beep, flash the screen, both, or nothing. A directory entry can have its own.</li>
+      </ul>
+
+      <h2 id="saving">Capturing and saving</h2>
+      <ul>
+        <li><kbd>Alt-C</kbd> starts and stops capturing everything the BBS sends to an <code>.ans</code> file, to view later in any ANSI viewer, or in BadTerm with <kbd>Alt-F</kbd>.</li>
+        <li>An entry's <b>Capture</b> setting records each call to that BBS from the start. Its <b>Capture file</b> names the file: <code>{name}</code>, <code>{date}</code> and <code>{time}</code> are filled in, and a name ending in <code>.txt</code> keeps only the text, as a log.</li>
+        <li><kbd>Alt-S</kbd> saves the scrollback as <code>.ans</code> or <code>.txt</code>, or the screen as <code>.png</code>.</li>
+        <li><kbd>Alt-F</kbd> views ANSI art files with their SAUCE title, artist and group (<kbd>I</kbd> shows them).</li>
+      </ul>
+
+      <h2 id="macros">Keyboard macros</h2>
+      <p>Settings, General, Keyboard macros, sets what <kbd>Alt-1</kbd> to <kbd>Alt-0</kbd> send, written as in Telix and QModem: <code>^M</code> is Enter, <code>^[</code> Esc, <code>^A</code> to <code>^Z</code> the other control keys, <code>~</code> waits half a second, and <code>{user}</code> and <code>{password}</code> are the directory entry's. <code>{user}^M~{password}^M</code>, for example, logs in.</p>
+
+      <h2 id="files">Where things are kept</h2>
+      <p><code>badterm --paths</code> prints every location. Your directory, settings, themes and bezels are in:</p>
+      <dl class="fields">
+        <dt>Linux</dt><dd><code>~/.config/badterm</code> (captures in <code>~/.local/share/badterm</code>)</dd>
+        <dt>macOS</dt><dd><code>~/Library/Application Support/dev.Bad-Cluster.BadTerm</code></dd>
+        <dt>Windows</dt><dd><code>%APPDATA%\Bad Cluster\BadTerm\config</code></dd>
+      </dl>
+      <p>The directory is <code>dialer.toml</code> and the settings <code>settings.toml</code>, plain text you can edit or back up. Themes go in the <code>themes</code> folder and bezels in <code>bezels</code>. If you used BadTerm when it was called Phosphor, your old folders and passwords moved over by themselves the first time it started.</p>
+
+      <h2 id="cli">The command line</h2>
+<pre><code>badterm                          start, not connected
+badterm bbs.example.org          call a BBS (host:port, telnet://,
+                                 ssh://user@host:port, raw://)
+badterm art.ans                  view ANSI art
+badterm --import syncterm.lst    add entries to the directory
+badterm --export bbses.csv       write the directory out
+badterm --paths                  show where things are kept
+badterm --render art.ans out.png draw ANSI art to an image
+        [--screen] [--crt color|green|amber] [--scanlines S]
+        [--curvature C] [--nine-dot] [--aspect] [--font NAME]
+        [--bezel NAME]</code></pre>
+      <p>On Windows, BadTerm is a windowed program, so to see its output run it from PowerShell, or with <code>start /wait badterm --help</code> in Command Prompt.</p>
+
+      <h2 id="problems">When something's wrong</h2>
+      <dl class="fields">
+        <dt>The BBS looks garbled</dt><dd>It may speak another emulation: try UTF-8 (<kbd>Alt-E</kbd>), or set the entry's emulation to PETSCII, ATASCII, Avatar or RIPscrip, as the BBS's listing says.</dd>
+        <dt>Blinking text where colors should be</dt><dd>Press <kbd>Alt-I</kbd> for iCE colors, or set iCE colors to On in the entry.</dd>
+        <dt>macOS won't open BadTerm</dt><dd>It isn't notarized yet: Control-click it in Applications, choose Open, then Open again.</dd>
+        <dt>Passwords aren't remembered on Linux</dt><dd>BadTerm uses the Secret Service (GNOME Keyring or KWallet). Without one, passwords stay in <code>dialer.toml</code>.</dd>
+        <dt>The modem doesn't answer</dt><dd>Check the serial port and speed in Settings, Modem; try flow control "none" for a cable without RTS/CTS; and make sure nothing else has the port open.</dd>
+        <dt>Something else</dt><dd>Call <a href="telnet://vortexbbs.com">The Vortex BBS</a> and ask, or <a href="https://git.badcluster.dev/arelas/badterm/issues">report a problem</a>.</dd>
+      </dl>
+    </article>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <div>
+        <p class="wordmark small"><img src="img/icon.png" width="20" height="20" alt="">BADTERM</p>
+        <p>Free software under the GNU General Public License, version 3 or later.</p>
+      </div>
+      <ul class="links">
+        <li><a href="https://git.badcluster.dev/arelas/badterm">Source code</a></li>
+        <li><a href="https://git.badcluster.dev/arelas/badterm/releases">Releases</a></li>
+        <li><a href="https://crates.io/crates/badterm">crates.io</a></li>
+        <li><a href="https://git.badcluster.dev/arelas/badterm/issues">Report a problem</a></li>
+      </ul>
+    </div>
+    <div class="wrap">
+      <p class="copyright">Copyright &copy; 2026 <a href="https://badcluster.dev/">Bad Cluster</a></p>
+    </div>
+  </footer>
+</body>
+</html>

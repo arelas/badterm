@@ -20,12 +20,16 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
+import urllib.parse
 import urllib.request
 
 API = "https://git.badcluster.dev/api/v1/repos/arelas/badterm/releases?limit=1"
 DEST = os.environ.get("BADTERM_SITE_DEST", "ubuntu@oracle1.badcluster.dev:/var/www/badterm/")
 SITE = os.path.dirname(os.path.abspath(__file__))
-FILES = ["index.html", "style.css", "img", "fonts"]
+FILES = ["index.html", "help.html", "extras.html", "style.css", "img", "fonts"]
+# The themes and bezels offered for download, in the repository.
+EXTRAS = os.path.join(os.path.dirname(SITE), "extras")
 
 
 def latest_release():
@@ -73,13 +77,58 @@ def fingerprint(text, base):
     def tag(m):
         attr, path = m.group(1), m.group(2)
         try:
-            with open(os.path.join(base, path), "rb") as f:
+            with open(os.path.join(base, urllib.parse.unquote(path)), "rb") as f:
                 digest = hashlib.sha256(f.read()).hexdigest()[:10]
         except OSError:
             return m.group(0)
         return f"{attr}{path}?v={digest}{m.group(3)}"
 
-    return re.sub(r'((?:src|href)="|url\(")((?:img|fonts)/[^"?]+|style\.css)(")', tag, text)
+    return re.sub(r'((?:src|href)="|url\(")((?:img|fonts|extras)/[^"?]+|style\.css)(")', tag, text)
+
+
+def card(preview, alt, name, author, description, download, size):
+    e = html.escape
+    url = urllib.parse.quote
+    return (
+        '<article class="item">'
+        f'<img class="pixels" src="{url(preview)}" width="{size[0]}" height="{size[1]}" alt="{e(alt)}" loading="lazy">'
+        '<div class="item-body">'
+        f"<h3>{e(name)}</h3>"
+        f'<p class="by">by {e(author)}</p>'
+        f"<p>{e(description)}</p>"
+        f'<a class="button" href="{url(download)}" download>Download</a>'
+        "</div></article>"
+    )
+
+
+def extras(page, out):
+    """Copy the themes and bezels into the site, and list them on the
+    extras page (in place of its <!-- themes --> and <!-- bezels -->)."""
+    dest = os.path.join(out, "extras")
+    shutil.copytree(os.path.join(EXTRAS, "previews"), os.path.join(dest, "previews"))
+    os.makedirs(os.path.join(dest, "themes"))
+    os.makedirs(os.path.join(dest, "bezels"))
+    themes = []
+    for name in sorted(os.listdir(os.path.join(EXTRAS, "themes"))):
+        if not name.endswith(".toml"):
+            continue
+        src = os.path.join(EXTRAS, "themes", name)
+        with open(src, "rb") as f:
+            t = tomllib.load(f)
+        shutil.copy(src, os.path.join(dest, "themes", name))
+        stem = name[: -len(".toml")]
+        themes.append(card(f"extras/previews/theme-{stem}.png", f"The dialing directory in the {t['name']} theme",
+                           t["name"], t.get("author", ""), t.get("description", ""), f"extras/themes/{name}", (640, 400)))
+    with open(os.path.join(EXTRAS, "bezels", "bezels.toml"), "rb") as f:
+        catalog = tomllib.load(f)
+    bezels = []
+    for b in catalog.get("bezel", []):
+        shutil.copy(os.path.join(EXTRAS, "bezels", b["file"]), os.path.join(dest, "bezels", b["file"]))
+        stem = b["file"][: -len(".png")].lower().replace(" ", "-")
+        bezels.append(card(f"extras/previews/bezel-{stem}.png", f"BadTerm's splash screen in the {b['name']} bezel",
+                           b["name"], b.get("author", ""), b.get("description", ""), f"extras/bezels/{b['file']}", (640, 560)))
+    print(f"  extras: {len(themes)} themes, {len(bezels)} bezels")
+    return page.replace("<!-- themes -->", "\n".join(themes)).replace("<!-- bezels -->", "\n".join(bezels))
 
 
 def main():
@@ -99,11 +148,16 @@ def main():
         sheet = fingerprint(f.read(), out)
     with open(css, "w", encoding="utf-8") as f:
         f.write(sheet)
-    index = os.path.join(out, "index.html")
-    with open(index, encoding="utf-8") as f:
-        page = fingerprint(stamp(f.read(), release), out)
-    with open(index, "w", encoding="utf-8") as f:
-        f.write(page)
+    for name in ("index.html", "help.html", "extras.html"):
+        path = os.path.join(out, name)
+        with open(path, encoding="utf-8") as f:
+            page = f.read()
+        if name == "index.html":
+            page = stamp(page, release)
+        if name == "extras.html":
+            page = extras(page, out)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(fingerprint(page, out))
     if dry:
         print(f"Built in {out}")
         return
