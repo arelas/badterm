@@ -11,6 +11,7 @@ with rsync. nginx serves badterm.com from /var/www/badterm on oracle1.
 The server can be changed with BADTERM_SITE_DEST (an rsync destination).
 """
 
+import hashlib
 import html
 import json
 import os
@@ -64,6 +65,23 @@ def stamp(page, release):
     return page.replace("<span data-version>0.1</span>", f"<span data-version>{html.escape(version)}</span>")
 
 
+def fingerprint(text, base):
+    """Add `?v=<hash of the file>` to each local file `text` links to
+    (style.css, img/..., fonts/...), so a changed file gets a new address:
+    Cloudflare and browsers keep stylesheets, images and fonts for weeks."""
+
+    def tag(m):
+        attr, path = m.group(1), m.group(2)
+        try:
+            with open(os.path.join(base, path), "rb") as f:
+                digest = hashlib.sha256(f.read()).hexdigest()[:10]
+        except OSError:
+            return m.group(0)
+        return f"{attr}{path}?v={digest}{m.group(3)}"
+
+    return re.sub(r'((?:src|href)="|url\(")((?:img|fonts)/[^"?]+|style\.css)(")', tag, text)
+
+
 def main():
     dry = "--dry-run" in sys.argv[1:]
     release = latest_release()
@@ -75,9 +93,15 @@ def main():
             shutil.copytree(src, os.path.join(out, name))
         else:
             shutil.copy(src, out)
+    # The stylesheet first: its fonts' addresses change its own hash.
+    css = os.path.join(out, "style.css")
+    with open(css, encoding="utf-8") as f:
+        sheet = fingerprint(f.read(), out)
+    with open(css, "w", encoding="utf-8") as f:
+        f.write(sheet)
     index = os.path.join(out, "index.html")
     with open(index, encoding="utf-8") as f:
-        page = stamp(f.read(), release)
+        page = fingerprint(stamp(f.read(), release), out)
     with open(index, "w", encoding="utf-8") as f:
         f.write(page)
     if dry:
