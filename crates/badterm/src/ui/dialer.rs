@@ -637,7 +637,7 @@ impl DialerUi {
 
         if let Some(e) = view.get(self.selected).map(|&i| &dir.entries[i]) {
             let last = e.last_connected.map(format_date).unwrap_or_else(|| "never".into());
-            let mut info = format!(" Last called: {last}   Encoding: {}", e.encoding.name());
+            let mut info = format!(" Last called: {last}   Emulation: {}", e.encoding.name());
             if !e.comment.is_empty() {
                 info.push_str(&format!("   {}", e.comment));
             }

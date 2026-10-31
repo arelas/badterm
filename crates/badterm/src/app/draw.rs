@@ -271,6 +271,9 @@ impl App {
         } else {
             frame
         };
+        // BadTerm's own screens in the theme's colors.
+        let ui_look = ui::theme::ui_look();
+        let frame = Frame { ui_look: &ui_look, ..frame };
         // The terminal's own height (and font) unless the dialer or the idle
         // screen is showing; one more row for the status bar.
         let text_rows = frame.rows.len() - 1;

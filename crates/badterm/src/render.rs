@@ -125,6 +125,9 @@ pub struct Frame<'a> {
     /// screen); the rest (the status bar) are drawn in the standard look.
     pub look: &'a Look,
     pub look_rows: usize,
+    /// The look of the other rows: BadTerm's own screens and status bar,
+    /// in the color theme's palette.
+    pub ui_look: &'a Look,
     /// RIPscrip graphics under the BBS's screen: they show through cells
     /// left blank on black.
     pub graphics: Option<Graphics<'a>>,
@@ -142,7 +145,16 @@ pub struct Graphics<'a> {
 impl<'a> Frame<'a> {
     /// Rows drawn in the standard look.
     pub fn plain(rows: Vec<&'a [Cell]>, cursor: Option<(usize, usize)>, ice: bool) -> Frame<'a> {
-        Frame { rows, cursor, ice, selection: None, look: Look::standard(), look_rows: 0, graphics: None }
+        Frame {
+            rows,
+            cursor,
+            ice,
+            selection: None,
+            look: Look::standard(),
+            look_rows: 0,
+            ui_look: Look::standard(),
+            graphics: None,
+        }
     }
 }
 
@@ -201,7 +213,7 @@ impl Renderer {
             let row = frame.rows.get(y).copied().unwrap_or(&[]);
             for x in 0..self.cols {
                 let cell = row.get(x).unwrap_or(&blank);
-                let look = if y < frame.look_rows { frame.look } else { Look::standard() };
+                let look = if y < frame.look_rows { frame.look } else { frame.ui_look };
                 let (mut fg, mut bg, blinks) = cell.resolve_with(frame.ice, look);
                 let font = match look.font_for(cell) {
                     0 => self.font,
@@ -426,6 +438,128 @@ mod tests {
             data.extend_from_slice(&[(px >> 16) as u8, (px >> 8) as u8, px as u8]);
         }
         std::fs::write(path, data).unwrap();
+    }
+
+    /// The dialing directory and settings in the Bad Cluster theme, as PNGs:
+    /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm theme_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn theme_snapshot() {
+        use crate::ui::theme;
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bc = theme::SCHEMES.iter().find(|(n, _)| *n == "Bad Cluster").unwrap().1;
+        theme::set_current(bc);
+        let look = theme::ui_look();
+        let mut d = Directory::default();
+        d.merge(vec![
+            Entry {
+                name: "Example BBS".into(),
+                comment: "Runs Synchronet".into(),
+                ..Entry::from_address("bbs.example.org").unwrap()
+            },
+            Entry::from_address("ssh://secure.example.net:2222").unwrap(),
+            Entry::from_address("telnet://another.example.com:2323").unwrap(),
+        ]);
+        d.offer_defaults();
+        d.sort();
+        let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
+        let shot = |r: &mut Renderer, s: &badterm_core::Screen, cursor, name: &str| {
+            let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+            r.draw(&Frame { ui_look: &look, ..Frame::plain(rows, cursor, true) }, true, true);
+            let png = crate::png::encode(r.pixels(), r.native_width(), r.native_height());
+            std::fs::write(dir.join(name), png).unwrap();
+        };
+        let mut ui = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
+        let mut s = badterm_core::Screen::new(80, 25, 0);
+        ui.draw(&mut s, &d);
+        shot(&mut r, &s, None, "badcluster-dialer.png");
+        ui.handle_key(crate::input::Key::Char('e'), crate::input::Mods::default(), &mut d);
+        let cursor = ui.draw(&mut s, &d);
+        shot(&mut r, &s, cursor, "badcluster-edit.png");
+        let mut settings = crate::settings::Settings { colors: bc, ..Default::default() };
+        settings.colors = bc;
+        let mut sui = crate::ui::settings::SettingsUi::default();
+        sui.open(Vec::new(), Vec::new(), vec![std::path::PathBuf::from("/home/sysop/Downloads"); 5]);
+        let cursor = sui.draw(&mut s, &settings, None, None);
+        shot(&mut r, &s, cursor, "badcluster-settings.png");
+        crate::ui::splash::draw(&mut s);
+        shot(&mut r, &s, None, "badcluster-splash.png");
+        theme::set_current(theme::Theme::default());
+    }
+
+    /// The C64 and Atari screens shown on the website, as PNGs at 4x:
+    /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm retro_site_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn retro_site_snapshot() {
+        use badterm_core::Encoding;
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let shot = |enc: Encoding, bytes: &[u8], name: &str| {
+            let (cols, rows) = enc.screen_size().unwrap();
+            let mut t = Terminal::new(cols, rows, 0);
+            t.encoding = enc;
+            t.start_emulation();
+            t.feed(bytes);
+            let lines: Vec<&[Cell]> = (0..rows).map(|y| t.screen.row(y)).collect();
+            let mut r = Renderer::new(Font::vga_8x8(), cols, rows);
+            r.draw(&Frame { look: &t.screen.look, look_rows: rows, ..Frame::plain(lines, None, true) }, true, true);
+            let (w, h) = (r.native_width() * 4, r.native_height() * 4);
+            let mut out = vec![0u32; w * h];
+            r.blit(&mut out, w, h, &Display::default());
+            std::fs::write(dir.join(name), crate::png::encode(&out, w, h)).unwrap();
+        };
+        // A C64 BBS: PETSCII colors, reverse video and line graphics.
+        let menu = [
+            ("M", "MESSAGE BASES"),
+            ("F", "FILE AREAS"),
+            ("D", "ONLINE GAMES"),
+            ("C", "CHAT WITH SYSOP"),
+            ("G", "GOODBYE"),
+        ];
+        let mut c = b"\x93\x9e\x12    THE BREADBIN BBS  *  NODE 1    \x92\r".to_vec();
+        c.push(0x12);
+        for color in [0x1c, 0x81, 0x9e, 0x1e, 0x9f, 0x1f, 0x9c, 0x96, 0x99] {
+            c.extend([color, b' ', b' ', b' ', b' ']);
+        }
+        c.extend(b"\x92\r\r\x9f");
+        c.push(0xb0);
+        c.extend([0xc0; 35]);
+        c.extend([0xae, b'\r']);
+        for (key, what) in menu {
+            c.extend([0x9f, 0xdd]);
+            c.extend(b" \x9e[");
+            c.extend(key.bytes());
+            c.extend(b"]\x05 ");
+            c.extend(format!("{what:<30}").into_bytes());
+            c.extend([0x9f, 0xdd, b'\r']);
+        }
+        c.push(0xad);
+        c.extend([0xc0; 35]);
+        c.extend([0xbd, b'\r', b'\r']);
+        c.extend(b"\x99 LAST CALLER: \x05RETRO RICK\r\x9a CALLS TODAY: \x05 42\r\r\x9b COMMAND \x9e> \x05");
+        shot(Encoding::Petscii, &c, "site-c64.png");
+
+        // An Atari BBS: ATASCII inverse video and line graphics.
+        let inverse = |text: &str| text.bytes().map(|b| b | 0x80).collect::<Vec<u8>>();
+        let mut a = vec![0x7d];
+        a.extend(inverse("     ATARI BBS EXPRESS!  BOARD 1     "));
+        a.extend(b"\x9b\x9b\x11");
+        a.extend([0x12; 35]);
+        a.extend([0x05, 0x9b]);
+        for (key, what) in [("M", "MESSAGES"), ("F", "FILES AND UPLOADS"), ("B", "BULLETINS"), ("G", "GOODBYE")] {
+            a.push(b'|');
+            a.extend(b" ");
+            a.extend(inverse(key));
+            a.extend(format!(" {what:<32}|").into_bytes());
+            a.push(0x9b);
+        }
+        a.push(0x1a);
+        a.extend([0x12; 35]);
+        a.extend([0x03, 0x9b, 0x9b]);
+        a.extend(b"LAST CALLER: ANTIC FAN\x9bTIME LEFT: 60 MINUTES\x9b\x9bCOMMAND? ");
+        shot(Encoding::Atascii, &a, "site-atari.png");
     }
 
     /// A RIPscrip scene under ANSI text, as a PNG:

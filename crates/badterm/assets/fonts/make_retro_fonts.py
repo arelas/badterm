@@ -166,7 +166,9 @@ DRAWN = {
     0x1FB7F: lambda x, y: x >= 6 or y >= 6,
     0x2713: lambda x, y: (x, y) in {(6, 1), (7, 1), (5, 2), (6, 2), (4, 3), (5, 3), (0, 3), (1, 4), (3, 4), (4, 4),
                                     (1, 5), (2, 5), (3, 5), (2, 6)},
-    # Atari: the escape symbol, and "up, then left" (clear screen).
+    # Atari: a solid vertical bar (the VGA's has a gap), the escape
+    # symbol, and "up, then left" (clear screen).
+    0x007C: V,
     0x241B: lambda x, y: (y in (1, 6) and 1 <= x <= 6) or (x in (1, 6) and 1 <= y <= 6) or (y == 3 and 3 <= x <= 4),
     0x1F8B0: lambda x, y: (x == 5 and 2 <= y <= 6) or (y == 2 and 1 <= x <= 5) or (x in (2,) and y in (1, 3))
     or (x == 1 and y == 2),

@@ -1,13 +1,15 @@
 //! The colors of BadTerm's own screens: every part of the interface has a
 //! foreground and background from the 16-color palette, chosen from a few
-//! schemes or one by one in the settings, as in QModem and Telix.
+//! schemes or one by one in the settings, as in QModem and Telix. A theme
+//! may also bring its own 16 colors (see [`Palette`]), as the Bad Cluster
+//! scheme does.
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use badterm_core::screen::Color;
+use badterm_core::screen::{Color, Look};
 use serde::{Deserialize, Serialize};
 
 /// A foreground (0-15) and background (0-15) in VGA attribute order.
@@ -93,6 +95,42 @@ impl Attr {
     }
 }
 
+/// A theme's own 16 colors, in VGA attribute order, replacing the VGA's on
+/// BadTerm's screens (not the BBS's). Theme files write them as
+/// `"#RRGGBB"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Palette(pub [u32; 16]);
+
+impl Serialize for Palette {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeSeq;
+        let mut seq = s.serialize_seq(Some(16))?;
+        for c in self.0 {
+            seq.serialize_element(&format!("#{c:06X}"))?;
+        }
+        seq.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Palette {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Palette, D::Error> {
+        use serde::de::Error;
+        let list = Vec::<String>::deserialize(d)?;
+        if list.len() != 16 {
+            return Err(D::Error::custom(format!("a palette has 16 colors, not {}", list.len())));
+        }
+        let mut out = [0u32; 16];
+        for (slot, text) in out.iter_mut().zip(&list) {
+            let hex = text.trim().trim_start_matches('#');
+            *slot = u32::from_str_radix(hex, 16)
+                .ok()
+                .filter(|_| hex.len() == 6)
+                .ok_or_else(|| D::Error::custom(format!("{text:?} is not a #RRGGBB color")))?;
+        }
+        Ok(Palette(out))
+    }
+}
+
 macro_rules! theme {
     ($($field:ident: $name:literal),* $(,)?) => {
         /// The interface colors.
@@ -100,6 +138,9 @@ macro_rules! theme {
         #[serde(default)]
         pub struct Theme {
             $(pub $field: Attr,)*
+            /// Its own colors for the 16 VGA ones, if it has them.
+            #[serde(skip_serializing_if = "Option::is_none")]
+            pub palette: Option<Palette>,
         }
 
         impl Theme {
@@ -168,8 +209,30 @@ const fn a(fg: u8, bg: u8) -> Attr {
     Attr::new(fg, bg)
 }
 
+/// Bad Cluster's colors (badcluster.dev), in the VGA's 16 places: the void
+/// and panels for the darks, copper for brown and yellow, teal for cyan,
+/// and its warm white and grays.
+const BAD_CLUSTER: Palette = Palette([
+    0x0E1015, // black: the void
+    0x161922, // blue: a panel
+    0x2A4D49, // green: dim teal
+    0x46B3A6, // cyan: teal
+    0x8C3B2E, // red
+    0x1C2029, // magenta: a raised panel
+    0xD98E3E, // brown: copper
+    0x8B90A0, // light gray: dim ink
+    0x565C6B, // dark gray: faint ink
+    0x262B36, // light blue: a rule
+    0x8FD6A8, // light green
+    0x6FF0DD, // light cyan: glowing teal
+    0xFF6B5C, // light red
+    0x6B4F2A, // light magenta: dim copper
+    0xFFB35C, // yellow: glowing copper
+    0xE9E7E2, // white: ink
+]);
+
 /// The built-in schemes, by name; the first is the default.
-pub const SCHEMES: [(&str, Theme); 9] = [
+pub const SCHEMES: [(&str, Theme); 10] = [
     (
         "Midnight",
         Theme {
@@ -192,6 +255,7 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(LIGHT_CYAN, BLACK),
             note: a(DARK_GRAY, BLACK),
             error: a(LIGHT_RED, BLACK),
+            palette: None,
         },
     ),
     (
@@ -216,6 +280,7 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(YELLOW, BLUE),
             note: a(DARK_GRAY, BLUE),
             error: a(LIGHT_RED, BLUE),
+            palette: None,
         },
     ),
     (
@@ -240,6 +305,7 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(RED, GRAY),
             note: a(DARK_GRAY, GRAY),
             error: a(RED, GRAY),
+            palette: None,
         },
     ),
     (
@@ -264,6 +330,7 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(LIGHT_GREEN, BLACK),
             note: a(GREEN, BLACK),
             error: a(WHITE, BLACK),
+            palette: None,
         },
     ),
     (
@@ -288,6 +355,7 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(YELLOW, BLACK),
             note: a(BROWN, BLACK),
             error: a(WHITE, BLACK),
+            palette: None,
         },
     ),
     (
@@ -312,6 +380,7 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(WHITE, BLACK),
             note: a(DARK_GRAY, BLACK),
             error: a(WHITE, BLACK),
+            palette: None,
         },
     ),
     (
@@ -336,6 +405,7 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(YELLOW, CYAN),
             note: a(BLUE, CYAN),
             error: a(LIGHT_RED, CYAN),
+            palette: None,
         },
     ),
     (
@@ -360,6 +430,7 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(YELLOW, RED),
             note: a(LIGHT_RED, RED),
             error: a(YELLOW, RED),
+            palette: None,
         },
     ),
     (
@@ -384,6 +455,32 @@ pub const SCHEMES: [(&str, Theme); 9] = [
             keys: a(YELLOW, MAGENTA),
             note: a(BLACK, MAGENTA),
             error: a(YELLOW, MAGENTA),
+            palette: None,
+        },
+    ),
+    (
+        "Bad Cluster",
+        Theme {
+            title_bar: a(YELLOW, MAGENTA),
+            border: a(DARK_GRAY, BLACK),
+            headings: a(BROWN, BLACK),
+            entries: a(WHITE, BLACK),
+            selected: a(LIGHT_CYAN, GREEN),
+            info: a(GRAY, BLACK),
+            help: a(DARK_GRAY, BLACK),
+            help_key: a(CYAN, BLACK),
+            status: a(BLACK, BROWN),
+            status_alt: a(BLACK, CYAN),
+            window: a(WHITE, BLUE),
+            window_title: a(YELLOW, BLUE),
+            window_text: a(GRAY, BLUE),
+            field_name: a(CYAN, BLUE),
+            field_value: a(WHITE, BLUE),
+            input: a(LIGHT_CYAN, GREEN),
+            keys: a(BROWN, BLUE),
+            note: a(DARK_GRAY, BLUE),
+            error: a(LIGHT_RED, BLUE),
+            palette: Some(BAD_CLUSTER),
         },
     ),
 ];
@@ -429,7 +526,8 @@ impl ThemeFile {
         }
         let header = "# A BadTerm color theme. Colors: black, blue, green, cyan, red, magenta,\n\
                       # brown, light gray, dark gray, light blue, light green, light cyan,\n\
-                      # light red, light magenta, yellow, white.\n\n";
+                      # light red, light magenta, yellow, white. A theme may also bring\n\
+                      # its own 16 colors for them: palette = [\"#RRGGBB\", ...], in that order.\n\n";
         std::fs::write(path, format!("{header}{}", toml::to_string_pretty(self)?))
             .with_context(|| format!("writing {}", path.display()))
     }
@@ -480,6 +578,20 @@ pub fn current() -> Theme {
     CURRENT.with(Cell::get)
 }
 
+/// How BadTerm's own screens are drawn: the standard look, with the
+/// theme's own 16 colors if it has them.
+pub fn ui_look() -> Look {
+    let mut look = Look::standard().clone();
+    if let Some(Palette(colors)) = current().palette {
+        for (vga, rgb) in colors.into_iter().enumerate() {
+            // The look is in xterm order; the palette in VGA order.
+            let ansi = badterm_core::palette::ANSI_TO_VGA.iter().position(|&v| v as usize == vga & 7).unwrap_or(0);
+            look.palette[ansi + (vga & 8)] = rgb;
+        }
+    }
+    look
+}
+
 pub fn set_current(t: Theme) {
     CURRENT.with(|c| c.set(t));
 }
@@ -503,6 +615,24 @@ mod tests {
                 assert_ne!(a, b);
             }
         }
+    }
+
+    #[test]
+    fn palettes() {
+        let bc = SCHEMES.iter().find(|(n, _)| *n == "Bad Cluster").unwrap().1;
+        set_current(bc);
+        let look = ui_look();
+        assert_eq!(look.rgb(Color::Pc(6)), 0xD98E3E);
+        assert_eq!(look.rgb(Color::Pc(11)), 0x6FF0DD);
+        assert_eq!(look.rgb(Color::Pc(0)), 0x0E1015);
+        set_current(Theme::default());
+        assert_eq!(ui_look(), *Look::standard());
+        // Written as #RRGGBB, and read back.
+        let file = ThemeFile { name: "Copper".into(), author: String::new(), colors: bc };
+        let text = toml::to_string_pretty(&file).unwrap();
+        assert!(text.contains("\"#D98E3E\""), "{text}");
+        assert_eq!(toml::from_str::<ThemeFile>(&text).unwrap(), file);
+        assert!(toml::from_str::<Theme>("palette = [\"#123456\"]").is_err());
     }
 
     #[test]

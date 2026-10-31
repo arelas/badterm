@@ -262,7 +262,9 @@ scaling (fit keeping the shape; auto, which is whole numbers in a window
 and fit in full screen; always whole numbers; or stretch to fill),
 character cells, ANSI music, redialing, and the colors
 of BadTerm's own screens. Pick one of the color schemes (Midnight, the
-default; Classic blue, Gray windows, Green phosphor, Amber, Monochrome), or, under "Edit
+default; Classic blue, Gray windows, Green phosphor, Amber, Monochrome,
+Ocean, Crimson, Plum, or Bad Cluster, in the copper and teal of
+badcluster.dev), or, under "Edit
 colors", give each part of the interface (title bar, selected entry,
 windows, input fields, key hints, ...) its own foreground and background
 from a grid of the 16 x 8 combinations, as in QModem and Telix. Changes
@@ -295,6 +297,11 @@ yellow and white. The parts are `title_bar`, `border`, `headings`,
 `entries`, `selected`, `info`, `help`, `help_key`, `status`, `status_alt`,
 `window`, `window_title`, `window_text`, `field_name`, `field_value`,
 `input`, `keys`, `note` and `error`.
+
+A theme can also bring its own 16 colors, in place of the VGA's, for
+BadTerm's screens (the BBS's keep theirs), as the Bad Cluster scheme does:
+`palette = ["#0E1015", "#161922", ...]` under `[colors]`, sixteen
+`#RRGGBB` colors in the order above.
 
 "Monitor bezel" draws a monitor around the screen: a beige 1980s monitor,
 a platinum 1990s one, a charcoal late-1990s one, or a terminal (original
