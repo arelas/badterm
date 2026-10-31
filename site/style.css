@@ -781,8 +781,7 @@ kbd {
 
 .keys {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  align-items: start;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 14px;
 }
 
@@ -798,10 +797,11 @@ kbd {
   margin-bottom: 0.6em;
 }
 
+/* One key column for every box, so the descriptions line up. */
 .keys dl {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 6px 14px;
+  grid-template-columns: 6.6rem minmax(0, 1fr);
+  gap: 6px 12px;
   margin: 0;
   font-size: 0.92rem;
 }
@@ -809,6 +809,7 @@ kbd {
 .keys dt {
   font-family: var(--mono);
   color: var(--ink);
+  white-space: nowrap;
 }
 
 .keys dd {
