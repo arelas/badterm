@@ -328,6 +328,7 @@ impl App {
                         let (nw, nh) = (self.renderer.native_width() as f64, self.renderer.native_height() as f64);
                         let (scanlines, curvature) = (self.settings.scanlines, self.settings.curvature);
                         let display = Display {
+                            glow: self.settings.glow,
                             scaling: Scaling::Fill,
                             pixel_aspect: sh / sw * nw / nh,
                             crt,
@@ -339,7 +340,8 @@ impl App {
                     }
                     None => {
                         let (scanlines, curvature) = (self.settings.scanlines, self.settings.curvature);
-                        let display = Display { scaling, pixel_aspect, crt, scanlines, curvature };
+                        let glow = self.settings.glow;
+                        let display = Display { scaling, pixel_aspect, crt, glow, scanlines, curvature };
                         self.view_rect = self.renderer.blit(&mut buf, ww, wh, &display);
                     }
                 }

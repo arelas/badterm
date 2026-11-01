@@ -4,7 +4,7 @@
 
 use badterm_core::screen::{Cell, Color, Look, flags};
 
-use crate::crt::{Crt, CrtMode, Curvature, Scanlines};
+use crate::crt::{Crt, CrtMode, Curvature, Glow, Scanlines};
 use crate::selection::Selection;
 
 /// An 8-pixel-wide bitmap font with 256 glyphs, indexed by byte (CP437 for
@@ -97,6 +97,7 @@ pub struct Display {
     /// pixels, about 1.2 to show 640x400 at the 4:3 shape of a CRT.
     pub pixel_aspect: f64,
     pub crt: CrtMode,
+    pub glow: Glow,
     pub scanlines: Scanlines,
     pub curvature: Curvature,
 }
@@ -107,6 +108,7 @@ impl Default for Display {
             scaling: Scaling::Integer,
             pixel_aspect: 1.0,
             crt: CrtMode::Off,
+            glow: Glow::Light,
             scanlines: Scanlines::Medium,
             curvature: Curvature::Off,
         }
@@ -341,6 +343,7 @@ impl Renderer {
         } else {
             self.crt.present(
                 display.crt,
+                display.glow,
                 display.scanlines,
                 display.curvature,
                 &self.native,

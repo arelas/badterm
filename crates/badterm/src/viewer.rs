@@ -24,7 +24,9 @@ pub struct RenderOptions {
     pub font: u8,
     /// A monitor bezel to draw around the screen.
     pub bezel: Option<Bezel>,
-    /// How strong phosphor mode's scanlines are, and how curved its glass.
+    /// How strong phosphor mode's glow and scanlines are, and how curved its
+    /// glass.
+    pub glow: crate::crt::Glow,
     pub scanlines: crate::crt::Scanlines,
     pub curvature: crate::crt::Curvature,
 }
@@ -100,6 +102,7 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
                 scaling: Scaling::Fill,
                 pixel_aspect,
                 crt: opts.crt,
+                glow: opts.glow,
                 scanlines: opts.scanlines,
                 curvature: opts.curvature,
             },
@@ -121,6 +124,7 @@ pub fn render_file(input: &Path, output: &Path, opts: RenderOptions) -> Result<(
                 scaling: Scaling::Fill,
                 pixel_aspect,
                 crt: opts.crt,
+                glow: opts.glow,
                 scanlines: opts.scanlines,
                 curvature: opts.curvature,
             },

@@ -117,9 +117,11 @@ BadTerm starts.
   otherwise means "delete a line"
 - **Phosphor mode** (`Alt-P`): the look of a CRT, with glowing text,
   scanlines and curved glass, in color or as a green or amber monochrome
-  monitor, for every BBS or chosen per directory entry. BadTerm starts in
-  it: a color CRT with medium scanlines and flat glass, 8-dot characters
-  and square pixels, fitted to the window in its own shape
+  monitor, for every BBS or chosen per directory entry. How much the text
+  glows, how strong the scanlines are and how curved the glass is are each
+  set in Settings. BadTerm starts in it: a color CRT with a light glow,
+  medium scanlines and flat glass, 8-dot characters and square pixels,
+  fitted to the window in its own shape
 - **VGA-accurate display options**: 9-dot character cells, where the
   line-drawing characters join up as they did on a VGA (`Alt-W`), and the
   4:3 shape of a CRT instead of square pixels (`Alt-A`). Entries can use
@@ -187,7 +189,7 @@ badterm --paths                 show where data is stored
 badterm --render art.ans out.png
                                  draw an ANSI file to a PNG (add --screen for
                                  just the last 80x25 screen, --crt color|green|
-                                 amber, --scanlines, --curvature, --nine-dot,
+                                 amber, --glow, --scanlines, --curvature, --nine-dot,
                                  --aspect, --font for Amiga art, --bezel)
 ```
 
@@ -260,8 +262,9 @@ tabs (`Tab` and `Shift-Tab`, or `PgUp`/`PgDn`, move between them).
 **Folders** sets where downloads, captures and saved screens go and where
 the upload and ANSI-art pickers start (`Enter` to change, `Del` for the
 default). The others: phosphor
-mode, its scanlines (off, light, medium or strong) and the curve of its
-glass (off for a flat screen, slight, medium or strong), the aspect ratio,
+mode, its glow (off, light, medium or strong: how much bright text lights
+the dark around it), its scanlines (off, light, medium or strong) and the
+curve of its glass (off for a flat screen, slight, medium or strong), the aspect ratio,
 scaling (fit keeping the shape; auto, which is whole numbers in a window
 and fit in full screen; always whole numbers; or stretch to fill),
 character cells, ANSI music, the bell (a beep, a flash of the screen, both

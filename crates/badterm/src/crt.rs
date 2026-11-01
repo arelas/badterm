@@ -36,6 +36,44 @@ pub enum Scanlines {
     Strong,
 }
 
+/// How much bright pixels glow onto their surroundings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Glow {
+    Off,
+    /// A soft halo that keeps text crisp.
+    #[default]
+    Light,
+    Medium,
+    Strong,
+}
+
+impl Glow {
+    pub const ALL: [Glow; 4] = [Glow::Off, Glow::Light, Glow::Medium, Glow::Strong];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Glow::Off => "Off",
+            Glow::Light => "Light",
+            Glow::Medium => "Medium",
+            Glow::Strong => "Strong",
+        }
+    }
+
+    /// How much of the light that spreads from bright pixels onto darker
+    /// neighbours is added, in 256ths. Only the spread is added: an area of
+    /// one color keeps its color, so the glow doesn't brighten or wash out
+    /// the picture, only halo what is brighter than its surroundings.
+    fn amount(self) -> u32 {
+        match self {
+            Glow::Off => 0,
+            Glow::Light => 80,
+            Glow::Medium => 140,
+            Glow::Strong => 210,
+        }
+    }
+}
+
 /// How far the glass bulges.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -93,11 +131,6 @@ impl Scanlines {
         }
     }
 }
-/// How much of the light that spreads from bright pixels onto darker
-/// neighbours is added, in 256ths. Only the spread is added: an area of one
-/// color keeps its color, so the glow doesn't brighten or wash out the
-/// picture, only halo what is brighter than its surroundings.
-const GLOW: u32 = 200;
 
 #[derive(Default)]
 pub struct Crt {
@@ -121,6 +154,7 @@ impl Crt {
     pub fn present(
         &mut self,
         mode: CrtMode,
+        glow: Glow,
         scanlines: Scanlines,
         curvature: Curvature,
         native: &[u32],
@@ -136,7 +170,9 @@ impl Crt {
             Some(tint) => self.lit.extend(native.iter().map(|&px| monochrome(px, tint))),
             None => self.lit.extend_from_slice(native),
         }
-        self.glow(nw, nh);
+        if glow != Glow::Off {
+            self.glow(nw, nh, glow.amount());
+        }
 
         self.flat.resize(dw * dh, 0);
         scale_into(&self.lit, nw, nh, &mut self.flat, dw, (0, 0, dw, dh));
@@ -156,7 +192,7 @@ impl Crt {
     }
 
     /// Add the glow: what a blurred copy of `lit` has beyond `lit` itself.
-    fn glow(&mut self, w: usize, h: usize) {
+    fn glow(&mut self, w: usize, h: usize, amount: u32) {
         self.blur.clone_from(&self.lit);
         self.tmp.resize(w * h, 0);
         // Two box blurs approximate a Gaussian.
@@ -167,7 +203,7 @@ impl Crt {
         for (px, &b) in self.lit.iter_mut().zip(&self.blur) {
             let ch = |s: u32| {
                 let (own, spread) = ((*px >> s) & 0xFF, (b >> s) & 0xFF);
-                let v = own + spread.saturating_sub(own) * GLOW / 256;
+                let v = own + spread.saturating_sub(own) * amount / 256;
                 v.min(255) << s
             };
             *px = ch(16) | ch(8) | ch(0);
@@ -291,7 +327,18 @@ mod tests {
             let (w, h) = (160, 100);
             let mut out = vec![0; w * h];
             let mut crt = Crt::default();
-            crt.present(CrtMode::Color, Scanlines::Off, Curvature::Off, &native, nw, nh, &mut out, w, (0, 0, w, h));
+            crt.present(
+                CrtMode::Color,
+                Glow::Strong,
+                Scanlines::Off,
+                Curvature::Off,
+                &native,
+                nw,
+                nh,
+                &mut out,
+                w,
+                (0, 0, w, h),
+            );
             // The middle of the screen (no vignette to speak of).
             let px = out[(h / 2) * w + w / 2];
             for shift in [16, 8, 0] {
@@ -299,6 +346,36 @@ mod tests {
                 assert!(got <= want && want - got <= 3, "{color:06x} came out {px:06x}");
             }
         }
+    }
+
+    #[test]
+    fn glow_levels() {
+        // A white dot: the more glow, the brighter its neighbourhood; none
+        // with the glow off.
+        let (nw, nh) = (40, 25);
+        let mut native = vec![0u32; nw * nh];
+        native[12 * nw + 20] = 0xFFFFFF;
+        let (w, h) = (160, 100);
+        let near = |glow| {
+            let mut out = vec![0; w * h];
+            let mut crt = Crt::default();
+            crt.present(
+                CrtMode::Color,
+                glow,
+                Scanlines::Off,
+                Curvature::Off,
+                &native,
+                nw,
+                nh,
+                &mut out,
+                w,
+                (0, 0, w, h),
+            );
+            out[50 * w + 88] & 0xFF
+        };
+        let levels: Vec<u32> = Glow::ALL.into_iter().map(near).collect();
+        assert_eq!(levels[0], 0);
+        assert!(levels.windows(2).all(|p| p[0] < p[1]), "{levels:?}");
     }
 
     #[test]
@@ -310,19 +387,52 @@ mod tests {
         let (w, h) = (160, 100);
         let mut out = vec![0x123456; w * h];
         let mut crt = Crt::default();
-        crt.present(CrtMode::Color, Scanlines::Light, Curvature::Slight, &native, nw, nh, &mut out, w, (0, 0, w, h));
+        crt.present(
+            CrtMode::Color,
+            Glow::Light,
+            Scanlines::Light,
+            Curvature::Slight,
+            &native,
+            nw,
+            nh,
+            &mut out,
+            w,
+            (0, 0, w, h),
+        );
         // The dot's neighbourhood glows; the corners are past the curve.
         assert!(out[50 * w + 84] & 0xFF > 0, "glow");
         assert_eq!(out[0], 0);
         assert_eq!(out[w * h - 1], 0);
         // A second frame of the same size reuses the cached map.
         let map = crt.map.clone();
-        crt.present(CrtMode::Green, Scanlines::Light, Curvature::Slight, &native, nw, nh, &mut out, w, (0, 0, w, h));
+        crt.present(
+            CrtMode::Green,
+            Glow::Light,
+            Scanlines::Light,
+            Curvature::Slight,
+            &native,
+            nw,
+            nh,
+            &mut out,
+            w,
+            (0, 0, w, h),
+        );
         assert_eq!(crt.map, map);
         let px = out[50 * w + 80];
         assert!(px >> 8 & 0xFF > px >> 16 & 0xFF, "green, not white: {px:06x}");
         // Another curvature is another map; flat glass reaches the corners.
-        crt.present(CrtMode::Color, Scanlines::Off, Curvature::Off, &native, nw, nh, &mut out, w, (0, 0, w, h));
+        crt.present(
+            CrtMode::Color,
+            Glow::Strong,
+            Scanlines::Off,
+            Curvature::Off,
+            &native,
+            nw,
+            nh,
+            &mut out,
+            w,
+            (0, 0, w, h),
+        );
         assert_ne!(crt.map, map);
         assert_ne!(crt.map[0], u32::MAX);
     }

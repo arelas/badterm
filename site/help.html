@@ -170,7 +170,7 @@
 
       <h2 id="look">The look</h2>
       <ul>
-        <li><b>Phosphor mode</b> (<kbd>Alt-P</kbd>) draws a CRT: glowing text, scanlines and curved glass, in color or as a green or amber monitor. Settings sets how strong the scanlines are and how curved the glass is.</li>
+        <li><b>Phosphor mode</b> (<kbd>Alt-P</kbd>) draws a CRT: glowing text, scanlines and curved glass, in color or as a green or amber monitor. Settings, Display, sets how much the text glows, how strong the scanlines are and how curved the glass is, each from off to strong.</li>
         <li><kbd>Alt-W</kbd> switches between 8- and 9-dot characters (a VGA's 9th column joins up the line drawing). <kbd>Alt-A</kbd> picks the shape: square pixels, or 4:3 as on a CRT, or 16:10 or 16:9.</li>
         <li>Settings, <b>Scaling</b>: whole-number steps for exact pixels, fit, or stretch to fill. <kbd>Alt-Enter</kbd> is full screen.</li>
         <li>Settings, <b>Monitor bezel</b>: draw a monitor around the screen. There are four built in; more are in the <a href="extras.html#bezels">extras</a>, and you can use a photo of your own (a PNG whose screen is see-through), put in the <code>bezels</code> folder.</li>
@@ -207,7 +207,7 @@ badterm --import syncterm.lst    add entries to the directory
 badterm --export bbses.csv       write the directory out
 badterm --paths                  show where things are kept
 badterm --render art.ans out.png draw ANSI art to an image
-        [--screen] [--crt color|green|amber] [--scanlines S]
+        [--screen] [--crt color|green|amber] [--glow G] [--scanlines S]
         [--curvature C] [--nine-dot] [--aspect] [--font NAME]
         [--bezel NAME]</code></pre>
       <p>On Windows, BadTerm is a windowed program, so to see its output run it from PowerShell, or with <code>start /wait badterm --help</code> in Command Prompt.</p>

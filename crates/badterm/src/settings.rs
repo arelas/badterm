@@ -7,7 +7,7 @@ pub use badterm_core::dialer::BellMode;
 pub use badterm_core::modem::ModemConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::crt::{CrtMode, Curvature, Scanlines};
+use crate::crt::{CrtMode, Curvature, Glow, Scanlines};
 use crate::ui::theme::Theme;
 
 /// Which ANSI music to play (Alt-M).
@@ -180,6 +180,8 @@ impl Folders {
 pub struct Settings {
     /// Phosphor mode: the CRT look (Alt-P).
     pub crt: CrtMode,
+    /// How much phosphor mode's bright text glows.
+    pub glow: Glow,
     /// How strong phosphor mode's scanlines are.
     pub scanlines: Scanlines,
     /// How curved phosphor mode's glass is.
@@ -219,6 +221,7 @@ impl Default for Settings {
             // A color CRT, flat, with medium scanlines, filling the window
             // in its own shape.
             crt: CrtMode::Color,
+            glow: Glow::Light,
             scanlines: Scanlines::Medium,
             curvature: Curvature::Off,
             nine_dot: false,
@@ -269,6 +272,7 @@ mod tests {
         colors.selected.fg = 14;
         let s = Settings {
             crt: CrtMode::Amber,
+            glow: Glow::Strong,
             scanlines: Scanlines::Strong,
             curvature: Curvature::Off,
             nine_dot: true,

@@ -8,7 +8,7 @@ use badterm_core::screen::{Cell, Screen};
 
 use super::theme::{self, Attr, SCHEMES, Theme};
 use super::*;
-use crate::crt::{CrtMode, Curvature, Scanlines};
+use crate::crt::{CrtMode, Curvature, Glow, Scanlines};
 use crate::input::{Key, Mods};
 use badterm_core::modem::FlowControl;
 
@@ -30,7 +30,7 @@ pub enum Action {
     Export(String),
 }
 
-const ITEMS: [&str; 27] = [
+const ITEMS: [&str; 28] = [
     "Phosphor mode",
     "Scanlines",
     "Character cells",
@@ -58,6 +58,7 @@ const ITEMS: [&str; 27] = [
     "Flow control",
     "Init string",
     "Dial command",
+    "Glow",
 ];
 const I_CRT: usize = 0;
 const I_SCANLINES: usize = 1;
@@ -83,6 +84,7 @@ const I_SPEED: usize = 23;
 const I_FLOW: usize = 24;
 const I_INIT: usize = 25;
 const I_DIAL: usize = 26;
+const I_GLOW: usize = 27;
 /// Items typed in, like the folders: Enter opens a prompt.
 const TEXT_ITEMS: [usize; 3] = [I_PORT, I_INIT, I_DIAL];
 /// Items that open something rather than having a value.
@@ -90,7 +92,7 @@ const ACTIONS: [usize; 4] = [I_MACROS, I_COLORS, I_IMPORT, I_EXPORT];
 
 /// The tabs, and the items on each.
 const TABS: [(&str, &[usize]); 5] = [
-    ("Display", &[I_CRT, I_SCANLINES, I_CURVATURE, I_NINE_DOT, I_ASPECT, I_SCALING, I_BEZEL]),
+    ("Display", &[I_CRT, I_GLOW, I_SCANLINES, I_CURVATURE, I_NINE_DOT, I_ASPECT, I_SCALING, I_BEZEL]),
     ("General", &[I_SPLASH, I_MUSIC, I_BELL, I_REDIAL, I_UPDATES, I_MACROS]),
     ("Folders", &[I_FOLDER, I_FOLDER + 1, I_FOLDER + 2, I_FOLDER + 3, I_FOLDER + 4]),
     ("Colors", &[I_SCHEME, I_COLORS, I_IMPORT, I_EXPORT]),
@@ -380,6 +382,11 @@ impl SettingsUi {
                 let i = all.iter().position(|&m| m == s.crt).unwrap_or(0);
                 s.crt = all[step(i, all.len())];
             }
+            I_GLOW => {
+                let all = Glow::ALL;
+                let i = all.iter().position(|&g| g == s.glow).unwrap_or(0);
+                s.glow = all[step(i, all.len())];
+            }
             I_SCANLINES => {
                 let all = Scanlines::ALL;
                 let i = all.iter().position(|&m| m == s.scanlines).unwrap_or(0);
@@ -584,6 +591,7 @@ impl SettingsUi {
             (I_FLOW, ..) => "RTS/CTS for almost every modem".to_string(),
             (I_INIT | I_DIAL, ..) => "For directory entries whose protocol is Modem".to_string(),
             (I_CRT, Some(own), _) => format!("This BBS has its own phosphor mode: {own}"),
+            (I_GLOW, ..) => "How much bright text glows onto the dark around it".to_string(),
             (I_SCANLINES, ..) => "In phosphor mode; they show from twice the size up".to_string(),
             (I_CURVATURE, ..) => "How much phosphor mode's glass bulges".to_string(),
             (I_ASPECT, ..) => "The text area's shape; Alt-A cycles through them".to_string(),
@@ -607,6 +615,7 @@ impl SettingsUi {
     fn value(&self, item: usize, s: &Settings) -> String {
         match item {
             I_CRT => s.crt.name().to_string(),
+            I_GLOW => s.glow.name().into(),
             I_SCANLINES => s.scanlines.name().into(),
             I_CURVATURE => s.curvature.name().into(),
             I_NINE_DOT => if s.nine_dot { "9 dots, as on a VGA" } else { "8 dots" }.into(),

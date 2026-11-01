@@ -54,6 +54,7 @@ Options:
                     not the whole file
     --crt MODE      phosphor mode: color, green or amber
     --scanlines S   their strength: off, light, medium or strong
+    --glow G        how much bright text glows: off, light, medium or strong
     --curvature C   the glass: off, slight, medium or strong
     --nine-dot      9-dot characters
     --aspect        4:3, as on a CRT
@@ -115,6 +116,13 @@ fn parse_args() -> Result<Command, String> {
                     .find(|(_, n)| slug(n) == slug(&name))
                     .map(|&(id, _)| id)
                     .ok_or_else(|| format!("unknown font {name}"))?;
+            }
+            "--glow" => {
+                let want = args.next().unwrap_or_default().to_ascii_lowercase();
+                render.glow = crt::Glow::ALL
+                    .into_iter()
+                    .find(|g| g.name().to_ascii_lowercase() == want)
+                    .ok_or("--glow needs off, light, medium or strong")?;
             }
             "--curvature" => {
                 let want = args.next().unwrap_or_default().to_ascii_lowercase();
