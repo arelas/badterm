@@ -630,12 +630,8 @@ impl SettingsUi {
             }
             .into(),
             I_REDIAL => if s.redial { "On" } else { "Off" }.into(),
-            I_BELL => {
-                let name = s.bell.name();
-                let mut c = name.chars();
-                c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
-            }
-            I_PORT if s.modem.device.is_empty() => "(none chosen)".into(),
+            I_BELL => s.bell.name().into(),
+            I_PORT if s.modem.device.is_empty() => "None chosen".into(),
             I_PORT => s.modem.device.clone(),
             I_SPEED => format!("{} bps", s.modem.speed),
             I_FLOW => s.modem.flow.name().into(),
@@ -808,9 +804,9 @@ mod tests {
         let mut ui = SettingsUi::default();
         let mut s = Settings::default();
         assert_eq!(ui.handle_key_test(Key::Right, &mut s), Action::Changed);
-        assert_eq!(s.crt, CrtMode::Green);
-        assert_eq!(ui.handle_key_test(Key::Left, &mut s), Action::Changed);
         assert_eq!(s.crt, CrtMode::Color);
+        assert_eq!(ui.handle_key_test(Key::Left, &mut s), Action::Changed);
+        assert_eq!(s.crt, CrtMode::Off);
         // Tab to the colors.
         for _ in 0..3 {
             ui.handle_key_test(Key::Tab, &mut s);
@@ -843,7 +839,7 @@ mod tests {
         assert_eq!(s.colors.border, before);
         ui.handle_key_test(Key::Escape, &mut s);
         assert_eq!(ui.handle_key_test(Key::Escape, &mut s), Action::Close);
-        ui.draw(&mut screen, &s, Some("amber screen"), Some("9.9.9"));
+        ui.draw(&mut screen, &s, Some("Amber screen"), Some("9.9.9"));
         theme::set_current(Theme::default());
     }
 }

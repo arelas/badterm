@@ -272,10 +272,10 @@ impl BellMode {
 
     pub fn name(self) -> &'static str {
         match self {
-            BellMode::Sound => "beep",
-            BellMode::Visual => "flash",
-            BellMode::Both => "beep and flash",
-            BellMode::Off => "off",
+            BellMode::Sound => "Beep",
+            BellMode::Visual => "Flash",
+            BellMode::Both => "Beep and flash",
+            BellMode::Off => "Off",
         }
     }
 
@@ -312,10 +312,10 @@ impl CrtMode {
 
     pub fn name(self) -> &'static str {
         match self {
-            CrtMode::Off => "off",
-            CrtMode::Color => "color CRT",
-            CrtMode::Green => "green screen",
-            CrtMode::Amber => "amber screen",
+            CrtMode::Off => "Off",
+            CrtMode::Color => "Color CRT",
+            CrtMode::Green => "Green screen",
+            CrtMode::Amber => "Amber screen",
         }
     }
 }
@@ -408,9 +408,9 @@ pub enum SortOrder {
 impl SortOrder {
     pub fn name(self) -> &'static str {
         match self {
-            SortOrder::Name => "name",
-            SortOrder::LastCalled => "last called",
-            SortOrder::Calls => "calls",
+            SortOrder::Name => "Name",
+            SortOrder::LastCalled => "Last called",
+            SortOrder::Calls => "Calls",
         }
     }
 

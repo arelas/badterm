@@ -48,7 +48,7 @@ impl FlowControl {
         match self {
             FlowControl::Hardware => "RTS/CTS",
             FlowControl::Software => "XON/XOFF",
-            FlowControl::None => "none",
+            FlowControl::None => "None",
         }
     }
 

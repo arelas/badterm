@@ -494,6 +494,40 @@ mod tests {
         theme::set_current(theme::Theme::default());
     }
 
+    /// The yes/no questions, as PNGs:
+    /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm confirm_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn confirm_snapshot() {
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut d = Directory::default();
+        d.offer_defaults();
+        let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
+        let shot = |r: &mut Renderer, s: &badterm_core::Screen, name: &str| {
+            let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+            r.draw(&Frame::plain(rows, None, true), true, true);
+            std::fs::write(dir.join(name), crate::png::encode(r.pixels(), r.native_width(), r.native_height()))
+                .unwrap();
+        };
+        let mut ui = DialerUi::new(dir.clone(), std::rc::Rc::new(crate::secrets::tests::Memory::default()));
+        let mut s = badterm_core::Screen::new(80, 25, 0);
+        ui.draw(&mut s, &d);
+        crate::ui::confirm_box(
+            &mut s,
+            "Exit BadTerm?",
+            "This hangs up the call to The Vortex BBS.",
+            &[("Y", "Exit"), ("N", "Stay")],
+        );
+        shot(&mut r, &s, "confirm-exit-call.png");
+        ui.draw(&mut s, &d);
+        crate::ui::confirm_box(&mut s, "Exit BadTerm?", "", &[("Y", "Exit"), ("N", "Stay")]);
+        shot(&mut r, &s, "confirm-exit.png");
+        ui.handle_key(crate::input::Key::Delete, crate::input::Mods::default(), &mut d);
+        ui.draw(&mut s, &d);
+        shot(&mut r, &s, "confirm-delete.png");
+    }
+
     /// Previews of the themes and bezels offered on the website, from
     /// `extras/`, into `extras/previews`:
     /// `cargo test -p badterm make_extra_previews -- --ignored`
@@ -850,7 +884,7 @@ mod tests {
         let mut settings = crate::settings::Settings::default();
         let mut sui = crate::ui::settings::SettingsUi::default();
         let mut ps = badterm_core::Screen::new(80, 25, 0);
-        sui.draw(&mut ps, &settings, Some("green screen"), None);
+        sui.draw(&mut ps, &settings, Some("Green screen"), None);
         page(&mut r, &ps, "settings.ppm");
         let mut fui = crate::ui::settings::SettingsUi::default();
         fui.open(Vec::new(), Vec::new(), vec![std::path::PathBuf::from("/home/sysop/Downloads/BadTerm"); 5]);

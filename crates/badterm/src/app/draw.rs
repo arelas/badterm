@@ -258,12 +258,10 @@ impl App {
                 }
             }
             let msg = match &self.session {
-                Some(s) if s.state == State::Connected => {
-                    format!("This hangs up the call to {}.  Y exit   N stay", s.entry.name)
-                }
-                _ => "Y exit   N stay".to_string(),
+                Some(s) if s.state == State::Connected => format!("This hangs up the call to {}.", s.entry.name),
+                _ => String::new(),
             };
-            ui::message_box(&mut sc, "Exit BadTerm?", &msg);
+            ui::confirm_box(&mut sc, "Exit BadTerm?", &msg, &[("Y", "Exit"), ("N", "Stay")]);
             confirm_screen = sc;
             let mut rows: Vec<&[Cell]> = (0..n).map(|y| confirm_screen.row(y)).collect();
             rows.push(frame.rows[n]);

@@ -48,6 +48,39 @@ pub fn message_box(s: &mut Screen, title: &str, msg: &str) {
     }
 }
 
+/// A question in a box: the message (if any), then the choices on a row of
+/// their own, each key highlighted, e.g. `Y Exit    N Stay`.
+pub fn confirm_box(s: &mut Screen, title: &str, msg: &str, choices: &[(&str, &str)]) {
+    let lines = if msg.is_empty() { Vec::new() } else { wrap(msg, 56) };
+    let gap = "    ";
+    let row_len: usize = choices.iter().map(|(k, what)| k.chars().count() + 1 + what.chars().count()).sum::<usize>()
+        + gap.len() * choices.len().saturating_sub(1);
+    let text_w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0).max(row_len).max(title.len() + 4);
+    let w = text_w + 8;
+    // The border, a blank row, the message and another blank row (if
+    // there is a message), the choices, a blank row and the border.
+    let h = if lines.is_empty() { 5 } else { lines.len() + 6 };
+    let x = s.cols().saturating_sub(w) / 2;
+    let y = s.rows().saturating_sub(h) / 2;
+    let t = theme::current();
+    let (fg, bg) = (t.window.fg(), t.window.bg());
+    frame(s, x, y, w, h, title, fg, bg);
+    for (i, l) in lines.iter().enumerate() {
+        label(s, x + (w - l.chars().count()) / 2, y + 2 + i, l, fg, bg);
+    }
+    let row_y = if lines.is_empty() { y + 2 } else { y + 3 + lines.len() };
+    let mut cx = x + (w - row_len) / 2;
+    for (i, (key, what)) in choices.iter().enumerate() {
+        if i > 0 {
+            cx += gap.len();
+        }
+        label(s, cx, row_y, key, t.keys.fg(), bg);
+        cx += key.chars().count() + 1;
+        label(s, cx, row_y, what, fg, bg);
+        cx += what.chars().count();
+    }
+}
+
 /// Draw a double-line box with a filled interior and an optional title.
 pub fn frame(s: &mut Screen, x: usize, y: usize, w: usize, h: usize, title: &str, fg: Color, bg: Color) {
     s.fill_rect(x, y, w, h, Cell::new(b' ', fg, bg));

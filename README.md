@@ -119,9 +119,10 @@ BadTerm starts.
   scanlines and curved glass, in color or as a green or amber monochrome
   monitor, for every BBS or chosen per directory entry. How much the text
   glows, how strong the scanlines are and how curved the glass is are each
-  set in Settings. BadTerm starts in it: a color CRT with a light glow,
-  medium scanlines and flat glass, 8-dot characters and square pixels,
-  fitted to the window in its own shape
+  set in Settings. It starts off, with crisp pixels; turned on, it is a
+  color CRT with a light glow, medium scanlines and flat glass. BadTerm
+  starts with 8-dot characters and square pixels, fitted to the window in
+  its own shape
 - **VGA-accurate display options**: 9-dot character cells, where the
   line-drawing characters join up as they did on a VGA (`Alt-W`), and the
   4:3 shape of a CRT instead of square pixels (`Alt-A`). Entries can use

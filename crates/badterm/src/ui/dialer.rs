@@ -263,7 +263,7 @@ impl DialerUi {
     /// Ask whether to hang up `current` to dial `next`; answers with
     /// [`Action::HangUpAndDial`] on yes.
     pub fn confirm_hang_up(&mut self, current: &str, next: &str) {
-        let msg = format!("Hang up {} and dial {}? (Y/N)", truncate(current, 24), truncate(next, 24));
+        let msg = format!("Hang up {} and dial {}?", truncate(current, 24), truncate(next, 24));
         self.mode = Mode::ConfirmHangUp(msg);
     }
 
@@ -273,7 +273,7 @@ impl DialerUi {
             Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  P Pin  / Find  Esc Close",
             Mode::Edit(_) => "Enter Save  Esc Cancel  Tab/\u{2191}\u{2193} Field  Space/\u{2190}\u{2192} Change option",
             Mode::Prompt(..) => "Enter OK  Esc Cancel",
-            Mode::ConfirmDelete => "Y Delete  N Keep",
+            Mode::ConfirmDelete => "Y Remove  N Keep",
             Mode::ConfirmHangUp(_) => "Y Hang up and dial  N Stay connected",
             Mode::Message(_) => "Press any key",
         }
@@ -568,10 +568,11 @@ impl DialerUi {
         let title = format!(" BadTerm {} \u{2502} Dialing Directory", env!("CARGO_PKG_VERSION"));
         text(s, 0, 0, COLS, &title, t.title_bar.fg(), t.title_bar.bg());
         let view = dir.view(&self.filter.value);
+        let entries = |n: usize| if n == 1 { "entry" } else { "entries" };
         let count = if view.len() == dir.entries.len() {
-            format!("{} entries ", dir.entries.len())
+            format!("{} {} ", dir.entries.len(), entries(dir.entries.len()))
         } else {
-            format!("{} of {} entries ", view.len(), dir.entries.len())
+            format!("{} of {} {} ", view.len(), dir.entries.len(), entries(dir.entries.len()))
         };
         label(s, COLS - count.len(), 0, &count, t.title_bar.fg(), t.title_bar.bg());
 
@@ -680,12 +681,12 @@ impl DialerUi {
             }
             Mode::ConfirmDelete => {
                 let name = view.get(self.selected).map(|&i| dir.entries[i].name.as_str()).unwrap_or("");
-                let msg = format!("Remove \"{}\" from the directory? (Y/N)", truncate(name, 40));
-                message_box(s, "Confirm", &msg);
+                let msg = format!("Remove \"{}\" from the directory?", truncate(name, 40));
+                confirm_box(s, "Remove entry?", &msg, &[("Y", "Remove"), ("N", "Keep")]);
                 None
             }
             Mode::ConfirmHangUp(msg) => {
-                message_box(s, "Still connected", msg);
+                confirm_box(s, "Still connected", msg, &[("Y", "Hang up and dial"), ("N", "Stay connected")]);
                 None
             }
             Mode::Message(msg) => {
@@ -765,7 +766,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 label(s, fx + 8, yy, &hint, t.note.fg(), bg);
             }
             F_BELL => {
-                let name = form.bell.map_or("default", BellMode::name);
+                let name = form.bell.map_or("Default", BellMode::name);
                 text(s, fx, yy, fw, &format!("\u{25C4} {name:<14} \u{25BA}"), fg, bg);
                 if form.bell.is_none() {
                     label(s, fx + 19, yy, "(Settings)", t.note.fg(), bg);
@@ -781,7 +782,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 label(s, fx, yy, "(a modem has none)", t.note.fg(), bg);
             }
             F_CRT => {
-                let name = form.crt.map_or("default", CrtMode::name);
+                let name = form.crt.map_or("Default", CrtMode::name);
                 text(s, fx, yy, fw, &format!("\u{25C4} {name:<12} \u{25BA}"), fg, bg);
                 if form.crt.is_none() {
                     label(s, fx + 17, yy, &format!("({HOTKEY}-P)"), t.note.fg(), bg);
@@ -889,7 +890,7 @@ mod tests {
         let mut s = Screen::new(COLS, ROWS, 0);
         ui.draw(&mut s, &d);
         let rows: Vec<String> = (0..ROWS).map(|y| s.row(y).iter().map(|c| c.ch as char).collect()).collect();
-        assert!(rows.iter().any(|r| r.contains("Phosphor mode") && r.contains("color CRT")), "{rows:#?}");
+        assert!(rows.iter().any(|r| r.contains("Phosphor mode") && r.contains("Color CRT")), "{rows:#?}");
     }
 
     #[test]

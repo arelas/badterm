@@ -218,9 +218,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Settings {
         Settings {
-            // A color CRT, flat, with medium scanlines, filling the window
-            // in its own shape.
-            crt: CrtMode::Color,
+            // Crisp pixels; phosphor mode (Alt-P) is there to turn on, as a
+            // color CRT with a light glow, medium scanlines and flat glass.
+            crt: CrtMode::Off,
             glow: Glow::Light,
             scanlines: Scanlines::Medium,
             curvature: Curvature::Off,
@@ -308,7 +308,7 @@ mod tests {
     #[test]
     fn defaults() {
         let s = Settings::default();
-        assert_eq!((s.crt, s.scanlines, s.curvature), (CrtMode::Color, Scanlines::Medium, Curvature::Off));
+        assert_eq!((s.crt, s.scanlines, s.curvature), (CrtMode::Off, Scanlines::Medium, Curvature::Off));
         assert_eq!((s.nine_dot, s.aspect, s.scaling, s.bezel.as_str()), (false, Aspect::Square, ScaleMode::Fit, ""));
         // A settings file without them gets the same.
         assert_eq!(toml::from_str::<Settings>("music = \"on\"").unwrap(), s);

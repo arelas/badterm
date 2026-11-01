@@ -305,7 +305,7 @@ mod tests {
                 m.name()
             })
             .collect();
-        assert_eq!(names, ["color CRT", "green screen", "amber screen", "off"]);
+        assert_eq!(names, ["Color CRT", "Green screen", "Amber screen", "Off"]);
     }
 
     #[test]
