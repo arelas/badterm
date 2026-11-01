@@ -16,6 +16,9 @@ The next things to do, in order.
       mouse copy, Alt-S, directory search and sort, the bell's flash, the
       color schemes
 - [ ] winget and Homebrew, updated from CI on each release
+- [ ] Retake the website's phosphor-mode screenshots (`vortex-*.jpg`,
+      `bezels.jpg`): they predate 0.1.23, whose glow no longer washes out
+      the colors (steps in site/README.md)
 
 ## Done (0.1)
 
@@ -83,6 +86,8 @@ The next things to do, in order.
       fills (Dark blue, Dark cyan)
 - [x] Website: help page, and an extras page of themes and bezels from
       `extras/`
+- [x] Phosphor mode keeps colors true: the glow only spreads light onto
+      darker neighbours
 
 ## Connections
 
