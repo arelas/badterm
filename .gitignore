@@ -1,3 +1,5 @@
 /target
 *.cap
 __pycache__/
+# Files dropped here to be looked at; never committed.
+/ingest/
