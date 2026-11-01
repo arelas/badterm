@@ -93,10 +93,11 @@ impl Scanlines {
         }
     }
 }
-/// How much of the blurred image is added back as glow, in 256ths.
-const GLOW: u32 = 150;
-/// Brightness boost to make up for the darkening, in 256ths.
-const GAIN: f64 = 1.12;
+/// How much of the light that spreads from bright pixels onto darker
+/// neighbours is added, in 256ths. Only the spread is added: an area of one
+/// color keeps its color, so the glow doesn't brighten or wash out the
+/// picture, only halo what is brighter than its surroundings.
+const GLOW: u32 = 200;
 
 #[derive(Default)]
 pub struct Crt {
@@ -154,7 +155,7 @@ impl Crt {
         }
     }
 
-    /// Add a blurred copy of `lit` back onto itself.
+    /// Add the glow: what a blurred copy of `lit` has beyond `lit` itself.
     fn glow(&mut self, w: usize, h: usize) {
         self.blur.clone_from(&self.lit);
         self.tmp.resize(w * h, 0);
@@ -165,7 +166,8 @@ impl Crt {
         }
         for (px, &b) in self.lit.iter_mut().zip(&self.blur) {
             let ch = |s: u32| {
-                let v = ((*px >> s) & 0xFF) + ((b >> s) & 0xFF) * GLOW / 256;
+                let (own, spread) = ((*px >> s) & 0xFF, (b >> s) & 0xFF);
+                let v = own + spread.saturating_sub(own) * GLOW / 256;
                 v.min(255) << s
             };
             *px = ch(16) | ch(8) | ch(0);
@@ -206,7 +208,9 @@ impl Crt {
                 let scan = 1.0 - depth * (std::f64::consts::PI * t).cos().powi(2);
                 let vignette = 1.0 - VIGNETTE * (su * su + sv * sv) / 2.0;
                 let fade = (edge / fade_px).min(1.0);
-                self.shade[i] = (scan * vignette * fade * GAIN * 256.0).round().clamp(0.0, 1023.0) as u16;
+                // Rows show at their true brightness; the scanlines only darken
+                // between them, as on a real tube.
+                self.shade[i] = (scan * vignette * fade * 256.0).round().clamp(0.0, 256.0) as u16;
             }
         }
     }
@@ -275,6 +279,26 @@ mod tests {
         assert_eq!(white, 0x33FF66);
         assert_eq!(monochrome(0, tint), 0);
         assert!(monochrome(0x555555, tint) & 0xFF00 < monochrome(0xAAAAAA, tint) & 0xFF00);
+    }
+
+    /// An area of one color keeps its color: the glow doesn't brighten it
+    /// or wash it out.
+    #[test]
+    fn colors_stay_true() {
+        let (nw, nh) = (40, 25);
+        for color in [0x0000AAu32, 0xAA5500, 0xAA0000, 0x55FFFF, 0xFFFFFF] {
+            let native = vec![color; nw * nh];
+            let (w, h) = (160, 100);
+            let mut out = vec![0; w * h];
+            let mut crt = Crt::default();
+            crt.present(CrtMode::Color, Scanlines::Off, Curvature::Off, &native, nw, nh, &mut out, w, (0, 0, w, h));
+            // The middle of the screen (no vignette to speak of).
+            let px = out[(h / 2) * w + w / 2];
+            for shift in [16, 8, 0] {
+                let (want, got) = ((color >> shift) & 0xFF, (px >> shift) & 0xFF);
+                assert!(got <= want && want - got <= 3, "{color:06x} came out {px:06x}");
+            }
+        }
     }
 
     #[test]
