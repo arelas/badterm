@@ -43,6 +43,7 @@ mod draw;
 mod keys;
 mod mouse;
 mod prefs;
+mod shape;
 
 const COLS: usize = 80;
 const ROWS: usize = 25;
@@ -234,6 +235,8 @@ pub struct App {
     player: Player,
     /// Where the last frame was drawn in the window: (x, y, w, h).
     view_rect: (usize, usize, usize, usize),
+    /// "Fit, keep shape": the window follows the picture's shape.
+    shape: shape::WindowShape,
     /// The SSH login's question, while one is waiting.
     login: Option<LoginPrompt>,
     /// A typed password to remember once the login succeeds.
@@ -326,6 +329,7 @@ impl App {
             dragging: false,
             mouse: (0.0, 0.0),
             view_rect: (0, 0, 1, 1),
+            shape: shape::WindowShape::default(),
             settings,
             player: Player::default(),
             login: None,
@@ -367,6 +371,7 @@ impl App {
             WindowAttributesExtX11::with_name(attrs, "badterm", "badterm")
         };
         let window = Rc::new(event_loop.create_window(attrs)?);
+        self.shape.min = (nw, nh);
         let context = softbuffer::Context::new(window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
         let surface = softbuffer::Surface::new(&context, window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
         self.gfx = Some(Gfx { window, surface, _context: context });
@@ -473,7 +478,10 @@ impl ApplicationHandler<UserEvent> for App {
                     event_loop.exit();
                 }
             }
-            WindowEvent::Resized(_) => self.request_redraw(),
+            WindowEvent::Resized(size) => {
+                self.shape.resized(size);
+                self.request_redraw();
+            }
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
@@ -551,6 +559,13 @@ impl ApplicationHandler<UserEvent> for App {
                 self.request_redraw();
             } else {
                 wake = wake.min(until);
+            }
+        }
+        if let Some(at) = self.shape.due() {
+            if now >= at {
+                self.snap_window_shape();
+            } else {
+                wake = wake.min(at);
             }
         }
         if !self.macro_steps.is_empty() {

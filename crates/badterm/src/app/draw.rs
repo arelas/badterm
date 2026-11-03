@@ -313,6 +313,16 @@ impl App {
                     None => 1.0,
                 };
                 let (ww, wh) = (w.get() as usize, h.get() as usize);
+                // The shape the window would have no borders at: the
+                // bezel's, or the picture's.
+                let want = match &self.bezel {
+                    Some(b) => b.shape(),
+                    None => {
+                        let (nw, nh) = (self.renderer.native_width() as f64, self.renderer.native_height() as f64);
+                        nw / (nh * pixel_aspect)
+                    }
+                };
+                self.shape.want(want, self.settings.scaling == ScaleMode::Fit && !fill);
                 if let Some(b) = &self.bezel
                     && self.bezel_frame.as_ref().is_none_or(|(size, _)| *size != (ww, wh))
                 {

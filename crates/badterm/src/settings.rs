@@ -108,7 +108,8 @@ pub enum ScaleMode {
     Auto,
     /// Always whole-number steps, so every pixel is exact.
     Integer,
-    /// As large as fits, keeping the shape.
+    /// As large as fits, keeping the shape; a window is kept in that
+    /// shape too, so there are no borders.
     #[default]
     Fit,
     /// The whole window, whatever its shape.

@@ -175,6 +175,17 @@ impl Bezel {
         Ok(Bezel::Image { pixels, width, height, screen })
     }
 
+    /// The whole bezel's shape, width over height: the window's best one.
+    pub fn shape(&self) -> f64 {
+        match self {
+            Bezel::Builtin(i) => {
+                let s = &STYLES[*i];
+                (1.0 + 2.0 * s.side) / (1.0 / SCREEN_ASPECT + s.top + s.bottom)
+            }
+            Bezel::Image { width, height, .. } => *width as f64 / (*height).max(1) as f64,
+        }
+    }
+
     /// Draw the bezel for a `w` x `h` window.
     pub fn render(&self, w: usize, h: usize) -> Rendered {
         match self {
