@@ -4,8 +4,8 @@
 //! The art is drawn the way the BBS scene's logos were: on a canvas of
 //! half-block "pixels" (each text cell is two of them, stacked: `▀` in one
 //! color over another), so letters can have rounded corners and a color
-//! ramp down them. The letters fade from white through yellow to red, as
-//! if lit from above, and cast a dark shadow down and to the right; thin
+//! ramp down them. The letters fade from white through cyan to blue, like
+//! ice lit from above, and cast a dark shadow down and to the right; thin
 //! rules above and below fade out to dots, in the same colors.
 
 use std::time::Duration;
@@ -147,9 +147,9 @@ const LETTERS: [(char, [&str; 12]); 7] = [
     ),
 ];
 
-/// The letters' color by pixel row: white-hot at the top, through yellow,
-/// to red at the bottom.
-const RAMP: [u8; 12] = [15, 14, 14, 14, 14, 14, 12, 12, 12, 4, 4, 4];
+/// The letters' color by pixel row, ice: a white highlight at the top,
+/// light cyan, cyan, then deep blue at the bottom.
+const RAMP: [u8; 12] = [15, 11, 11, 11, 11, 11, 3, 3, 3, 1, 1, 1];
 /// Where the logo's top pixel row is (an even one: a text row's top).
 const LOGO_Y: usize = 10;
 const SHADOW: u8 = 8;
@@ -206,9 +206,9 @@ fn rule(s: &mut Screen, y: usize) {
     for x in 0..COLS {
         let d = ((x as f64 + 0.5) - COLS as f64 / 2.0).abs() / (COLS as f64 / 2.0);
         let (ch, fg) = match d {
-            d if d < 0.18 => (0xC4, 14),
-            d if d < 0.42 => (0xC4, 12),
-            d if d < 0.66 => (0xC4, 4),
+            d if d < 0.18 => (0xC4, 11),
+            d if d < 0.42 => (0xC4, 3),
+            d if d < 0.66 => (0xC4, 1),
             d if d < 0.80 => (0xC4, 8),
             d if d < 0.88 => (0xF9, 8),
             d if d < 0.95 && x % 2 == 0 => (0xFA, 8),
@@ -249,7 +249,7 @@ pub fn draw(s: &mut Screen) {
     rule(s, bottom);
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     centered(s, bottom + 3, &[("t h e   b a d a s s   t e r m i n a l", 7)]);
-    centered(s, bottom + 6, &[(version.as_str(), 14), ("  \u{00B7}  ", 8), ("badterm.com", 11)]);
+    centered(s, bottom + 6, &[(version.as_str(), 15), ("  \u{00B7}  ", 8), ("badterm.com", 11)]);
     let copyright = [("Copyright (C) 2026 Bad Cluster", 7), ("  \u{00B7}  ", 8), ("free software, GNU GPL v3+", 7)];
     centered(s, bottom + 8, &copyright);
 }
