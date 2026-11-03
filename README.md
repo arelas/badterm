@@ -139,15 +139,16 @@ BadTerm starts.
 Downloads are on the [website](https://badterm.com/) and the
 [releases page](https://git.badcluster.dev/arelas/badterm/releases).
 
-- **Windows**: run `badterm-…-windows-x64-setup.exe`. It installs for you
+- **Windows**: run `badterm-…-windows-x64-setup.exe` (it and `badterm.exe`
+  are code signed). It installs for you
   alone without administrator rights (or for everyone, if you choose), adds
   BadTerm to the Start menu and opens `telnet://`, `telnets://` and
   `rlogin://` links with it. Or unzip `badterm-…-windows-x64.zip` and run
   `badterm.exe` from anywhere.
 - **macOS**: open `badterm-…-macos-arm64.dmg` and drag BadTerm to
-  Applications. BadTerm isn't signed with an Apple Developer ID yet, so the
-  first time, Control-click it and choose Open. It opens `telnet://` links
-  once it has been run.
+  Applications. It is signed with an Apple Developer ID and notarized by
+  Apple, so it opens like any other app. It opens `telnet://` links once it
+  has been run.
 - **Linux**: install `badterm-…-linux-x64.deb` (Debian, Ubuntu) or
   `badterm-…-linux-x64.rpm` (Fedora, RHEL, openSUSE), for example with
   `sudo apt install ./badterm-…-linux-x64.deb`. They, the AppImage and the

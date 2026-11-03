@@ -227,6 +227,32 @@ jobs:
           if ($fail) { exit 1 }
           Write-Host "Phosphor's folders moved to BadTerm's"
 
+      # Azure Artifact Signing (Authenticode), as ZephyrFTP does: see
+      # packaging/windows/sign.ps1, and the AZURE_* secrets on the arelas
+      # account. Before packaging, so the zip and the installer both carry
+      # the signed program. A v* tag MUST be signed: missing secrets fail
+      # the release rather than quietly shipping unsigned files.
+      - name: Sign badterm.exe
+        shell: powershell
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          if (-not $env:AZURE_SIGNING_ACCOUNT) {
+            if ($env:GITHUB_REF -like 'refs/tags/v*') {
+              Write-Host "::error::a release must be signed: AZURE_SIGNING_ACCOUNT is not set"
+              exit 1
+            }
+            Write-Host "::warning::Azure Artifact Signing secrets not set - badterm.exe ships UNSIGNED"
+            exit 0
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\sign.ps1 target\release\badterm.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
       - name: Package
         shell: powershell
         run: |
@@ -247,6 +273,29 @@ jobs:
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $iscc) { Write-Host "::error::ISCC.exe not found"; exit 1 }
           & $iscc /Qp "/DAppVersion=$version" "/DOutputName=$name-setup" packaging\windows\badterm.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # Before the install test below, so that tests the file that ships.
+      # (Its uninstaller, which Inno Setup builds inside it, stays unsigned.)
+      - name: Sign the installer
+        shell: powershell
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        run: |
+          if (-not $env:AZURE_SIGNING_ACCOUNT) {
+            if ($env:GITHUB_REF -like 'refs/tags/v*') {
+              Write-Host "::error::a release must be signed: AZURE_SIGNING_ACCOUNT is not set"
+              exit 1
+            }
+            Write-Host "::warning::Azure Artifact Signing secrets not set - the installer ships UNSIGNED"
+            exit 0
+          }
+          powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\sign.ps1 (Get-ChildItem dist\*-setup.exe | Select-Object -First 1).FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       # Install Phosphor 0.1.16 (from before the rename) for this user into a
@@ -345,8 +394,82 @@ jobs:
       - name: Test the move from Phosphor's folders
         run: packaging/test-folder-upgrade.sh target/release/badterm
 
-      # BadTerm.app in a disk image. Architecture from the runner itself
-      # rather than assumed.
+      # Developer ID signing, the same way as ZephyrFTP and with the same
+      # account-level secrets: the certificate only ever lives in a keychain
+      # made for this job and deleted at its end (the runner is a persistent
+      # machine), which also never needs to prompt. A v* tag MUST be signed
+      # and notarized: missing secrets fail the release. Other runs sign if
+      # they can, and never notarize.
+      - name: Set up signing keychain
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          set -e
+          is_release=false
+          case "$GITHUB_REF" in refs/tags/v*) is_release=true ;; esac
+          if [ -z "$MACOS_CERT_P12" ]; then
+            if $is_release; then
+              echo "::error::a release must be Developer ID signed: MACOS_CERT_P12 is not set"
+              exit 1
+            fi
+            echo "No signing certificate: the app keeps its ad-hoc signature"
+            exit 0
+          fi
+
+          umask 077
+          tmp=$(mktemp -d)
+          kc="$tmp/badterm-signing.keychain-db"
+          kcpw=$(openssl rand -hex 24)
+          # Remembered so the cleanup step can restore the search list.
+          security list-keychains -d user | tr -d '"' | xargs > "$tmp/old-keychains"
+          echo "SIGN_TMP=$tmp" >> "$GITHUB_ENV"
+          echo "SIGN_KEYCHAIN=$kc" >> "$GITHUB_ENV"
+
+          security create-keychain -p "$kcpw" "$kc"
+          security set-keychain-settings -lut 3600 "$kc"
+          security unlock-keychain -p "$kcpw" "$kc"
+          # Apple's Developer ID intermediates, which codesign needs to
+          # build the chain and a Mac doesn't always have.
+          for ca in DeveloperIDG2CA DeveloperIDCA; do
+            curl --proto '=https' --tlsv1.2 -sSfLo "$tmp/$ca.cer" "https://www.apple.com/certificateauthority/$ca.cer"
+            security import "$tmp/$ca.cer" -k "$kc" >/dev/null || true
+          done
+          printf '%s' "$MACOS_CERT_P12" | base64 --decode > "$tmp/cert.p12"
+          security import "$tmp/cert.p12" -k "$kc" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign >/dev/null
+          rm -f "$tmp/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kcpw" "$kc" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$kc" $(cat "$tmp/old-keychains")
+          identity=$(security find-identity -v -p codesigning "$kc" \
+            | awk -v team="($APPLE_TEAM_ID)" '/Developer ID Application/ && index($0, team) { print $2; exit }')
+          if [ -z "$identity" ]; then
+            security find-identity -v -p codesigning "$kc"
+            echo "::error::no Developer ID Application identity for team $APPLE_TEAM_ID in MACOS_CERT_P12"
+            exit 1
+          fi
+          echo "SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+          if $is_release; then
+            if [ -z "$NOTARY_KEY_P8" ]; then
+              echo "::error::a release must be notarized: NOTARY_KEY_P8 is not set"
+              exit 1
+            fi
+            printf '%s' "$NOTARY_KEY_P8" | base64 --decode > "$tmp/notary.p8"
+            echo "NOTARY_KEY_FILE=$tmp/notary.p8" >> "$GITHUB_ENV"
+            echo "NOTARY_KEY_ID=$NOTARY_KEY_ID" >> "$GITHUB_ENV"
+            echo "NOTARY_ISSUER_ID=$NOTARY_ISSUER_ID" >> "$GITHUB_ENV"
+          else
+            echo "Not a release tag: signed, not notarized"
+          fi
+
+      # BadTerm.app in a disk image: signed with the Developer ID and, for a
+      # release, notarized (see build-dmg.sh). Architecture from the runner
+      # itself rather than assumed.
       - name: Package
         run: |
           set -e
@@ -360,6 +483,16 @@ jobs:
           name: badterm-macos
           path: dist/*.dmg
           if-no-files-found: error
+
+      # always(): runs even when a step above failed, so the certificate
+      # and notary key never outlive the job on this persistent runner.
+      - name: Remove signing keychain
+        if: always() && env.SIGN_TMP != ''
+        run: |
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s $(cat "$SIGN_TMP/old-keychains") || true
+          security delete-keychain "$SIGN_KEYCHAIN" 2>/dev/null || true
+          rm -rf "$SIGN_TMP"
 
   release:
     # Gated on every platform: a release missing one platform's package must
@@ -408,7 +541,7 @@ jobs:
       # No `token:`, as in ipscanner: Forgejo Actions injects a
       # repository-scoped token that the action picks up itself.
       #
-      # prerelease: pre-1.0, and the macOS binary is unsigned.
+      # prerelease: pre-1.0.
       - name: Create Forgejo release
         uses: actions/forgejo-release@v2.6.2
         with:

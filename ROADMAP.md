@@ -126,6 +126,7 @@ The next things to do, in order.
 
 ## Packaging
 
-- [ ] macOS Developer ID signing and notarization
+- [x] macOS Developer ID signing and notarization, and Windows signing
+      (Azure Artifact Signing), in CI as ZephyrFTP does
 - [ ] winget and Homebrew (see the punch list); Flathub
 - [ ] An MSI for managed Windows deployments
