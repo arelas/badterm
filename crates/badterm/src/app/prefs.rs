@@ -137,6 +137,7 @@ impl App {
             self.art_dir = if art.is_dir() { art } else { std::env::home_dir().unwrap_or_else(|| PathBuf::from(".")) };
         }
         self.art_picker = Some(FilePicker::new(self.art_dir.clone(), false, art_ui::EXTENSIONS));
+        self.picking_script = false;
         self.help_open = false;
         self.settings_open = false;
     }

@@ -44,7 +44,8 @@ impl App {
             return ui::text(s, 0, 0, cols, &v.status(), fg, bg);
         }
         if self.art_picker.is_some() && !self.help_open && !self.settings_open {
-            return ui::text(s, 0, 0, cols, " View ANSI Art \u{2502} Esc returns", fg, bg);
+            let what = if self.picking_script { " Run a Script" } else { " View ANSI Art" };
+            return ui::text(s, 0, 0, cols, &format!("{what} \u{2502} Esc returns"), fg, bg);
         }
         if self.help_open || self.settings_open {
             let line = if self.help_open {
@@ -119,6 +120,9 @@ impl App {
                 if session.capture_path().is_some() {
                     flags.push_str(" CAP");
                 }
+                if self.script.is_some() {
+                    flags.push_str(" SCRIPT");
+                }
                 if e.baud > 0 {
                     flags.push_str(&format!(" {}bps", e.baud));
                 }
@@ -159,7 +163,11 @@ impl App {
             let own = self.own_crt_mode().map(|m| m.name());
             page_cursor = self.settings_ui.draw(&mut self.page_screen, &self.settings, own, self.update.as_deref());
         } else if let Some(picker) = self.art_picker.as_mut() {
-            page_cursor = art_ui::draw_picker(&mut self.page_screen, picker);
+            page_cursor = if self.picking_script {
+                art_ui::draw_picker_titled(&mut self.page_screen, picker, "Run a Script", "Enter run")
+            } else {
+                art_ui::draw_picker(&mut self.page_screen, picker)
+            };
         }
         let crt = self.crt_mode();
         let Some(gfx) = self.gfx.as_mut() else { return };

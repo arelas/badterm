@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn long_strings_are_cut_off() {
-        let s = "T32L1".to_string() + &"C".repeat(1000);
+        let s = format!("T32L1{}", "C".repeat(1000));
         let total: u32 = parse(s.as_bytes()).iter().map(|t| t.ms).sum();
         assert!(total <= MAX_TOTAL_MS);
     }

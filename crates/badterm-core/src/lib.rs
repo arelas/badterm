@@ -22,6 +22,7 @@ pub mod petscii;
 pub mod rip;
 pub mod sauce;
 pub mod screen;
+pub mod script;
 pub mod session;
 pub mod sixel;
 pub mod skypix;

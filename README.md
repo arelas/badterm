@@ -280,6 +280,7 @@ hanging up.
 | `/`, `F3`, `Ctrl-F` | Search by name, address, comment or group (`Enter` dials, `Esc` clears) |
 | `S` | Sort by name, last called, or number of calls |
 | `G` | Show one group of entries, then the next, then all |
+| `M` | The entry's own keyboard macros |
 | `Q` | Quick connect to an address |
 | `I` / `X` | Import / export a directory file |
 | letter or digit | Jump to the next entry starting with it |
@@ -296,7 +297,8 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-H` | Hang up (or clear a finished call from the screen) |
 | `Alt-R` | Call again (after a hang-up, or now while a redial is waiting) |
 | `Alt-L` | Send the entry's user name; again for the password |
-| `Alt-1` ... `Alt-0` | Keyboard macros (set them in Settings, `Alt-O`) |
+| `Alt-1` ... `Alt-0` | Keyboard macros (set them in Settings, `Alt-O`, or an entry's own with `M` in the directory) |
+| `Alt-J` | Run a script, or stop the one running |
 | `Alt-B`, `Shift-PgUp`, mouse wheel | Scrollback (arrows, `PgUp`/`PgDn`, `Home`; any other key returns) |
 | `Alt-I` | Toggle iCE colors / blinking |
 | `Alt-E` | Toggle CP437 / UTF-8 |
@@ -353,7 +355,34 @@ show and are saved straight away; in the grid, `Esc` undoes the last part.
 "Keyboard macros" sets what `Alt-1` to `Alt-0` send, written as in Telix
 and QModem: `^M` is Enter, `^[` Esc and `^A` to `^Z` the other control
 keys, `~` waits half a second, and `{user}` and `{password}` are the
-directory entry's. `{user}^M~{password}^M`, for example, logs in.
+directory entry's. `{user}^M~{password}^M`, for example, logs in. A
+directory entry can have its own: `M` on it in the directory sets them,
+and where one of its own is empty, the one in Settings is sent.
+
+### Scripts
+
+A script logs in, or finds its way around a BBS, as Telix's SALT and
+Qodem's scripts did. Scripts are written in [Rhai](https://rhai.rs), kept
+in the `scripts` folder (`badterm --paths` shows where), and run either by
+naming one as an entry's **Script** (it runs once the call connects) or
+with `Alt-J` during a call (`Alt-J` again stops it). They read what the
+BBS sends as plain text, without its ANSI codes:
+
+```rust
+if wait("Login:", 20) {           // seconds; false if it never came
+    send(user() + "\r");          // the entry's user name
+    wait("Password:");            // 30 seconds when no time is given
+    send(password() + "\r");
+}
+let which = wait_any(["[Y/n]", "Main Menu"], 30);   // which came, or -1
+if which == 0 { send("n"); }
+sleep(0.5);
+notify("Logged in to " + bbs());  // on the status line, as print() is
+```
+
+`screen()` gives the text on the screen, a line per row, and `hangup()`
+ends the call. [extras/scripts/login.rhai](extras/scripts/login.rhai) is a
+login script for most boards.
 
 "Hotkeys" moves any of the `Alt` (`Cmd`) keys to another letter: choose
 one, press `Enter`, then the new letter. One that had that letter takes the

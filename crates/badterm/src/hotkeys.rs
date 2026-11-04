@@ -8,11 +8,12 @@ use std::sync::RwLock;
 use winit::keyboard::KeyCode;
 
 /// The actions, by their usual key, and what they do.
-pub const ALL: [(&str, &str); 22] = [
+pub const ALL: [(&str, &str); 23] = [
     ("D", "Dialing directory"),
     ("R", "Call again, or redial now"),
     ("L", "Send login name, password"),
     ("H", "Hang up"),
+    ("J", "Run or stop a script"),
     ("X", "Exit BadTerm"),
     ("U", "Upload"),
     ("G", "Download"),

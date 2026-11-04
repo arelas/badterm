@@ -144,7 +144,7 @@ The next things to do, in order.
 - [x] Import more formats: qodem
 - [x] More in the settings screen: default font and screen mode, hotkeys
 - [ ] Multiple simultaneous sessions (tabs)
-- [ ] Scripting (e.g. Lua or Rhai); per-entry macros
+- [x] Scripting (Rhai); per-entry macros
 - [ ] More themes and bezels in `extras/`, from others
 - [ ] Optional curses/TUI front end built on `badterm-core`
 

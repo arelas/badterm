@@ -75,6 +75,7 @@ impl App {
     }
 
     pub(super) fn hang_up(&mut self) {
+        self.stop_script(None);
         self.redial = None;
         self.macro_steps.clear();
         self.session = None;
@@ -114,7 +115,9 @@ impl App {
             e.last_connected = Some(dialer::now());
             self.save_directory();
         }
+        self.feed_script();
         if closed {
+            self.stop_script(Some("stopped, as the call ended"));
             self.schedule_redial();
         }
         self.session_events();
@@ -163,6 +166,12 @@ impl App {
                     }
                     if self.session.as_ref().is_some_and(|s| s.entry.capture && s.capture_path().is_none()) {
                         self.toggle_capture();
+                    }
+                    // The entry's login script.
+                    let script = self.session.as_ref().map(|s| s.entry.script.clone()).unwrap_or_default();
+                    if !script.trim().is_empty() {
+                        let path = self.script_path(&script);
+                        self.run_script(&path);
                     }
                     if let Some(pw) = self.remember.take()
                         && let Some(e) = self.session_entry_mut()
@@ -328,7 +337,9 @@ impl App {
         let Some(session) = self.session.as_ref().filter(|s| s.state == State::Connected) else {
             return self.notify("Not connected");
         };
-        let text = self.settings.macros.get(i).cloned().unwrap_or_default();
+        // The entry's own, or the settings'.
+        let own = session.entry.macros.get(i).filter(|m| !m.is_empty());
+        let text = own.or(self.settings.macros.get(i)).cloned().unwrap_or_default();
         if text.is_empty() {
             let key = crate::macros::key_name(i);
             return self.notify(format!(

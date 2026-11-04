@@ -1,4 +1,4 @@
-# Extras: themes and bezels
+# Extras: themes, bezels and scripts
 
 Color themes and monitor bezels for BadTerm, offered for download on
 <https://badterm.com/extras.html>. Contributions are welcome: add a file,
@@ -41,3 +41,9 @@ cargo test -p badterm make_extra_previews -- --ignored   # the previews
 
 The four bezels here were drawn by `cargo test -p badterm make_extra_bezels
 -- --ignored`, from the styles in `crates/badterm/src/bezel.rs`.
+
+## Scripts (`scripts/*.rhai`)
+
+Scripts in [Rhai](https://rhai.rs), as the README's "Scripts" describes.
+`login.rhai` logs in to most boards; copy it to your scripts folder
+(`badterm --paths`) and change it to suit.

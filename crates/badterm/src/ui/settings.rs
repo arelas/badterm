@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use badterm_core::screen::{Cell, Screen};
 
+use super::macro_edit::{EditAction, MacroEditor};
 use super::theme::{self, Attr, SCHEMES, Theme};
 use super::*;
 use crate::crt::{CrtMode, Curvature, Glow, Scanlines};
@@ -126,7 +127,7 @@ enum Mode {
     /// Asking for a theme file to import, or a name to save one as.
     Prompt(usize, TextField),
     /// Editing the keyboard macros: which one, and its text.
-    Macros(usize, TextField),
+    Macros(MacroEditor),
     /// Moving the hotkeys: which action, and whether the next key is its
     /// new one.
     Hotkeys(usize, bool),
@@ -188,26 +189,14 @@ impl SettingsUi {
                 self.mode = Mode::Menu;
                 Action::None
             }
-            Mode::Macros(line, field) => {
-                let n = crate::macros::COUNT;
-                let next = match key {
-                    Key::Escape => {
-                        self.mode = Mode::Menu;
-                        return Action::None;
-                    }
-                    Key::Up => (*line + n - 1) % n,
-                    Key::Down | Key::Enter | Key::Tab => (*line + 1) % n,
-                    _ => {
-                        field.handle_key(key, mods);
-                        settings.macros.resize(n, String::new());
-                        settings.macros[*line] = field.value.clone();
-                        return Action::Changed;
-                    }
-                };
-                settings.macros.resize(n, String::new());
-                self.mode = Mode::Macros(next, TextField::new(&settings.macros[next], 200));
-                Action::None
-            }
+            Mode::Macros(editor) => match editor.handle_key(key, mods, &mut settings.macros) {
+                EditAction::None => Action::None,
+                EditAction::Changed => Action::Changed,
+                EditAction::Close => {
+                    self.mode = Mode::Menu;
+                    Action::None
+                }
+            },
             Mode::Hotkeys(sel, waiting) => {
                 let n = crate::hotkeys::ALL.len();
                 let half = n.div_ceil(2);
@@ -397,8 +386,7 @@ impl SettingsUi {
             _ if TEXT_ITEMS.contains(&self.item) => {}
             Key::Enter if self.item == I_COLORS => self.mode = Mode::Parts,
             Key::Enter if self.item == I_MACROS => {
-                let first = settings.macros.first().cloned().unwrap_or_default();
-                self.mode = Mode::Macros(0, TextField::new(&first, 200));
+                self.mode = Mode::Macros(MacroEditor::new(&settings.macros));
             }
             Key::Enter if self.item == I_HOTKEYS => self.mode = Mode::Hotkeys(0, false),
             Key::Enter if self.item == I_IMPORT => self.mode = Mode::Prompt(I_IMPORT, TextField::new("", 400)),
@@ -539,7 +527,7 @@ impl SettingsUi {
                 label(s, x + 2, y + 1, hint, t.window_text.fg(), t.window_text.bg());
                 cursor = Some(field.draw(s, x + 2, y + 3, w - 4, false, t.input.fg(), t.input.bg()));
             }
-            Mode::Macros(line, field) => cursor = Some(self.draw_macros(s, settings, *line, field)),
+            Mode::Macros(editor) => cursor = Some(editor.draw(s, "Keyboard Macros", &settings.macros, None)),
             Mode::Hotkeys(sel, waiting) => self.draw_hotkeys(s, *sel, *waiting),
             Mode::Message(msg) => {
                 self.draw_menu(s, settings, own_crt, update);
@@ -589,37 +577,6 @@ impl SettingsUi {
         };
         label(s, x + 2, y + 3 + half, &note, t.note.fg(), t.window.bg());
         label(s, x + 2, y + 4 + half, "Macros stay on 1 to 0.", t.note.fg(), t.window.bg());
-    }
-
-    fn draw_macros(&self, s: &mut Screen, settings: &Settings, line: usize, field: &TextField) -> (usize, usize) {
-        let t = theme::current();
-        let (x, y, w) = (3, 2, COLS - 6);
-        frame(s, x, y, w, 21, "Keyboard Macros", t.window.fg(), t.window.bg());
-        let mut cursor = (0, 0);
-        for i in 0..crate::macros::COUNT {
-            let yy = y + 2 + i;
-            let focused = i == line;
-            let name_attr = if focused { t.keys } else { t.field_name };
-            let k = format!("{HOTKEY}-{}", crate::macros::key_name(i));
-            text(s, x + 2, yy, 7, &format!("{k:>6}"), name_attr.fg(), name_attr.bg());
-            if focused {
-                cursor = field.draw(s, x + 10, yy, w - 12, false, t.input.fg(), t.input.bg());
-            } else {
-                let v = settings.macros.get(i).map(String::as_str).unwrap_or("");
-                text(s, x + 10, yy, w - 12, &truncate(v, w - 12), t.field_value.fg(), t.field_value.bg());
-            }
-        }
-        let help = [
-            "Sent to the BBS when you press the key. In a macro:",
-            "  ^M  Enter          ^[  Esc        ^A to ^Z  other control keys",
-            "  ~   wait 1/2 sec   ^^  a ^        ^~  a ~",
-            "  {user}  {password}   the dialing directory entry's",
-            "For example:  {user}^M~{password}^M   logs in.",
-        ];
-        for (i, l) in help.iter().enumerate() {
-            label(s, x + 2, y + 14 + i, l, t.window_text.fg(), t.window_text.bg());
-        }
-        cursor
     }
 
     fn draw_menu(&self, s: &mut Screen, settings: &Settings, own_crt: Option<&str>, update: Option<&str>) {

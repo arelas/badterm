@@ -105,6 +105,8 @@ pub struct Session {
     started: Instant,
     connected_at: Option<Instant>,
     events: Vec<SessionEvent>,
+    /// A copy of what is shown, for a script, while it is Some.
+    pub tap: Option<Vec<u8>>,
 }
 
 impl Session {
@@ -141,6 +143,7 @@ impl Session {
             started: Instant::now(),
             connected_at: None,
             events: Vec::new(),
+            tap: None,
         }
     }
 
@@ -348,6 +351,9 @@ impl Session {
         }
         if let Some(c) = &mut self.capture {
             c.write(data, self.term.encoding);
+        }
+        if let Some(t) = &mut self.tap {
+            t.extend_from_slice(data);
         }
         self.term.feed(data);
         let replies = self.term.take_replies();

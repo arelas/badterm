@@ -39,6 +39,7 @@
         <li><a href="#saving">Capturing and saving</a></li>
         <li><a href="#macros">Keyboard macros</a></li>
         <li><a href="#hotkeys">Moving the hotkeys</a></li>
+        <li><a href="#scripts">Scripts</a></li>
         <li><a href="#files">Where things are kept</a></li>
         <li><a href="#cli">The command line</a></li>
         <li><a href="#problems">When something's wrong</a></li>
@@ -69,6 +70,7 @@
             <dt><kbd>Alt-R</kbd></dt><dd>Call again, or redial now</dd>
             <dt><kbd>Alt-L</kbd></dt><dd>Send your login (name, then password)</dd>
             <dt><kbd>Alt-1…0</kbd></dt><dd>Send a keyboard macro</dd>
+            <dt><kbd>Alt-J</kbd></dt><dd>Run a script, or stop it</dd>
             <dt><kbd>Alt-H</kbd></dt><dd>Hang up</dd>
             <dt><kbd>Alt-X</kbd></dt><dd>Exit BadTerm</dd>
           </dl>
@@ -113,6 +115,7 @@
             <dt><kbd>Ins</kbd> / <kbd>E</kbd></dt><dd>Add / edit an entry</dd>
             <dt><kbd>Del</kbd></dt><dd>Remove</dd>
             <dt><kbd>P</kbd></dt><dd>Pin to the top</dd>
+            <dt><kbd>M</kbd></dt><dd>The entry's own keyboard macros</dd>
             <dt><kbd>/</kbd> or <kbd>F3</kbd></dt><dd>Find as you type</dd>
             <dt><kbd>S</kbd></dt><dd>Sort: by name, last called, or calls</dd>
             <dt><kbd>G</kbd></dt><dd>Show one group, the next, or all</dd>
@@ -137,6 +140,7 @@
         <dt>Status line</dt><dd>Off leaves the BBS's screen alone in the window, with no status bar under it.</dd>
         <dt>Capture, Capture file</dt><dd>Record every call to this BBS; see <a href="#saving">capturing</a>.</dd>
         <dt>Downloads, Uploads</dt><dd>This BBS's own folders for files it sends and for choosing files to send it; empty for the folders in Settings.</dd>
+        <dt>Script</dt><dd>A script to run once the call connects; see <a href="#scripts">scripts</a>.</dd>
       </dl>
       <p><kbd>I</kbd> imports a directory from SyncTERM (<code>.lst</code>), NetRunner (<code>.phn</code>), Qodem (<code>fonebook.txt</code>), EtherTerm (<code>.xml</code>), MagiTerm (<code>magiterm.ini</code>), CSV (including the Telnet BBS Guide's list), JSON or TOML. You can also drop the file on BadTerm's window. <kbd>X</kbd> exports one; the file name's extension picks the format.</p>
       <p>A BBS that answers busy, or doesn't answer, is called again every 15 seconds, up to ten times. <kbd>Alt-R</kbd> calls at once; <kbd>Esc</kbd> stops.</p>
@@ -202,7 +206,19 @@
       </ul>
 
       <h2 id="macros">Keyboard macros</h2>
-      <p>Settings, General, Keyboard macros, sets what <kbd>Alt-1</kbd> to <kbd>Alt-0</kbd> send, written as in Telix and QModem: <code>^M</code> is Enter, <code>^[</code> Esc, <code>^A</code> to <code>^Z</code> the other control keys, <code>~</code> waits half a second, and <code>{user}</code> and <code>{password}</code> are the directory entry's. <code>{user}^M~{password}^M</code>, for example, logs in.</p>
+      <p>Settings, General, Keyboard macros, sets what <kbd>Alt-1</kbd> to <kbd>Alt-0</kbd> send, written as in Telix and QModem: <code>^M</code> is Enter, <code>^[</code> Esc, <code>^A</code> to <code>^Z</code> the other control keys, <code>~</code> waits half a second, and <code>{user}</code> and <code>{password}</code> are the directory entry's. <code>{user}^M~{password}^M</code>, for example, logs in. An entry can have its own: <kbd>M</kbd> on it in the directory sets them, and where one is empty, the one in Settings is sent.</p>
+      <h2 id="scripts">Scripts</h2>
+      <p>A script logs in or finds its way around a BBS, as Telix's SALT did. Scripts are written in <a href="https://rhai.rs">Rhai</a> and kept in the <code>scripts</code> folder (<code>badterm --paths</code> shows where). Name one as an entry's <b>Script</b> to run it once the call connects, or press <kbd>Alt-J</kbd> during a call to choose one (<kbd>Alt-J</kbd> again stops it). A script sees what the BBS sends as plain text:</p>
+      <pre>if wait("Login:", 20) {           // seconds; false if it never came
+    send(user() + "\r");
+    wait("Password:");            // 30 seconds when no time is given
+    send(password() + "\r");
+}
+let which = wait_any(["[Y/n]", "Main Menu"], 30);   // which came, or -1
+if which == 0 { send("n"); }
+sleep(0.5);
+notify("Logged in to " + bbs());</pre>
+      <p><code>screen()</code> is the text on the screen, and <code>hangup()</code> ends the call. The project's <a href="https://git.badcluster.dev/arelas/badterm/src/branch/main/extras/scripts/login.rhai">login.rhai</a> logs in to most boards.</p>
       <h2 id="hotkeys">Moving the hotkeys</h2>
       <p>Settings, General, Hotkeys, lists what each <kbd>Alt</kbd> key (<kbd>Cmd</kbd> on a Mac) does. Choose one, press <kbd>Enter</kbd>, then the letter you want for it; an action that had that letter takes the old one. <kbd>Del</kbd> puts a key back where it usually is. The status line and help show the keys as you set them. On the same tab, <b>New entries' font</b> and <b>New entries' screen</b> are what an entry you add starts with.</p>
 

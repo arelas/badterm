@@ -23,8 +23,8 @@ const LEFT: [Group; 3] = [
             ("@-R", "Call again, or redial now"),
             ("@-L", "Send login (name, password)"),
             ("@-1..0", "Send a keyboard macro"),
-            ("@-H", "Hang up"),
-            ("@-X", "Exit BadTerm"),
+            ("@-J", "Run or stop a script"),
+            ("@-H / X", "Hang up / exit BadTerm"),
         ],
     },
     Group {
@@ -68,7 +68,7 @@ const RIGHT: [Group; 2] = [
         keys: &[
             ("Enter", "Call"),
             ("Ins/E/Del", "Add / edit / remove"),
-            ("P", "Pin to the top"),
+            ("P / M", "Pin / its own macros"),
             ("/ or F3", "Find"),
             ("S / G", "Sort / one group"),
             ("Q", "Quick connect"),
@@ -98,8 +98,16 @@ pub fn draw(s: &mut Screen) {
 /// A key as it is now: `@-D` is the directory's hotkey, wherever it was
 /// moved to.
 fn key_label(key: &str) -> String {
+    let is_action = |k: &str| crate::hotkeys::ALL.iter().any(|(usual, _)| *usual == k);
+    // "@-H / X": two of them.
+    if let Some((first, second)) = key.split_once(" / ")
+        && first.starts_with("@-")
+        && is_action(second)
+    {
+        return format!("{} / {}", key_label(first), crate::hotkeys::key(second));
+    }
     match key.strip_prefix("@-") {
-        Some(k) if crate::hotkeys::ALL.iter().any(|(usual, _)| *usual == k) => crate::hotkeys::label(k),
+        Some(k) if is_action(k) => crate::hotkeys::label(k),
         _ => key.replace('@', HOTKEY),
     }
 }

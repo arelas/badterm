@@ -6,6 +6,7 @@ pub mod dialer;
 pub mod files;
 pub mod help;
 pub mod login;
+pub mod macro_edit;
 pub mod save;
 pub mod settings;
 pub mod splash;

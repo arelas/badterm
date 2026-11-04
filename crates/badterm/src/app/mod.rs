@@ -43,6 +43,7 @@ mod draw;
 mod keys;
 mod mouse;
 mod prefs;
+mod script;
 mod shape;
 
 const COLS: usize = 80;
@@ -74,6 +75,8 @@ pub enum UserEvent {
     OpenUrl(String),
     /// The update check found this newer version.
     UpdateAvailable(String),
+    /// The script has something to do.
+    Script,
 }
 
 /// A busy call waiting to be dialed again.
@@ -104,6 +107,8 @@ pub struct Paths {
     pub bezels: PathBuf,
     /// Files BBSes store here (SyncTERM's cache), a folder per BBS.
     pub bbs_cache: PathBuf,
+    /// Scripts (`.rhai`).
+    pub scripts: PathBuf,
 }
 
 impl Paths {
@@ -121,6 +126,7 @@ impl Paths {
             settings: config.join("settings.toml"),
             themes: config.join("themes"),
             bezels: config.join("bezels"),
+            scripts: config.join("scripts"),
             bbs_cache: cache.join("bbs"),
             captures: data.join("captures"),
             known_hosts: config.join("known_hosts"),
@@ -182,6 +188,10 @@ pub struct App {
     update: Option<String>,
     /// The ANSI viewer (Alt-F): choosing a file, then the art.
     art_picker: Option<FilePicker>,
+    /// The picker is choosing a script to run, not art to view.
+    picking_script: bool,
+    /// The script running, if any.
+    script: Option<badterm_core::script::Script>,
     art: Option<ArtView>,
     art_dir: PathBuf,
     /// A file to view at start (given on the command line).
@@ -297,6 +307,8 @@ impl App {
             splash_until: None,
             update: None,
             art_picker: None,
+            picking_script: false,
+            script: None,
             art: None,
             art_dir: PathBuf::new(),
             view_at_start: view,
@@ -489,6 +501,7 @@ impl ApplicationHandler<UserEvent> for App {
     fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Net(id, ev) => self.on_net(id, ev),
+            UserEvent::Script => self.poll_script(),
             UserEvent::UpdateAvailable(version) => {
                 let msg = format!("BadTerm {version} is out: {}", badterm_core::update::DOWNLOAD_PAGE);
                 self.notice = Some((msg, Instant::now() + UPDATE_NOTICE_TIME));
@@ -642,6 +655,8 @@ impl ApplicationHandler<UserEvent> for App {
             self.request_redraw();
             wake = wake.min(now + PACE_FRAME);
         }
+        // What a script waits for may have come in any of the above.
+        self.feed_script();
         event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 }

@@ -8,6 +8,7 @@ use badterm_core::Encoding;
 use badterm_core::dialer::{self, BellMode, CrtMode, Directory, Entry, Protocol};
 use badterm_core::screen::{Cell, Screen};
 
+use super::macro_edit::{EditAction, MacroEditor};
 use super::*;
 use crate::input::{Key, Mods};
 use crate::render::{CODEPAGE_FONTS, EXTRA_FONTS};
@@ -35,7 +36,7 @@ pub enum Action {
     Settings,
 }
 
-const FIELDS: [&str; 23] = [
+const FIELDS: [&str; 24] = [
     "Name",
     "Group",
     "Address",
@@ -53,6 +54,7 @@ const FIELDS: [&str; 23] = [
     "User name",
     "Password",
     "Auto-login",
+    "Script",
     "SSH key file",
     "Capture",
     "Capture file",
@@ -76,12 +78,13 @@ const F_TERM: usize = 13;
 const F_USER: usize = 14;
 const F_PASSWORD: usize = 15;
 const F_AUTO_LOGIN: usize = 16;
-const F_KEY_FILE: usize = 17;
-const F_CAPTURE: usize = 18;
-const F_CAPTURE_FILE: usize = 19;
-const F_DOWNLOADS: usize = 20;
-const F_UPLOADS: usize = 21;
-const F_COMMENT: usize = 22;
+const F_SCRIPT: usize = 17;
+const F_KEY_FILE: usize = 18;
+const F_CAPTURE: usize = 19;
+const F_CAPTURE_FILE: usize = 20;
+const F_DOWNLOADS: usize = 21;
+const F_UPLOADS: usize = 22;
+const F_COMMENT: usize = 23;
 /// The fields changed with Space or the arrow keys rather than typed into.
 const OPTION_FIELDS: [usize; 11] =
     [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_ICE, F_CRT, F_BELL, F_STATUS, F_BAUD, F_AUTO_LOGIN, F_CAPTURE];
@@ -92,7 +95,7 @@ struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 23],
+    text: [TextField; 24],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
@@ -154,6 +157,7 @@ impl Form {
                 t(&e.username),
                 t(&password),
                 TextField::default(),
+                TextField::new(&e.script, 400),
                 TextField::new(&e.key_file, 400),
                 TextField::default(),
                 TextField::new(&e.capture_file, 400),
@@ -232,6 +236,7 @@ impl Form {
             upload_dir: self.text[F_UPLOADS].value.trim().to_string(),
             hide_status: self.hide_status,
             group: self.text[F_GROUP].value.trim().to_string(),
+            script: self.text[F_SCRIPT].value.trim().to_string(),
             username: self.text[F_USER].value.clone(),
             password,
             keychain: kept,
@@ -255,6 +260,8 @@ enum Mode {
     Edit(Box<Form>),
     Prompt(PromptKind, TextField),
     ConfirmDelete,
+    /// Editing an entry's own macros (by its index).
+    Macros(usize, MacroEditor),
     /// Dialing while connected: asks before hanging up the current call.
     ConfirmHangUp(String),
     Message(String),
@@ -273,6 +280,8 @@ pub struct DialerUi {
     group: Option<String>,
     /// What an added entry starts as.
     pub new_entry: Entry,
+    /// The settings' macros, shown where an entry has none of its own.
+    pub global_macros: Vec<String>,
     mode: Mode,
     /// Default directory offered for import/export paths.
     pub files_dir: PathBuf,
@@ -288,6 +297,7 @@ impl DialerUi {
             finding: false,
             group: None,
             new_entry: Entry::default(),
+            global_macros: Vec::new(),
             mode: Mode::List,
             files_dir,
             secrets,
@@ -308,12 +318,13 @@ impl DialerUi {
     pub fn status_help(&self) -> &'static str {
         match self.mode {
             Mode::List if self.finding => "Type to find  \u{2191}\u{2193} Select  Enter Dial  Esc Clear",
-            Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  P Pin  / Find  Esc Close",
+            Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  P Pin  M Macros  / Find  Esc Close",
             Mode::Edit(_) => "Enter Save  Esc Cancel  Tab/\u{2191}\u{2193} Field  Space/\u{2190}\u{2192} Change option",
             Mode::Prompt(..) => "Enter OK  Esc Cancel",
             Mode::ConfirmDelete => "Y Remove  N Keep",
             Mode::ConfirmHangUp(_) => "Y Hang up and dial  N Stay connected",
             Mode::Message(_) => "Press any key",
+            Mode::Macros(..) => "\u{2191}\u{2193} Choose   Type to change (saved as you go)   Esc Done",
         }
     }
 
@@ -362,6 +373,9 @@ impl DialerUi {
                     return Action::Changed;
                 }
                 Key::Char('o') | Key::Char('O') => return Action::Settings,
+                Key::Char('m') | Key::Char('M') if any => {
+                    self.mode = Mode::Macros(i, MacroEditor::new(&dir.entries[i].macros))
+                }
                 Key::Char('g') | Key::Char('G') => {
                     // All, then each group in turn.
                     let groups = dir.groups();
@@ -535,6 +549,23 @@ impl DialerUi {
                 }
             }
             Mode::Message(_) => self.mode = Mode::List,
+            Mode::Macros(i, editor) => {
+                let Some(e) = dir.entries.get_mut(*i) else {
+                    self.mode = Mode::List;
+                    return Action::None;
+                };
+                match editor.handle_key(key, mods, &mut e.macros) {
+                    EditAction::None => {}
+                    EditAction::Changed => return Action::Changed,
+                    EditAction::Close => {
+                        if e.macros.iter().all(String::is_empty) {
+                            e.macros.clear();
+                        }
+                        self.mode = Mode::List;
+                        return Action::Changed;
+                    }
+                }
+            }
         }
         if let Mode::Edit(form) = &mut self.mode {
             form.scroll();
@@ -760,6 +791,11 @@ impl DialerUi {
                 message_box(s, "BadTerm", msg);
                 None
             }
+            Mode::Macros(i, editor) => {
+                let e = dir.entries.get(*i)?;
+                let title = format!("Macros for {}", truncate(&e.name, 40));
+                Some(editor.draw(s, &title, &e.macros, Some(&self.global_macros)))
+            }
         }
     }
 }
@@ -884,6 +920,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                     F_CAPTURE_FILE => "{name} {date} {time}; .txt: text only",
                     F_DOWNLOADS | F_UPLOADS => "the folder in the settings",
                     F_GROUP => "none; G in the list shows one group",
+                    F_SCRIPT => "a .rhai file, run once connected",
                     _ => "",
                 };
                 if !hint.is_empty() && form.text[i].value.is_empty() && !focused {

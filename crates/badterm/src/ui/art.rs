@@ -158,14 +158,25 @@ impl ArtView {
 
 /// The picker the viewer opens with: a full page, like the settings.
 pub fn draw_picker(s: &mut Screen, picker: &mut files::FilePicker) -> Option<(usize, usize)> {
+    draw_picker_titled(s, picker, "View ANSI Art", "Enter view")
+}
+
+/// The file picker as a page, for `title`; `enter` says what Enter does.
+pub fn draw_picker_titled(
+    s: &mut Screen,
+    picker: &mut files::FilePicker,
+    title: &str,
+    enter: &str,
+) -> Option<(usize, usize)> {
     let t = theme::current();
     let cols = s.cols();
     s.fill_rect(0, 0, cols, s.rows(), Cell::new(b' ', t.help.fg(), t.help.bg()));
-    let title = format!(" BadTerm {} \u{2502} View ANSI Art", env!("CARGO_PKG_VERSION"));
+    let title = format!(" BadTerm {} \u{2502} {title}", env!("CARGO_PKG_VERSION"));
     text(s, 0, 0, cols, &title, t.title_bar.fg(), t.title_bar.bg());
     frame(s, 2, 2, cols - 4, 21, "Choose a file", t.window.fg(), t.window.bg());
     let cursor = picker.draw(s, 4, 3, cols - 8, 18);
-    text(s, 1, 24, cols - 2, "Enter view   Bksp up   Tab type a path   Esc cancel", t.help.fg(), t.help.bg());
+    let help = format!("{enter}   Bksp up   Tab type a path   Esc cancel");
+    text(s, 1, 24, cols - 2, &help, t.help.fg(), t.help.bg());
     cursor
 }
 

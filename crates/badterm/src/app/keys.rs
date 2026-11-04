@@ -67,6 +67,7 @@ impl App {
         let mut template = Entry::default();
         self.new_entry_defaults(&mut template);
         self.dialer.new_entry = template;
+        self.dialer.global_macros = self.settings.macros.clone();
         match self.dialer.handle_key(key, mods, &mut self.directory) {
             Action::None => {}
             Action::Connect(i) => {
@@ -181,6 +182,20 @@ impl App {
                 self.pending_dial = None;
                 self.settings_open = false;
                 self.help_open = false;
+                return true;
+            }
+            // A script: choose one to run, or stop the one running.
+            KeyCode::KeyJ => {
+                if self.script.is_some() {
+                    self.stop_script(Some("stopped"));
+                } else if self.art_picker.is_some() && self.picking_script {
+                    self.art_picker = None;
+                } else if self.session.as_ref().is_some_and(|s| s.state == State::Connected) {
+                    self.art = None;
+                    self.open_script_picker();
+                } else {
+                    self.notify("Scripts run during a call");
+                }
                 return true;
             }
             // The ANSI viewer, from anywhere.
@@ -357,13 +372,19 @@ impl App {
         let Some(picker) = self.art_picker.as_mut() else { return };
         if key == Key::Escape {
             self.art_picker = None;
+            self.picking_script = false;
             return;
         }
         if let PickerAction::Chosen(paths) = picker.handle_key(key, mods) {
-            self.art_dir = picker.dir().to_path_buf();
+            let script = std::mem::take(&mut self.picking_script);
+            if !script {
+                self.art_dir = picker.dir().to_path_buf();
+            }
             self.art_picker = None;
-            if let Some(path) = paths.first() {
-                self.view_art(path);
+            match paths.first() {
+                Some(path) if script => self.run_script(path),
+                Some(path) => self.view_art(path),
+                None => {}
             }
         }
     }

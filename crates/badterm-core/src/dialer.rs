@@ -143,6 +143,12 @@ pub struct Entry {
     /// The group it is listed in (the directory can show one at a time).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub group: String,
+    /// A script (see [`crate::script`]) run once the call is connected.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub script: String,
+    /// Its own keyboard macros; an empty one leaves the settings' one.
+    #[serde(skip_serializing_if = "no_macros")]
+    pub macros: Vec<String>,
     pub comment: String,
     /// The password is kept in the OS keychain rather than in `password`.
     #[serde(skip_serializing_if = "is_false")]
@@ -182,6 +188,8 @@ impl Default for Entry {
             upload_dir: String::new(),
             hide_status: false,
             group: String::new(),
+            script: String::new(),
+            macros: Vec::new(),
             comment: String::new(),
             keychain: false,
             pinned: false,
@@ -237,6 +245,10 @@ impl Entry {
     pub fn system_id(&self) -> String {
         format!("{}://{}:{}", self.protocol.name().to_ascii_lowercase(), self.host.to_ascii_lowercase(), self.port)
     }
+}
+
+fn no_macros(m: &[String]) -> bool {
+    m.iter().all(String::is_empty)
 }
 
 fn is_false(b: &bool) -> bool {
