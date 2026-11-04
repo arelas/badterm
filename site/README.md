@@ -61,6 +61,11 @@ BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm snapshot -- --ignored
 
 They are saved as palette PNGs (a few kilobytes each).
 
+The Vortex screenshots (`vortex-*.jpg`, `vortex-off.png` and `bezels.jpg`,
+four renders with `--bezel` in a 2x2 grid) are from a frame of the Vortex's
+own opening animation, captured as the steps above say, once it has drawn
+its logo.
+
 The other emulations have snapshots of their own, which take a file of what
 a BBS sends (or, for Viewdata, draw a sample page):
 `viewdata_snapshot` (`BADTERM_VIEWDATA`), `igs_snapshot` (`BADTERM_IGS`),

@@ -1,5 +1,8 @@
 # Sample screens
 
+`make_samples.py` writes the ones for `img/sixel.png`, `img/syncterm.png`
+and `img/codepage.png` (see its notes); the others are here as they are.
+
 What `img/viewdata.png`, `img/igs.png` and `img/skypix.png` are drawn
 from: screens written for the site in each system's own codes (not a BBS's
 art). Not published. From the repository's root:

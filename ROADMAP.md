@@ -17,10 +17,6 @@ The next things to do, in order.
       mouse copy, Alt-S, directory search and sort, the bell's flash, the
       color schemes
 - [ ] winget and Homebrew, updated from CI on each release
-- [ ] Retake the website's phosphor-mode screenshots (`vortex-*.jpg`,
-      `bezels.jpg`): they predate 0.1.23, whose glow no longer washes out
-      the colors (steps in site/README.md); add ones of Viewdata, IGS and
-      sixel
 
 ## Done (0.1)
 
@@ -103,6 +99,9 @@ The next things to do, in order.
 - [x] A new splash screen and application icon, as ANSI art
 - [x] CI keeps compiled dependencies between runs, and builds a release
       once
+- [x] The website's screenshots retaken (true colors in phosphor mode),
+      with ones of Viewdata, IGS, SkyPix, sixel, SyncTERM pictures and
+      code pages
 ## Connections
 
 - [x] Serial port / modem dialing (`serialport` crate), AT command init strings
