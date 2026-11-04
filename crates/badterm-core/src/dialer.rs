@@ -103,6 +103,10 @@ pub struct Entry {
     /// Amiga BBSes.
     #[serde(skip_serializing_if = "is_zero")]
     pub font: u8,
+    /// A font file (see [`crate::fontfile`]) in place of `font`: a name in
+    /// the fonts folder, or a path.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub font_file: String,
     /// iCE colors (the blink bit as a bright background) from the start:
     /// None leaves it to the BBS (`CSI ?33h`), as before.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -177,6 +181,7 @@ impl Default for Entry {
             cols: 80,
             rows: 25,
             font: 0,
+            font_file: String::new(),
             ice: None,
             baud: 0,
             crt: None,
@@ -280,7 +285,10 @@ fn is_25(n: &u16) -> bool {
 
 /// The screen sizes (columns, rows) an entry can ask for. Modes of 43 rows
 /// or more use the 8x8 font.
-pub const SCREEN_MODES: [(u16, u16); 6] = [(80, 25), (80, 43), (80, 50), (132, 25), (132, 37), (132, 52)];
+/// The screen modes, as SyncTERM has them: 80x28 is in the VGA's 8x14
+/// font, 43 lines and more in 8x8.
+pub const SCREEN_MODES: [(u16, u16); 10] =
+    [(80, 25), (80, 28), (80, 30), (80, 43), (80, 50), (80, 60), (40, 25), (132, 25), (132, 37), (132, 52)];
 
 /// What the bell (Ctrl-G) does.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]

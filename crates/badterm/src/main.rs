@@ -189,6 +189,7 @@ fn main() -> ExitCode {
             println!("SSH known hosts:   {}", paths.known_hosts.display());
             println!("BBS file cache:    {}", paths.bbs_cache.display());
             println!("Scripts:           {}", paths.scripts.display());
+            println!("Fonts:             {}", paths.fonts.display());
             Ok(())
         }
         Command::Import(file) => app::import_into_directory(&paths, &file).map(|(added, total)| {

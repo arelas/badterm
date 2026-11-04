@@ -105,6 +105,8 @@ struct Form {
     mode: (u16, u16),
     /// CTerm font ID.
     font: u8,
+    /// A font file in place of `font`, if not empty.
+    font_file: String,
     /// None: up to the BBS.
     ice: Option<bool>,
     /// None: the global phosphor mode (Alt-P).
@@ -170,6 +172,7 @@ impl Form {
             encoding: e.encoding,
             mode: e.screen_mode(),
             font: e.font,
+            font_file: e.font_file.clone(),
             ice: e.ice,
             crt: e.crt,
             bell: e.bell,
@@ -225,6 +228,7 @@ impl Form {
             cols: self.mode.0,
             rows: self.mode.1,
             font: self.font,
+            font_file: self.font_file.clone(),
             ice: self.ice,
             crt: self.crt,
             bell: self.bell,
@@ -280,6 +284,8 @@ pub struct DialerUi {
     group: Option<String>,
     /// What an added entry starts as.
     pub new_entry: Entry,
+    /// The font files in the fonts folder, by name.
+    pub font_files: Vec<String>,
     /// The settings' macros, shown where an entry has none of its own.
     pub global_macros: Vec<String>,
     mode: Mode,
@@ -297,6 +303,7 @@ impl DialerUi {
             finding: false,
             group: None,
             new_entry: Entry::default(),
+            font_files: Vec::new(),
             global_macros: Vec::new(),
             mode: Mode::List,
             files_dir,
@@ -329,6 +336,7 @@ impl DialerUi {
     }
 
     pub fn handle_key(&mut self, key: Key, mods: Mods, dir: &mut Directory) -> Action {
+        let font_files = self.font_files.clone();
         let view = dir.view_group(&self.filter.value, self.group.as_deref());
         let n = view.len();
         self.selected = self.selected.min(n.saturating_sub(1));
@@ -462,10 +470,16 @@ impl DialerUi {
                     form.mode = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_FONT => {
-                    let all = fonts();
-                    let i = all.iter().position(|&f| f == form.font).unwrap_or(0);
+                    // The built-in fonts, then the files in the fonts folder.
+                    let all: Vec<(u8, String)> = fonts()
+                        .into_iter()
+                        .map(|f| (f, String::new()))
+                        .chain(font_files.iter().map(|n| (0, n.clone())))
+                        .collect();
+                    let now = (if form.font_file.is_empty() { form.font } else { 0 }, form.font_file.clone());
+                    let i = all.iter().position(|c| *c == now).unwrap_or(0);
                     let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
-                    form.font = all[next];
+                    (form.font, form.font_file) = all[next].clone();
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_ICE => {
                     let all = [None, Some(true), Some(false)];
@@ -840,6 +854,10 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
             F_ROWS => {
                 let (c, r) = form.mode;
                 text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", format!("{c}x{r}")), fg, bg);
+            }
+            F_FONT if !form.font_file.is_empty() => {
+                text(s, fx, yy, fw, &format!("\u{25C4} {:<16} \u{25BA}", truncate(&form.font_file, 16)), fg, bg);
+                label(s, fx + 21, yy, "(a font file)", t.note.fg(), bg);
             }
             F_FONT => {
                 text(s, fx, yy, fw, &format!("\u{25C4} {:<16} \u{25BA}", font_name(form.font)), fg, bg);

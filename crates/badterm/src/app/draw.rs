@@ -8,7 +8,11 @@ impl App {
     /// The font for a screen this many rows high: 8x8 from 43 lines, as on
     /// an EGA or VGA.
     pub(super) fn font_for(rows: usize) -> Font {
-        if rows >= 43 { Font::vga_8x8() } else { Font::vga_8x16() }
+        match rows {
+            43.. => Font::vga_8x8(),
+            28 => Font::vga_8x14(),
+            _ => Font::vga_8x16(),
+        }
     }
 
     /// The width of what is on screen: the session's (80 or 132 columns),

@@ -61,3 +61,19 @@ License version 2.1 or (at your option) any later version, and used here
 under the terms of GPL version 3 or later. Where it has no 8x8 version of a
 font (IDs 1, 4, 5, 6, 10, 12, 13, 22, 27, 30 and 31), the 8x8 one here is
 made from the 8x16 by joining each pair of rows.
+
+## vga_8x14.bin and codepages_8x14.bin
+
+The VGA's 8x14 font (CP437) and the code-page fonts at 8x14, for the
+80x28 screen mode, from the same `allfonts.c`, under the same terms. Where
+it has no 8x14 version of a code-page font (IDs 1, 4, 5, 6, 10, 12, 13, 17,
+19, 22, 26, 27, 30 and 31), the one here is its 8x16 without the top and
+bottom rows.
+
+## amiga/amiga_8x8.bin and amiga/amiga_8x14.bin
+
+The six Amiga fonts (CTerm IDs 37 to 42, in that order) at 8x8 and 8x14,
+for the 43- and 50-line modes and 80x28, from the same `allfonts.c`,
+under the same terms. Where it has none at a size, the one here is made
+from the 8x16 (every other row for 8x8; without the top and bottom rows
+for 8x14).

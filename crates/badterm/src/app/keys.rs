@@ -3,6 +3,21 @@
 
 use super::*;
 
+/// The font files in the fonts folder, by name, in order.
+fn font_files(dir: &std::path::Path) -> Vec<String> {
+    let Ok(read) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut names: Vec<String> = read
+        .flatten()
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| {
+            let ext = n.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+            badterm_core::fontfile::EXTENSIONS.contains(&ext.as_str())
+        })
+        .collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names
+}
+
 impl App {
     pub(super) fn on_key(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
         // Any key closes the splash screen (and does nothing else).
@@ -68,6 +83,7 @@ impl App {
         self.new_entry_defaults(&mut template);
         self.dialer.new_entry = template;
         self.dialer.global_macros = self.settings.macros.clone();
+        self.dialer.font_files = font_files(&self.paths.fonts);
         match self.dialer.handle_key(key, mods, &mut self.directory) {
             Action::None => {}
             Action::Connect(i) => {

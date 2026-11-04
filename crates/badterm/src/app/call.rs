@@ -32,6 +32,7 @@ impl App {
         session.term.music_enabled = self.settings.music != Music::Off;
         session.term.syncterm.cache_dir = Some(self.paths.bbs_cache.join(cache_folder(&session.entry)));
         session.term.download_dir = Some(downloads);
+        self.load_entry_font(&mut session);
         self.dialer_open = false;
         self.session_id += 1;
         let id = self.session_id;
@@ -59,6 +60,27 @@ impl App {
 
     /// Dial from the directory: straight away, or after confirming that the
     /// live call should be hung up.
+    /// The entry's font file, in place of its built-in font.
+    fn load_entry_font(&mut self, session: &mut Session) {
+        let name = session.entry.font_file.trim();
+        if name.is_empty() {
+            return;
+        }
+        let path = ui::expand_home(name);
+        let path = if path.is_absolute() { path } else { self.paths.fonts.join(path) };
+        let font = std::fs::read(&path).map_err(anyhow::Error::from).and_then(|d| badterm_core::fontfile::parse(&d));
+        match font {
+            Ok(data) => {
+                use badterm_core::screen::ENTRY_FONT;
+                let sc = &mut session.term.screen;
+                sc.look.load_font(ENTRY_FONT, &data);
+                sc.base_font = ENTRY_FONT;
+                sc.look.fonts[0] = ENTRY_FONT;
+            }
+            Err(e) => self.notify(format!("Font {}: {e:#}", path.display())),
+        }
+    }
+
     pub(super) fn dial(&mut self, mut entry: Entry, index: Option<usize>) {
         // An address not in the directory gets the settings' font and
         // screen mode, as a new entry would.

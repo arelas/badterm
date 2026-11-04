@@ -113,10 +113,10 @@ The next things to do, in order.
 - [x] CTerm's built-in code-page fonts (IDs 1-31), and bracketed paste
 - [x] Typing, pasting and copying in the code page the BBS's font is in
       (not yet: haik8, ARMSCII-8, CP1131)
-- [ ] More fonts: CP437 8x14, custom `.fnt`/`.psf` from disk; Amiga fonts
-      in 8-line modes
+- [x] More fonts: CP437 8x14 (80x28), `.fnt`/`.psf` files; Amiga fonts in
+      8-line modes
 - [x] Device Attributes identify as CTerm (1.332), for SyncTERM's extensions
-- [ ] More screen modes: 40-column, resizable
+- [x] More screen modes: 40x25, 80x28, 80x30, 80x60 (not yet: resizable)
 - [x] Avatar/0+ emulation
 - [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
 - [x] Viewdata (Prestel) and BBC Micro Mode 7, with Reveal (`Alt-K`)

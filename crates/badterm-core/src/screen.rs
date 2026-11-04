@@ -123,6 +123,9 @@ pub struct LoadedFont {
 /// CTerm's built-in fonts are 0-42; loaded ones go in the slots after.
 pub const FIRST_LOADABLE_FONT: u8 = 43;
 
+/// The slot a directory entry's own font file goes in.
+pub const ENTRY_FONT: u8 = 255;
+
 impl Default for Look {
     fn default() -> Look {
         Look::standard().clone()

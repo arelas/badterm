@@ -70,20 +70,24 @@ impl Font {
         Font { height: 16, data: include_bytes!("../assets/fonts/vga_8x16.bin"), id: 0 }
     }
 
+    /// For the 28-line mode, as a VGA's 400 lines hold 28 of 14.
+    pub fn vga_8x14() -> Font {
+        Font { height: 14, data: include_bytes!("../assets/fonts/vga_8x14.bin"), id: 0 }
+    }
+
     /// For 50-line modes.
     pub fn vga_8x8() -> Font {
         Font { height: 8, data: include_bytes!("../assets/fonts/vga_8x8.bin"), id: 0 }
     }
 
     /// The font with this CTerm ID, at the height of `base` (the screen
-    /// mode's font). IDs BadTerm lacks, and every font in 8-pixel modes
-    /// (the Amiga fonts are 8x16 only), give `base`.
+    /// mode's font: 16, 14 or 8 lines). IDs BadTerm lacks give `base`.
     pub fn cterm(id: u8, base: Font) -> Font {
-        // The C64 and Atari fonts are 8x8 whatever the mode: their screens
-        // are laid out for them (see `Font::eight_only`).
+        // The C64 (and C128) and Atari fonts are 8x8 whatever the mode:
+        // their screens are laid out for them (see `Font::eight_only`).
         let eight: Option<&'static [u8]> = match id {
-            32 => Some(include_bytes!("../assets/fonts/c64_upper.bin")),
-            33 => Some(include_bytes!("../assets/fonts/c64_lower.bin")),
+            32 | 34 => Some(include_bytes!("../assets/fonts/c64_upper.bin")),
+            33 | 35 => Some(include_bytes!("../assets/fonts/c64_lower.bin")),
             36 => Some(include_bytes!("../assets/fonts/atari.bin")),
             _ => None,
         };
@@ -91,16 +95,31 @@ impl Font {
             return Font { height: 8, data, id };
         }
         if id == badterm_core::viewdata::FONT {
-            return Font::viewdata(base);
+            let f = Font::viewdata(base);
+            return f.scaled_to(base.height);
         }
-        // The code pages: 8x16, or 8x8 in the 43- and 50-line modes.
+        // The code pages: 8x16, 8x14 in the 28-line mode, 8x8 in the 43-
+        // and 50-line ones.
         if (1..=31).contains(&id) {
             static TALL: &[u8] = include_bytes!("../assets/fonts/codepages_8x16.bin");
+            static MIDDLE: &[u8] = include_bytes!("../assets/fonts/codepages_8x14.bin");
             static SHORT: &[u8] = include_bytes!("../assets/fonts/codepages_8x8.bin");
             let i = id as usize - 1;
             return match base.height {
                 8 => Font { height: 8, data: &SHORT[i * 2048..][..2048], id },
+                14 => Font { height: 14, data: &MIDDLE[i * 3584..][..3584], id },
                 _ => Font { height: 16, data: &TALL[i * 4096..][..4096], id },
+            };
+        }
+        // The Amiga fonts at 8 and 14 lines.
+        if (37..=42).contains(&id) && base.height != 16 {
+            static SHORT: &[u8] = include_bytes!("../assets/fonts/amiga/amiga_8x8.bin");
+            static MIDDLE: &[u8] = include_bytes!("../assets/fonts/amiga/amiga_8x14.bin");
+            let i = id as usize - 37;
+            return match base.height {
+                8 => Font { height: 8, data: &SHORT[i * 2048..][..2048], id },
+                14 => Font { height: 14, data: &MIDDLE[i * 3584..][..3584], id },
+                _ => base,
             };
         }
         let data: &'static [u8] = match (id, base.height) {
@@ -118,9 +137,14 @@ impl Font {
     /// A font the BBS loaded, at the base's height: one of another height
     /// (8x14 on a 16-line screen, say) is stretched to it, once.
     pub fn loaded(f: badterm_core::screen::LoadedFont, base: Font) -> Font {
-        let (from, to) = (f.height as usize, base.height);
+        Font { height: f.height as usize, data: f.data, id: f.slot }.scaled_to(base.height)
+    }
+
+    /// This font stretched (or squeezed) to `to` lines, once.
+    fn scaled_to(self, to: usize) -> Font {
+        let (from, f) = (self.height, self);
         if from == to {
-            return Font { height: to, data: f.data, id: f.slot };
+            return f;
         }
         use std::collections::HashMap;
         use std::sync::Mutex;
@@ -133,7 +157,7 @@ impl Font {
                 (0..256).flat_map(|c| (0..to).map(move |y| f.data[c * from + y * from / to])).collect();
             Box::leak(scaled.into_boxed_slice())
         });
-        Font { height: to, data, id: f.slot }
+        Font { height: to, data, id: f.id }
     }
 
     /// Teletext's glyphs (see [`badterm_core::viewdata`]), at the base's height.
@@ -149,7 +173,7 @@ impl Font {
     /// Fonts that exist only at 8x8 (the C64's and Atari's): a screen in
     /// one is laid out in 8x8 cells.
     pub fn eight_only(id: u8) -> bool {
-        matches!(id, 32 | 33 | 36)
+        matches!(id, 32..=36)
     }
 
     fn row(&self, ch: u8, y: usize) -> u8 {
@@ -808,6 +832,51 @@ mod tests {
         let fg = t.screen.look.rgb(badterm_core::screen::DEFAULT_FG);
         assert!((0..16).all(|y| px[y * nw] == fg));
         assert!((0..16).all(|y| px[y * nw + 1] != fg));
+    }
+
+    #[test]
+    fn fonts_at_every_height() {
+        // The 8x14 VGA font, and code-page and Amiga fonts at 8, 14 and 16.
+        assert_eq!(Font::vga_8x14().data.len(), 256 * 14);
+        for base in [Font::vga_8x8(), Font::vga_8x14(), Font::vga_8x16()] {
+            for id in [2, 25, 37, 42] {
+                let f = Font::cterm(id, base);
+                assert_eq!((f.height, f.data.len(), f.id), (base.height, 256 * base.height, id), "{id}");
+                assert!((0..f.height).any(|y| f.row(b'A', y) != 0), "{id} at {}", base.height);
+            }
+            // The C128's fonts are the C64's, 8x8 whatever the mode.
+            assert_eq!(Font::cterm(34, base).height, 8);
+            // The teletext font follows the mode too.
+            assert_eq!(Font::cterm(badterm_core::viewdata::FONT, base).height, base.height);
+        }
+    }
+
+    /// Fonts at each mode's height, as PNGs:
+    /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm fonts_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn fonts_snapshot() {
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, rows, font, base) in [
+            ("80x28-cp437", 28, 0, Font::vga_8x14()),
+            ("80x28-koi8", 28, 2, Font::vga_8x14()),
+            ("80x50-topaz", 50, 42, Font::vga_8x8()),
+            ("80x28-topaz", 28, 42, Font::vga_8x14()),
+        ] {
+            let mut t = Terminal::new(80, rows, 0);
+            t.feed(format!("\x1b[0;{font} D").as_bytes());
+            t.feed(b"\x1b[1;33mThe quick brown fox \xc9\xcd\xcd\xbb \xb0\xb1\xb2\xdb\r\n\x1b[0m");
+            t.feed(b"\x1b[36mABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz 0123456789\r\n");
+            for c in 128u8..=255 {
+                t.feed(&[c]);
+            }
+            let lines: Vec<&[Cell]> = (0..rows).map(|y| t.screen.row(y)).collect();
+            let mut r = Renderer::new(base, 80, rows);
+            r.draw(&Frame { look: &t.screen.look, look_rows: rows, ..Frame::plain(lines, None, true) }, true, true);
+            let png = crate::png::encode(r.pixels(), r.native_width(), r.native_height());
+            std::fs::write(dir.join(format!("{name}.png")), png).unwrap();
+        }
     }
 
     #[test]

@@ -12,6 +12,7 @@ pub mod codepage;
 pub mod cp437;
 pub mod dialer;
 pub mod export;
+pub mod fontfile;
 pub mod igs;
 pub mod kermit;
 pub mod modem;

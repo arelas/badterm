@@ -109,6 +109,8 @@ pub struct Paths {
     pub bbs_cache: PathBuf,
     /// Scripts (`.rhai`).
     pub scripts: PathBuf,
+    /// Font files for directory entries.
+    pub fonts: PathBuf,
 }
 
 impl Paths {
@@ -127,6 +129,7 @@ impl Paths {
             themes: config.join("themes"),
             bezels: config.join("bezels"),
             scripts: config.join("scripts"),
+            fonts: config.join("fonts"),
             bbs_cache: cache.join("bbs"),
             captures: data.join("captures"),
             known_hosts: config.join("known_hosts"),

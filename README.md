@@ -186,7 +186,12 @@ fonts and colors of a host terminal.
 - **VGA-accurate display options**: 9-dot character cells, where the
   line-drawing characters join up as they did on a VGA (`Alt-W`), and the
   4:3 shape of a CRT instead of square pixels (`Alt-A`). Entries can use
-  80x43, 80x50 and 132-column screen modes.
+  40-column, 80x28 (in the VGA's 8x14 font), 80x30, 80x43, 80x50, 80x60
+  and 132-column screen modes; the Amiga and code-page fonts come at
+  every height.
+- **Your own fonts**: put `.fnt` (`.f08`, `.f14`, `.f16`) or `.psf` font
+  files in the `fonts` folder (`badterm --paths`) and choose one as an
+  entry's font.
 - **Baud rate emulation**, per entry (300 to 115200 bps): text arrives at
   the speed it was drawn for, so ANSI animations play as intended.
   ZMODEM transfers still run at full speed.
@@ -323,8 +328,8 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 directory, and are remembered in `settings.toml`, as are the window's size,
 place (not on Wayland, which places windows itself) and whether it was
 maximized, for the next start. An entry's "Screen mode"
-can be 80x25, 80x43, 80x50, 132x25, 132x37 or 132x52 (43 lines or more in
-the 8x8 font), and its "Phosphor mode" can override `Alt-P` for that
+can be 80x25, 80x28 (the VGA's 8x14 font), 80x30, 80x43, 80x50, 80x60,
+40x25, 132x25, 132x37 or 132x52 (43 lines or more in the 8x8 font), and its "Phosphor mode" can override `Alt-P` for that
 BBS. While connected to a BBS with its own phosphor mode, `Alt-P` changes
 that BBS's mode rather than the global one. Its "iCE colors" setting is Auto (the BBS
 turns them on with `CSI ?33h`, as before), On or Off; with On or Off, `Alt-I`
