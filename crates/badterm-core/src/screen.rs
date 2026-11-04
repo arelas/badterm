@@ -37,21 +37,24 @@ pub struct Cell {
     pub fg: Color,
     pub bg: Color,
     pub flags: u8,
+    /// Pixel graphics over the cell (sixel and the like): an ID in the
+    /// screen's [`Tiles`], or 0 for none. Writing to the cell replaces it.
+    pub tile: u32,
 }
 
 impl Default for Cell {
     fn default() -> Self {
-        Cell { ch: b' ', fg: DEFAULT_FG, bg: DEFAULT_BG, flags: 0 }
+        Cell { ch: b' ', fg: DEFAULT_FG, bg: DEFAULT_BG, flags: 0, tile: 0 }
     }
 }
 
 impl Cell {
     pub fn new(ch: u8, fg: Color, bg: Color) -> Self {
-        Cell { ch, fg, bg, flags: 0 }
+        Cell { ch, fg, bg, flags: 0, tile: 0 }
     }
 
     pub fn is_blank(&self) -> bool {
-        (self.ch == b' ' || self.ch == 0) && self.bg == DEFAULT_BG && self.flags & flags::REVERSE == 0
+        (self.ch == b' ' || self.ch == 0) && self.bg == DEFAULT_BG && self.flags & flags::REVERSE == 0 && self.tile == 0
     }
 
     /// Resolve to concrete (foreground, background, blinks) colors.
@@ -184,6 +187,8 @@ pub struct Screen {
     pub base_ice: bool,
     scrollback: VecDeque<Vec<Cell>>,
     scrollback_limit: usize,
+    /// The pixel graphics cells show (see [`Cell::tile`]).
+    pub tiles: Tiles,
 }
 
 impl Screen {
@@ -209,6 +214,7 @@ impl Screen {
             base_ice: false,
             scrollback: VecDeque::new(),
             scrollback_limit,
+            tiles: Tiles::default(),
         }
     }
 
@@ -534,6 +540,96 @@ impl Screen {
         }
     }
 
+    /// The size of a cell in pixels, for pixel graphics: an 8x16 VGA font,
+    /// or 8x8 on screens of 43 rows or more (as BadTerm draws them).
+    pub fn cell_px(&self) -> (usize, usize) {
+        (8, if self.rows >= 43 { 8 } else { 16 })
+    }
+
+    /// The screen's size in pixels, for pixel graphics.
+    pub fn size_px(&self) -> (usize, usize) {
+        let (w, h) = self.cell_px();
+        (self.cols * w, self.rows * h)
+    }
+
+    /// Put a picture on the screen with its top left at the cursor's cell,
+    /// as sixel does: with `scrolling`, the screen scrolls to make room
+    /// and the cursor ends on the row below the picture's last full band,
+    /// at the column it started in; without, it goes at the top left of
+    /// the screen, what doesn't fit is cut off and the cursor stays put.
+    pub fn place_image(&mut self, img: &crate::sixel::Image, scrolling: bool) {
+        if img.width == 0 || img.height == 0 {
+            return;
+        }
+        let (tw, th) = self.cell_px();
+        let cx = self.x;
+        let rows = img.height.div_ceil(th);
+        let cols = img.width.div_ceil(tw);
+        if !scrolling {
+            for r in 0..rows.min(self.rows) {
+                self.tile_row(img, r, 0, r, cols);
+            }
+            return;
+        }
+        self.pending_wrap = false;
+        let last = img.height / th;
+        for r in 0..=last {
+            if r > 0 {
+                self.line_feed();
+            }
+            if r < rows {
+                let y = self.y;
+                self.tile_row(img, r, cx, y, cols);
+            }
+        }
+        self.x = cx;
+    }
+
+    /// Row `r` of a picture's tiles onto screen row `y`, from column `x0`.
+    fn tile_row(&mut self, img: &crate::sixel::Image, r: usize, x0: usize, y: usize, cols: usize) {
+        let (tw, th) = self.cell_px();
+        for c in 0..cols {
+            let x = x0 + c;
+            if x >= self.cols {
+                break;
+            }
+            let old = self.cells[y * self.cols + x].tile;
+            let mut px = match self.tiles.get(old) {
+                Some(t) if (t.width, t.height) == (tw, th) => t.pixels.to_vec(),
+                _ => vec![0; tw * th],
+            };
+            let mut any = false;
+            for ty in 0..th {
+                let iy = r * th + ty;
+                if iy >= img.height {
+                    break;
+                }
+                for tx in 0..tw {
+                    let ix = c * tw + tx;
+                    if ix >= img.width {
+                        break;
+                    }
+                    let p = img.pixels[iy * img.width + ix];
+                    if p != 0 {
+                        px[ty * tw + tx] = p;
+                        any = true;
+                    }
+                }
+            }
+            if !any {
+                continue;
+            }
+            if self.tiles.full() {
+                let mut used = std::collections::HashSet::new();
+                used.extend(self.cells.iter().map(|c| c.tile));
+                used.extend(self.scrollback.iter().flatten().map(|c| c.tile));
+                self.tiles.collect(&used);
+            }
+            let id = self.tiles.add(Tile { width: tw, height: th, pixels: px.into() });
+            self.cells[y * self.cols + x].tile = id;
+        }
+    }
+
     /// Plain-text contents of a row, trailing blanks trimmed.
     pub fn row_text(row: &[Cell]) -> String {
         let s: String = row.iter().map(|c| crate::cp437::to_unicode(c.ch.max(b' '))).collect();
@@ -600,8 +696,63 @@ mod tests {
 
     #[test]
     fn ice_colors_resolve() {
-        let c = Cell { ch: b'A', fg: Color::Pc(1), bg: Color::Pc(4), flags: flags::BOLD | flags::BLINK };
+        let c = Cell { ch: b'A', fg: Color::Pc(1), bg: Color::Pc(4), flags: flags::BOLD | flags::BLINK, tile: 0 };
         assert_eq!(c.resolve(false), (VGA[9], VGA[4], true));
         assert_eq!(c.resolve(true), (VGA[9], VGA[12], false));
+    }
+}
+
+/// One cell's pixel graphics: 0xFFRRGGBB pixels, 0 where the cell's own
+/// text and background show through.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Tile {
+    pub width: usize,
+    pub height: usize,
+    pub pixels: Box<[u32]>,
+}
+
+/// The tiles the screen's cells (and scrollback) show, by ID. Ones no cell
+/// shows any more are reused once there are many.
+#[derive(Debug, Default)]
+pub struct Tiles {
+    store: Vec<Option<Tile>>,
+    free: Vec<u32>,
+    /// Look for unused tiles once there are this many.
+    next_collect: usize,
+}
+
+impl Tiles {
+    pub fn get(&self, id: u32) -> Option<&Tile> {
+        id.checked_sub(1).and_then(|i| self.store.get(i as usize)).and_then(|t| t.as_ref())
+    }
+
+    fn full(&self) -> bool {
+        self.free.is_empty() && self.store.len() >= self.next_collect.max(4096)
+    }
+
+    /// Free every tile not in `used`.
+    fn collect(&mut self, used: &std::collections::HashSet<u32>) {
+        self.free.clear();
+        for (i, t) in self.store.iter_mut().enumerate() {
+            let id = i as u32 + 1;
+            if !used.contains(&id) {
+                *t = None;
+                self.free.push(id);
+            }
+        }
+        self.next_collect = (self.store.len() - self.free.len()) * 2;
+    }
+
+    fn add(&mut self, tile: Tile) -> u32 {
+        match self.free.pop() {
+            Some(id) => {
+                self.store[id as usize - 1] = Some(tile);
+                id
+            }
+            None => {
+                self.store.push(Some(tile));
+                self.store.len() as u32
+            }
+        }
     }
 }

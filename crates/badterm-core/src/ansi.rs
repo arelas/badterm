@@ -79,6 +79,8 @@ impl Encoding {
 
 const MAX_PARAMS: usize = 32;
 const MAX_STRING: usize = 4096;
+/// A DCS string (a sixel picture) can be large; longer ones are cut off.
+const MAX_DCS: usize = 32 << 20;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
@@ -89,7 +91,9 @@ enum State {
     Csi,
     /// OSC: collected for the window title.
     Osc,
-    /// DCS, SOS, PM, APC: ignored until ST.
+    /// DCS: collected (sixel graphics).
+    Dcs,
+    /// SOS, PM, APC: ignored until ST.
     IgnoreString,
     /// Saw ESC inside a string; `\` terminates it.
     StringEsc,
@@ -113,8 +117,13 @@ pub struct Terminal {
     /// many BBS doors expect, instead of "delete one line". `ESC [ N` and
     /// `ESC [ |` always start music.
     pub music_on_csi_m: bool,
+    /// `CSI ? 80 h` (DECSDM): sixel pictures go at the top left of the
+    /// screen and don't scroll it.
+    pub sixel_display_mode: bool,
     state: State,
-    string_is_osc: bool,
+    /// The kind of string being read: OSC, DCS or another.
+    string_kind: State,
+    dcs: Vec<u8>,
     private: u8,
     intermediate: u8,
     params: Vec<u32>,
@@ -141,8 +150,10 @@ impl Terminal {
             screen: Screen::new(cols, rows, scrollback),
             encoding: Encoding::Cp437,
             music_on_csi_m: false,
+            sixel_display_mode: false,
             state: State::Ground,
-            string_is_osc: false,
+            string_kind: State::IgnoreString,
+            dcs: Vec::new(),
             private: 0,
             intermediate: 0,
             params: Vec::with_capacity(MAX_PARAMS),
@@ -235,6 +246,11 @@ impl Terminal {
                 0x07 if self.state == State::Osc => self.finish_string(),
                 0x1B => self.state = State::StringEsc,
                 _ if self.state == State::Osc && self.osc.len() < MAX_STRING => self.osc.push(b),
+                _ => {}
+            },
+            State::Dcs => match b {
+                0x1B => self.state = State::StringEsc,
+                _ if self.dcs.len() < MAX_DCS => self.dcs.push(b),
                 _ => {}
             },
             State::Music => match b {
@@ -364,12 +380,17 @@ impl Terminal {
             }
             b']' => {
                 self.state = State::Osc;
-                self.string_is_osc = true;
+                self.string_kind = State::Osc;
                 self.osc.clear();
             }
-            b'P' | b'X' | b'^' | b'_' => {
+            b'P' => {
+                self.state = State::Dcs;
+                self.string_kind = State::Dcs;
+                self.dcs.clear();
+            }
+            b'X' | b'^' | b'_' => {
                 self.state = State::IgnoreString;
-                self.string_is_osc = false;
+                self.string_kind = State::IgnoreString;
             }
             0x20..=0x2F => self.state = State::EscIntermediate,
             b'7' => self.screen.save_cursor(),
@@ -388,8 +409,10 @@ impl Terminal {
 
     fn finish_string(&mut self) {
         self.state = State::Ground;
-        if !self.string_is_osc {
-            return;
+        match self.string_kind {
+            State::Osc => {}
+            State::Dcs => return self.finish_dcs(),
+            _ => return,
         }
         let s = String::from_utf8_lossy(&self.osc).into_owned();
         let (code, rest) = s.split_once(';').unwrap_or((s.as_str(), ""));
@@ -399,6 +422,26 @@ impl Terminal {
             "4" => self.set_palette(rest),
             "104" => self.reset_palette(rest),
             _ => log::debug!("unhandled OSC {code}"),
+        }
+    }
+
+    /// A DCS string: `p1 ; p2 q ...` is a sixel picture.
+    fn finish_dcs(&mut self) {
+        let dcs = std::mem::take(&mut self.dcs);
+        let start = dcs.iter().position(|b| !matches!(b, b'0'..=b'9' | b';')).unwrap_or(dcs.len());
+        if dcs.get(start) == Some(&b'q') {
+            let params: Vec<u32> =
+                String::from_utf8_lossy(&dcs[..start]).split(';').map(|p| p.parse().unwrap_or(0)).collect();
+            let background = self.screen.look.rgb(self.screen.pen.bg);
+            let img = crate::sixel::decode(&params, &dcs[start + 1..], background);
+            self.screen.place_image(&img, !self.sixel_display_mode);
+        } else {
+            log::debug!("unhandled DCS {:?}", String::from_utf8_lossy(&dcs[..dcs.len().min(32)]));
+        }
+        // Keep the buffer for the next one unless it was a big picture.
+        if dcs.capacity() <= 1 << 20 {
+            self.dcs = dcs;
+            self.dcs.clear();
         }
     }
 
@@ -500,7 +543,12 @@ impl Terminal {
         }
         match self.private {
             0 => {}
+            b'?' if b == b'S' => return self.graphics_attributes(),
             b'?' => return self.dec_mode(b),
+            // CTerm Device Attributes: what this CTerm-like terminal can do.
+            b'<' if b == b'c' && self.params.first().is_none_or(|&v| v == 0) => {
+                return self.replies.extend_from_slice(b"\x1b[<0;2;3;4;5;6c");
+            }
             _ => {
                 log::debug!("unhandled private CSI {:?}{:?} {:?}", self.private as char, b as char, self.params);
                 return;
@@ -549,9 +597,9 @@ impl Terminal {
             b'T' => s.scroll_down(n),
             b'X' => s.erase_chars(n),
             b'Z' => s.back_tab(n),
-            // Device Attributes: answer as a plain VT100. Claiming CTerm would
-            // invite font and palette sequences that are not supported yet.
-            b'c' if self.params.first().is_none_or(|&v| v == 0) => self.replies.extend_from_slice(b"\x1b[?1;0c"),
+            // Device Attributes: a VT220-class terminal with sixel graphics
+            // (4), which is how sixel programs look for it.
+            b'c' if self.params.first().is_none_or(|&v| v == 0) => self.replies.extend_from_slice(b"\x1b[?62;4c"),
             b'm' => self.sgr(),
             b'n' => match self.params.first().copied().unwrap_or(0) {
                 5 => self.replies.extend_from_slice(b"\x1b[0n"),
@@ -582,6 +630,22 @@ impl Terminal {
         }
     }
 
+    /// XTSMGRAPHICS (`CSI ? Pi ; Pa S`): the number of sixel color
+    /// registers (1) and the graphics size (2), read only.
+    fn graphics_attributes(&mut self) {
+        let reply = match (self.params.first().copied(), self.params.get(1).copied()) {
+            (Some(1), Some(1 | 4)) => "\x1b[?1;0;256S".to_string(),
+            (Some(2), Some(1 | 4)) => {
+                let (w, h) = self.screen.size_px();
+                format!("\x1b[?2;0;{w};{h}S")
+            }
+            (Some(i @ 1..=3), _) => format!("\x1b[?{i};3;0S"),
+            (Some(i), _) => format!("\x1b[?{i};1;0S"),
+            (None, _) => return,
+        };
+        self.replies.extend_from_slice(reply.as_bytes());
+    }
+
     fn dec_mode(&mut self, b: u8) {
         let on = match b {
             b'h' => true,
@@ -591,6 +655,7 @@ impl Terminal {
         for &mode in &self.params {
             match mode {
                 7 => self.screen.autowrap = on,
+                80 => self.sixel_display_mode = on,
                 25 => self.screen.cursor_visible = on,
                 // CTerm: blink attribute selects bright background (iCE colors).
                 // CTerm: bright and blink select fonts, and need not
@@ -721,7 +786,7 @@ mod tests {
     fn device_attributes() {
         let mut t = term();
         t.feed(b"\x1b[c\x1b[0c");
-        assert_eq!(t.take_replies(), b"\x1b[?1;0c\x1b[?1;0c");
+        assert_eq!(t.take_replies(), b"\x1b[?62;4c\x1b[?62;4c");
         // Secondary DA (`CSI > c`) and `CSI 1 c` are not answered.
         t.feed(b"\x1b[>c\x1b[1c");
         assert!(t.take_replies().is_empty());
@@ -820,6 +885,49 @@ mod tests {
         assert_eq!(parse_color("rgb:f/0/8"), Some(0xFF0088));
         assert_eq!(parse_color("rgb:ffff/0000/8080"), Some(0xFF0080));
         assert_eq!(parse_color("rgb:1/2"), None);
+    }
+
+    #[test]
+    fn sixel_pictures() {
+        let mut t = term();
+        // 16 x 36 pixels (a pixel per sixel row, six bands), red, at 3;5.
+        let mut seq = b"\x1b[3;5HA\x1bP0;1;0q\"1;1#1;2;100;0;0".to_vec();
+        for _ in 0..6 {
+            seq.extend_from_slice(b"!16~-");
+        }
+        seq.extend_from_slice(b"\x1b\\B");
+        t.feed(&seq);
+        let s = &t.screen;
+        // The picture covers columns 5-6 (from the cursor, which was after
+        // the A) of rows 3-5; the last band ends at pixel 36, so the cursor
+        // is on the row holding pixel 36 (row 3 + 36 / 16), in the column it
+        // started in, where the B went.
+        let tile = s.tiles.get(s.row(2)[5].tile).expect("a tile");
+        assert_eq!((tile.width, tile.height), (8, 16));
+        assert_eq!(tile.pixels[0], crate::sixel::solid(0xFF0000));
+        assert!(s.row(4)[6].tile != 0 && s.row(2)[7].tile == 0);
+        assert_eq!(s.row(4)[5].ch, b'B');
+        assert_eq!(s.row(4)[5].tile, 0, "text replaces the picture");
+        assert_eq!(t.screen.cursor(), (6, 4));
+
+        // The size of the screen in pixels, and the color registers.
+        t.feed(b"\x1b[?2;1S\x1b[?1;1S\x1b[<c");
+        assert_eq!(t.take_replies(), b"\x1b[?2;0;640;400S\x1b[?1;0;256S\x1b[<0;2;3;4;5;6c");
+    }
+
+    #[test]
+    fn sixel_pictures_scroll_the_screen() {
+        let mut t = term();
+        t.feed(b"\x1b[25;1HX\x1bPq\"1;1;8;32\x1b\\");
+        // 32 pixels: two rows; the screen scrolled two lines (the cursor
+        // ends on the row holding pixel 32).
+        assert_eq!(line(&t, 22), "X");
+        assert!(t.screen.row(22)[1].tile != 0 && t.screen.row(23)[1].tile != 0);
+        assert_eq!(t.screen.cursor(), (1, 24));
+        // In display mode it goes at the top left and the cursor stays.
+        t.feed(b"\x1b[?80h\x1b[10;10H\x1bPq\"1;1;8;16\x1b\\");
+        assert!(t.screen.row(0)[0].tile != 0);
+        assert_eq!(t.screen.cursor(), (9, 9));
     }
 
     #[test]

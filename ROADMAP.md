@@ -103,7 +103,9 @@ The next things to do, in order.
 - [ ] More screen modes: 40-column, resizable
 - [x] Avatar/0+ emulation
 - [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
-- [ ] Sixel graphics
+- [x] Sixel graphics
+- [ ] SyncTERM's pictures and sound: the file cache, PPM and JPEG XL
+      drawing, pixel copy and paste, and audio (for SyncDoom and the like)
 - [x] RIPscrip graphics (not yet: icon and scene files, RIP file transfers)
 - [x] Visual and audible bell options
 

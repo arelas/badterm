@@ -388,7 +388,12 @@ impl App {
                 r.set_layout(font, self.cell_width(), sc.cols(), sc.rows());
                 let rows = terminal_rows(session, self.scroll);
                 let look_rows = rows.len();
-                let frame = Frame { look: &sc.look, look_rows, ..Frame::plain(rows, None, sc.ice_colors) };
+                let frame = Frame {
+                    look: &sc.look,
+                    look_rows,
+                    tiles: Some(&sc.tiles),
+                    ..Frame::plain(rows, None, sc.ice_colors)
+                };
                 r.draw(&frame, true, false);
                 (crate::png::encode(r.pixels(), r.native_width(), r.native_height()), "the screen".into())
             }

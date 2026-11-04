@@ -2,7 +2,7 @@
 //! native-resolution frame, then scales it into the window buffer, with an
 //! optional CRT look (see [`crate::crt`]).
 
-use badterm_core::screen::{Cell, Color, Look, flags};
+use badterm_core::screen::{Cell, Color, Look, Tiles, flags};
 
 use crate::crt::{Crt, CrtMode, Curvature, Glow, Scanlines};
 use crate::selection::Selection;
@@ -133,6 +133,8 @@ pub struct Frame<'a> {
     /// RIPscrip graphics under the BBS's screen: they show through cells
     /// left blank on black.
     pub graphics: Option<Graphics<'a>>,
+    /// Pixel graphics (sixel) the BBS's cells show, by [`Cell::tile`].
+    pub tiles: Option<&'a Tiles>,
 }
 
 /// A picture in 16 palette colors, stretched over the BBS's screen.
@@ -156,6 +158,7 @@ impl<'a> Frame<'a> {
             look_rows: 0,
             ui_look: Look::standard(),
             graphics: None,
+            tiles: None,
         }
     }
 }
@@ -236,6 +239,7 @@ impl Renderer {
                         && cell.flags & flags::REVERSE == 0
                         && bg == look.rgb(Color::Pc(0))
                 });
+                let tile = frame.tiles.filter(|_| cell.tile != 0 && y < frame.look_rows).and_then(|t| t.get(cell.tile));
                 for gy in 0..fh {
                     let mut bits = if hide { 0 } else { font.row(cell.ch, gy) as u16 };
                     if cell.flags & flags::UNDERLINE != 0 && gy == fh - 1 && !hide {
@@ -261,6 +265,17 @@ impl Renderer {
                             if !on {
                                 let gxx = ((x * cw + gx) * g.width / text_w).min(g.width - 1);
                                 self.native[base + gx] = g.palette[g.pixels[gyy * g.width + gxx] as usize & 15];
+                            }
+                        }
+                    }
+                    // Pixel graphics over the cell, scaled to it (a 9-dot
+                    // cell repeats the eighth column); the cursor stays seen.
+                    if let Some(t) = tile.filter(|_| !(cursor_here && gy >= fh - 2)) {
+                        let row = &t.pixels[(gy * t.height / fh).min(t.height - 1) * t.width..][..t.width];
+                        for gx in 0..cw {
+                            let p = row[(gx * t.width / cw).min(t.width - 1)];
+                            if p != 0 {
+                                self.native[base + gx] = p & 0x00FF_FFFF;
                             }
                         }
                     }
@@ -594,6 +609,44 @@ mod tests {
             let stem = path.file_stem().unwrap().to_string_lossy().to_lowercase().replace(' ', "-");
             png(&out, w, h, out_dir.join(format!("bezel-{stem}.png")));
         }
+    }
+
+    #[test]
+    fn sixel_pictures_are_drawn_over_cells() {
+        let mut t = Terminal::new(80, 25, 0);
+        // An 8x6 red block at the top left, then text at row 2.
+        t.feed(b"\x1bP0;1q\"1;1#1;2;100;0;0!8~\x1b\\\x1b[2;1HX");
+        let lines: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
+        for cw in [8, 9] {
+            let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
+            r.set_layout(Font::vga_8x16(), cw, 80, 25);
+            let frame =
+                Frame { look_rows: 25, tiles: Some(&t.screen.tiles), ..Frame::plain(lines.clone(), None, true) };
+            r.draw(&frame, true, true);
+            let px = r.pixels();
+            let nw = r.native_width();
+            assert_eq!(px[0], 0xFF0000);
+            assert_eq!(px[5 * nw + cw - 1], 0xFF0000, "the whole cell's width");
+            assert_eq!(px[6 * nw], 0, "below the picture, the cell shows through");
+        }
+    }
+
+    /// A sixel file drawn as BadTerm shows it, as a PNG:
+    /// `BADTERM_SIXEL=pic.six BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm sixel_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn sixel_snapshot() {
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        let data = std::fs::read(std::env::var("BADTERM_SIXEL").expect("set BADTERM_SIXEL")).unwrap();
+        let mut t = Terminal::new(80, 25, 0);
+        t.feed(&data);
+        let lines: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
+        let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
+        let frame =
+            Frame { look_rows: 25, tiles: Some(&t.screen.tiles), ..Frame::plain(lines, Some(t.screen.cursor()), true) };
+        r.draw(&frame, true, true);
+        std::fs::write(dir.join("sixel.png"), crate::png::encode(r.pixels(), r.native_width(), r.native_height()))
+            .unwrap();
     }
 
     /// The C64 and Atari screens shown on the website, as PNGs at 4x:

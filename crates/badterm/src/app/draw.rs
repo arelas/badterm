@@ -218,6 +218,7 @@ impl App {
                     look: &sc.look,
                     look_rows: sc.rows(),
                     graphics,
+                    tiles: Some(&sc.tiles),
                     ..Frame::plain(rows, overlay_cursor, sc.ice_colors)
                 }
             }
@@ -235,6 +236,7 @@ impl App {
                     look: &sc.look,
                     look_rows: sc.rows(),
                     graphics,
+                    tiles: Some(&sc.tiles),
                     ..Frame::plain(rows, cursor, sc.ice_colors)
                 }
             }

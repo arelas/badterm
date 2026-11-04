@@ -80,6 +80,11 @@ BadTerm starts.
   mouse areas that send their commands. BadTerm answers the BBS's RIP
   query (`ESC [ !`), so the BBS knows to send them. Not supported: icon
   and scene files, and RIP's own file transfers.
+- **Sixel graphics**: pictures sent by the BBS (`ESC P q`) are drawn
+  where the text cursor is, in up to 256 colors, as SyncTERM and xterm
+  draw them. They scroll with the text, stay in the scrollback, and text
+  written over them replaces them. BadTerm says it does sixel when asked
+  (Device Attributes, and the graphics size query `ESC [ ? 2 ; 1 S`).
 - **AVATAR** (AVT/0 and AVT/0+), the compact codes of Opus, Maximus and
   other FidoNet-era BBSes, alongside ANSI: set the entry's emulation to
   Avatar

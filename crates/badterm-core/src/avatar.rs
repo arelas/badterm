@@ -141,7 +141,7 @@ fn attr_cell(s: &Screen, attr: u8) -> Cell {
     if attr & 0x80 != 0 {
         flags_ |= flags::BLINK;
     }
-    Cell { ch: b' ', fg: Color::Pc(attr & 0x0F), bg: Color::Pc((attr >> 4) & 0x07), flags: flags_ }
+    Cell { ch: b' ', fg: Color::Pc(attr & 0x0F), bg: Color::Pc((attr >> 4) & 0x07), flags: flags_, tile: 0 }
 }
 
 fn set_attr(s: &mut Screen, attr: u8) {
