@@ -102,7 +102,7 @@ pub fn encode(
     codepage: Option<&badterm_core::codepage::CodePage>,
 ) -> Vec<u8> {
     match encoding {
-        Encoding::Petscii => return encode_petscii(key, mods),
+        Encoding::Petscii | Encoding::C128 => return encode_petscii(key, mods),
         Encoding::Atascii => return encode_atascii(key, mods),
         Encoding::Viewdata => return encode_viewdata(key),
         Encoding::Mode7 => return encode_beeb(key),

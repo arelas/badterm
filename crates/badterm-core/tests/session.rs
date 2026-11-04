@@ -63,6 +63,37 @@ fn telnet_session_round_trip() {
 }
 
 #[test]
+fn logs_in_to_a_c64_bbs() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        sock.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        // Clear the screen, then the prompt in PETSCII's capitals.
+        sock.write_all(b"\x93\x05WELCOME\x0dLOGIN: ").unwrap();
+        let mut got: Vec<u8> = Vec::new();
+        let mut buf = [0u8; 256];
+        while !got.contains(&0x0D) {
+            let n = sock.read(&mut buf).unwrap();
+            assert!(n > 0, "client closed early; got {got:?}");
+            got.extend_from_slice(&buf[..n]);
+        }
+        got
+    });
+    let mut entry = telnet_entry(port);
+    entry.encoding = badterm_core::Encoding::Petscii;
+    entry.username = "sysop".into();
+    let (mut session, rx) = dial(entry, config("c64login"));
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |_, _| server.is_finished());
+    let got = server.join().unwrap();
+    // The name in the C64's default case: unshifted letters.
+    let at = got.iter().position(|&b| b == 0x53).expect("the user name");
+    assert_eq!(&got[at..at + 6], b"SYSOP\x0d");
+    session.hang_up();
+}
+
+#[test]
 fn connection_refused_reports_error() {
     // Bind then drop to get a port that is very likely closed.
     let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();

@@ -104,7 +104,10 @@ fonts and colors of a host terminal.
   C64's two, switched by the BBS), reverse video and screen-editor codes,
   and their keys (Enter, DEL, the cursor keys, the C64's F1 to F8 and
   RUN/STOP on `Esc`). The fonts are BadTerm's own, in those machines'
-  style
+  style. The Commodore 128's 80-column screen is there too (the "C128"
+  emulation: PETSCII on 80x25 in its RGBI colors). Copying their text
+  gives the characters it shows (the C64's graphics as Unicode's
+  legacy-computing symbols), and auto-login reads their prompts
 - **Viewdata (Prestel)** BBSes, such as Telstar, set by the entry's
   emulation: the 40x24 teletext page in its eight colors, with mosaic
   block graphics (contiguous and separated, held across color changes),
@@ -504,7 +507,8 @@ An entry's "Emulation" sets how what the BBS sends is shown: CP437
 (ANSI-BBS, the usual), UTF-8, Avatar (AVT/0 and AVT/0+ alongside ANSI),
 RIPscrip (graphics: click a button or mouse area to send its command; the
 text screen is 80x43 over the 640x350 graphics), PETSCII (Commodore 64:
-F1 to F8 are the C64's, `Esc` is RUN/STOP), ATASCII (Atari 8-bit),
+F1 to F8 are the C64's, `Esc` is RUN/STOP), C128 (the Commodore 128's
+80 columns), ATASCII (Atari 8-bit),
 Viewdata (Prestel: Enter is the `#` key), Mode 7 (BBC Micro), IGS (Atari
 ST) or SkyPix (Amiga).
 

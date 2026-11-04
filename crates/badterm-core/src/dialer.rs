@@ -969,6 +969,29 @@ fn from_qodem(text: &str) -> Vec<Entry> {
     out
 }
 
+/// SyncTERM's screen modes: a size, or a system with its own screen.
+fn syncterm_screen_mode(e: &mut Entry, value: &str) {
+    let v = value.to_ascii_lowercase();
+    if v.starts_with("c128") && v.contains("80") {
+        e.encoding = Encoding::C128;
+    } else if v.starts_with("c64") || v.starts_with("c128") {
+        e.encoding = Encoding::Petscii;
+    } else if v.starts_with("atari st") {
+        e.encoding = Encoding::Igs;
+    } else if v.starts_with("atari") {
+        e.encoding = Encoding::Atascii;
+    } else if v.starts_with("prestel") {
+        e.encoding = Encoding::Viewdata;
+    } else if v.contains("mode 7") {
+        e.encoding = Encoding::Mode7;
+    } else if let Some((c, r)) = v.split_whitespace().next().and_then(|s| s.split_once('x')) {
+        let mode = (c.parse().unwrap_or(0), r.trim_end_matches(|ch: char| !ch.is_ascii_digit()).parse().unwrap_or(0));
+        if SCREEN_MODES.contains(&mode) {
+            (e.cols, e.rows) = mode;
+        }
+    }
+}
+
 fn from_syncterm(text: &str) -> Vec<Entry> {
     let mut out = Vec::new();
     let mut cur: Option<Entry> = None;
@@ -997,6 +1020,7 @@ fn from_syncterm(text: &str) -> Vec<Entry> {
             "totalcalls" => e.calls = value.parse().unwrap_or(0),
             "added" => e.added = value.parse().ok(),
             "lastconnected" => e.last_connected = value.parse().ok().filter(|&t| t != 0),
+            "screenmode" => syncterm_screen_mode(e, value),
             _ => {}
         }
     }
@@ -1099,6 +1123,13 @@ mod tests {
         let v = from_syncterm(text);
         assert_eq!((v[0].host.as_str(), v[0].port), ("bbs.example.net", 2300));
         assert_eq!((v[1].protocol, v[1].port), (Protocol::Ssh, 2222));
+        // Screen modes, and systems with their own screens.
+        let text = "[A]\nAddress=a\nScreenMode=80x50\n[B]\nAddress=b\nScreenMode=C128 (80col)\n\
+                    [C]\nAddress=c\nScreenMode=C64\n[D]\nAddress=d\nScreenMode=132x37 (16:9)\n";
+        let v = from_syncterm(text);
+        assert_eq!((v[0].cols, v[0].rows), (80, 50));
+        assert_eq!((v[1].encoding, v[2].encoding), (Encoding::C128, Encoding::Petscii));
+        assert_eq!((v[3].cols, v[3].rows), (132, 37));
     }
 
     #[test]

@@ -840,6 +840,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 text(s, fx, yy, fw, &format!("\u{25C4} {:<7} \u{25BA}", form.encoding.name()), fg, bg);
                 let note = match form.encoding {
                     Encoding::Petscii => "(Commodore 64: 40x25, its font)",
+                    Encoding::C128 => "(Commodore 128: 80x25 PETSCII)",
                     Encoding::Atascii => "(Atari 8-bit: 40x24, its font)",
                     Encoding::Viewdata => "(Prestel: 40x24, teletext graphics)",
                     Encoding::Mode7 => "(BBC Micro teletext: 40x25)",

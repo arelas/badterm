@@ -1,4 +1,6 @@
-//! Commodore 64 BBSes: PETSCII, on a 40x25 screen in the C64's colors.
+//! Commodore 64 BBSes: PETSCII, on a 40x25 screen in the C64's colors;
+//! and the Commodore 128's 80-column screen (its VDC chip): the same
+//! PETSCII on 80x25, in the VDC's RGBI colors.
 //!
 //! Printable bytes become screen codes (the order the C64's characters are
 //! stored in, which BadTerm's C64 fonts use; reverse video is the second
@@ -15,11 +17,23 @@ pub const ROWS: usize = 25;
 /// The CTerm font IDs of the two character sets (as SyncTERM numbers them).
 pub const FONT_UPPER: u8 = 32;
 pub const FONT_LOWER: u8 = 33;
+/// The C128's, for its 80-column screen.
+pub const C128_COLS: usize = 80;
+pub const FONT_C128_UPPER: u8 = 34;
+pub const FONT_C128_LOWER: u8 = 35;
 
 /// The C64's 16 colors (the "Pepto" measurements).
 pub const PALETTE: [Rgb; 16] = [
     0x000000, 0xFFFFFF, 0x68372B, 0x70A4B2, 0x6F3D86, 0x588D43, 0x352879, 0xB8C76F, 0x6F4F25, 0x433900, 0x9A6759,
     0x444444, 0x6C6C6C, 0x9AD284, 0x6C5EB5, 0x959595,
+];
+/// The C128's 80-column colors, in the C64's order (RGBI, as on a CGA
+/// monitor): black, white, dark red, light cyan, light purple, dark
+/// green, dark blue, light yellow, dark purple, brown, light red, dark
+/// cyan, dark gray, light green, light blue, light gray.
+pub const VDC_PALETTE: [Rgb; 16] = [
+    0x000000, 0xFFFFFF, 0xAA0000, 0x55FFFF, 0xFF55FF, 0x00AA00, 0x0000AA, 0xFFFF55, 0xAA00AA, 0xAA5500, 0xFF5555,
+    0x00AAAA, 0x555555, 0x55FF55, 0x5555FF, 0xAAAAAA,
 ];
 /// Light blue text on black, as C64 terminal programs start.
 const DEFAULT_FG: usize = 14;
@@ -32,23 +46,41 @@ pub fn color(i: usize) -> Color {
 #[derive(Debug, Default)]
 pub struct Petscii {
     reverse: bool,
+    /// The C128's 80-column screen, not the C64's.
+    c128: bool,
 }
 
 impl Petscii {
+    pub fn c128() -> Petscii {
+        Petscii { reverse: false, c128: true }
+    }
+
+    fn color(&self, i: usize) -> Color {
+        Color::Rgb(if self.c128 { VDC_PALETTE[i & 15] } else { PALETTE[i & 15] })
+    }
+
+    fn fonts(&self) -> (u8, u8) {
+        if self.c128 { (FONT_C128_UPPER, FONT_C128_LOWER) } else { (FONT_UPPER, FONT_LOWER) }
+    }
+
     /// A fresh C64 screen: cleared, colors and character set as at power-on.
     pub fn start(&mut self, s: &mut Screen) {
         self.reverse = false;
-        s.pen.fg = color(DEFAULT_FG);
-        s.pen.bg = Color::Rgb(PALETTE[0]);
-        s.look.fonts[0] = FONT_UPPER;
-        s.base_font = FONT_UPPER;
+        // The C128 starts light cyan in 80 columns.
+        s.pen.fg = self.color(if self.c128 { 3 } else { DEFAULT_FG });
+        s.pen.bg = self.color(0);
+        let (upper, _) = self.fonts();
+        s.look.fonts[0] = upper;
+        s.base_font = upper;
         s.autowrap = true;
         s.erase_display(2);
         s.move_to(0, 0);
     }
 
     pub fn byte(&mut self, s: &mut Screen, b: u8, events: &mut Vec<TermEvent>) {
-        let ink = |s: &mut Screen, i: usize| s.pen.fg = color(i);
+        let pal = if self.c128 { VDC_PALETTE } else { PALETTE };
+        let ink = |s: &mut Screen, i: usize| s.pen.fg = Color::Rgb(pal[i & 15]);
+        let (upper, lower) = self.fonts();
         match b {
             0x05 => ink(s, 1),
             0x07 => events.push(TermEvent::Bell),
@@ -57,8 +89,8 @@ impl Petscii {
                 s.line_feed();
                 self.reverse = false;
             }
-            0x0E => s.look.fonts[0] = FONT_LOWER,
-            0x8E => s.look.fonts[0] = FONT_UPPER,
+            0x0E => s.look.fonts[0] = lower,
+            0x8E => s.look.fonts[0] = upper,
             0x11 => s.move_by(0, 1),
             0x91 => s.move_by(0, -1),
             0x1D => right(s),

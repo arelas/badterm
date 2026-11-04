@@ -117,7 +117,7 @@ The next things to do, in order.
 - [x] Device Attributes identify as CTerm (1.332), for SyncTERM's extensions
 - [x] More screen modes: 40x25, 80x28, 80x30, 80x60 (not yet: resizable)
 - [x] Avatar/0+ emulation
-- [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
+- [x] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
 - [x] Viewdata (Prestel) and BBC Micro Mode 7, with Reveal (`Alt-K`)
 - [x] Atari ST IGS graphics (not yet: its sound, MIDI)
 - [x] Amiga SkyPix graphics (not yet: samples, brushes sent by XMODEM, Amiga disk fonts)

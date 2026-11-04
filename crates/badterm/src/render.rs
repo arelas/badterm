@@ -1072,6 +1072,8 @@ mod tests {
         c.extend([0xbd, b'\r', b'\r']);
         c.extend(b"\x99 LAST CALLER: \x05RETRO RICK\r\x9a CALLS TODAY: \x05 42\r\r\x9b COMMAND \x9e> \x05");
         shot(Encoding::Petscii, &c, "site-c64.png");
+        // The same on a C128's 80 columns.
+        shot(Encoding::C128, &c, "c128.png");
 
         // An Atari BBS: ATASCII inverse video and line graphics.
         let inverse = |text: &str| text.bytes().map(|b| b | 0x80).collect::<Vec<u8>>();

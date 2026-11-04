@@ -258,7 +258,11 @@ impl Session {
         let screen = &self.term.screen;
         let (x, y) = screen.cursor();
         let row = screen.row(y);
-        let prompt = Screen::row_text(&row[..x.min(row.len())]);
+        // A C64's or Atari's screen holds screen codes, not ASCII.
+        let prompt = match self.term.text_codepage().filter(|cp| cp.screen_codes()) {
+            Some(cp) => row[..x.min(row.len())].iter().map(|c| cp.decode(c.ch)).collect(),
+            None => Screen::row_text(&row[..x.min(row.len())]),
+        };
         if let Some(step) = self.login.answer(&prompt) {
             self.send_login_step(step);
         }

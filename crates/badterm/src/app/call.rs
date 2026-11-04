@@ -441,7 +441,7 @@ impl App {
                 (export::ansi(&all, opts), format!("{} lines", all.len()))
             }
             SaveFormat::Text => {
-                (export::text_in(&all, session.term.codepage()).into_bytes(), format!("{} lines", all.len()))
+                (export::text_in(&all, session.term.text_codepage()).into_bytes(), format!("{} lines", all.len()))
             }
             SaveFormat::Png => {
                 let mut r = Renderer::new(Font::vga_8x16(), sc.cols(), sc.rows());

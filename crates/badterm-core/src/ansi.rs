@@ -21,6 +21,8 @@ pub enum Encoding {
     Utf8,
     /// Commodore 64 (see [`crate::petscii`]).
     Petscii,
+    /// Commodore 128's 80 columns (see [`crate::petscii`]).
+    C128,
     /// Atari 8-bit (see [`crate::atascii`]).
     Atascii,
     /// CP437 with AVT/0+ codes as well as ANSI (see [`crate::avatar`]).
@@ -38,10 +40,11 @@ pub enum Encoding {
 }
 
 impl Encoding {
-    pub const ALL: [Encoding; 10] = [
+    pub const ALL: [Encoding; 11] = [
         Encoding::Cp437,
         Encoding::Utf8,
         Encoding::Petscii,
+        Encoding::C128,
         Encoding::Atascii,
         Encoding::Viewdata,
         Encoding::Mode7,
@@ -56,6 +59,7 @@ impl Encoding {
             Encoding::Cp437 => "CP437",
             Encoding::Utf8 => "UTF-8",
             Encoding::Petscii => "PETSCII",
+            Encoding::C128 => "C128",
             Encoding::Atascii => "ATASCII",
             Encoding::Avatar => "Avatar",
             Encoding::Rip => "RIPscrip",
@@ -68,13 +72,14 @@ impl Encoding {
 
     /// A C64 or Atari system, with its own screen size and font.
     pub fn is_retro(self) -> bool {
-        matches!(self, Encoding::Petscii | Encoding::Atascii)
+        matches!(self, Encoding::Petscii | Encoding::C128 | Encoding::Atascii)
     }
 
     /// The screen such a system has, if it has its own.
     pub fn screen_size(self) -> Option<(usize, usize)> {
         match self {
             Encoding::Petscii => Some((crate::petscii::COLS, crate::petscii::ROWS)),
+            Encoding::C128 => Some((crate::petscii::C128_COLS, crate::petscii::ROWS)),
             Encoding::Atascii => Some((crate::atascii::COLS, crate::atascii::ROWS)),
             Encoding::Rip => Some((crate::rip::COLS, crate::rip::ROWS)),
             Encoding::Viewdata => Some((crate::viewdata::COLS, crate::viewdata::ROWS)),
@@ -93,7 +98,7 @@ impl Encoding {
             // The Amiga's character set is ISO-8859-1.
             Encoding::Skypix => text.chars().map(|c| if (c as u32) < 256 { c as u8 } else { b'?' }).collect(),
             Encoding::Utf8 => text.as_bytes().to_vec(),
-            Encoding::Petscii => text
+            Encoding::Petscii | Encoding::C128 => text
                 .chars()
                 .filter_map(|c| if c == '\r' { Some(0x0D) } else { crate::petscii::encode_char(c) })
                 .collect(),
@@ -252,6 +257,10 @@ impl Terminal {
     pub fn start_emulation(&mut self) {
         match self.encoding {
             Encoding::Petscii => self.petscii.start(&mut self.screen),
+            Encoding::C128 => {
+                self.petscii = crate::petscii::Petscii::c128();
+                self.petscii.start(&mut self.screen);
+            }
             Encoding::Atascii => self.atascii.start(&mut self.screen),
             Encoding::Rip => self.rip = Some(Box::default()),
             Encoding::Viewdata => self.viewdata.start(&mut self.screen),
@@ -328,6 +337,17 @@ impl Terminal {
             .flatten()
     }
 
+    /// What the characters on the screen are, for copying them as text:
+    /// the code page, or the C64's or Atari's screen codes.
+    pub fn text_codepage(&self) -> Option<&'static crate::codepage::CodePage> {
+        match self.encoding {
+            Encoding::Petscii | Encoding::C128 | Encoding::Atascii => {
+                crate::codepage::screen_codes(self.screen.look.fonts[0])
+            }
+            _ => self.codepage(),
+        }
+    }
+
     /// Text typed or pasted, as the BBS expects its bytes.
     pub fn encode_text(&self, text: &str) -> Vec<u8> {
         match self.codepage() {
@@ -360,7 +380,7 @@ impl Terminal {
 
     pub fn feed(&mut self, data: &[u8]) {
         match self.encoding {
-            Encoding::Petscii => {
+            Encoding::Petscii | Encoding::C128 => {
                 for &b in data {
                     self.petscii.byte(&mut self.screen, b, &mut self.events);
                 }
@@ -617,6 +637,7 @@ impl Terminal {
                 // "graphic" control characters (☺, ♥, ►, ...).
                 Encoding::Cp437
                 | Encoding::Petscii
+                | Encoding::C128
                 | Encoding::Atascii
                 | Encoding::Avatar
                 | Encoding::Rip

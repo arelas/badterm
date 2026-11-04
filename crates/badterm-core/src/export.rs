@@ -77,6 +77,14 @@ pub fn ansi(lines: &[&[Cell]], opts: AnsiOptions) -> Vec<u8> {
 /// character there (ISO-8859's 0x80-0x9F are controls: CP437's glyph then).
 fn glyph(ch: u8, codepage: Option<&CodePage>) -> char {
     match codepage.map(|cp| cp.decode(ch)) {
+        // A C64 or Atari screen: every code is a character.
+        Some(c) if codepage.is_some_and(|cp| cp.screen_codes()) => {
+            if c == '\u{a0}' {
+                ' '
+            } else {
+                c
+            }
+        }
         _ if ch == 0 => ' ',
         Some(c) if ch >= 0x80 && !c.is_control() && c != '\u{fffd}' => c,
         _ => cp437::to_unicode(ch),
@@ -199,5 +207,18 @@ mod tests {
         let mut t = Terminal::new(4, 1, 0);
         t.feed(&[0x81, 0xE9]);
         assert_eq!(text_in(&rows(&t), crate::codepage::for_font(24)), "üé\n");
+    }
+
+    #[test]
+    fn copying_a_c64_screen() {
+        let mut t = Terminal::new(40, 2, 0);
+        t.encoding = crate::ansi::Encoding::Petscii;
+        t.start_emulation();
+        // "HELLO @" and a spade, in the upper-case set; reversed "OK".
+        t.feed(b"HELLO @\xc1 \x12OK\x92\r");
+        assert_eq!(text_in(&rows(&t), t.text_codepage()), "HELLO @\u{2660} OK\n");
+        // The lower-case set: unshifted letters are small.
+        t.feed(b"\x0eHello");
+        assert_eq!(text_in(&rows(&t), t.text_codepage()).lines().nth(1), Some("hELLO"));
     }
 }

@@ -130,7 +130,7 @@
       <p>Each entry keeps how to reach a BBS and how to show it. In the entry form, <kbd>Tab</kbd> and the arrow keys move between fields, and <kbd>Space</kbd> or <kbd>←</kbd> <kbd>→</kbd> change the ones with choices:</p>
       <dl class="fields">
         <dt>Address, Port, Protocol</dt><dd>Telnet, Telnet over TLS ("TelnetS", port 992), SSH, RLogin, raw TCP, or Modem, where the address is a phone number (see <a href="#modem">modems</a>). The address may carry the port: <code>host:2323</code>.</dd>
-        <dt>Emulation</dt><dd>CP437 (ANSI-BBS, the usual), UTF-8, Avatar, RIPscrip, PETSCII (Commodore 64), ATASCII (Atari), Viewdata (Prestel), Mode 7 (BBC Micro), IGS (Atari ST) or SkyPix (Amiga). See <a href="#systems">emulations</a>.</dd>
+        <dt>Emulation</dt><dd>CP437 (ANSI-BBS, the usual), UTF-8, Avatar, RIPscrip, PETSCII (Commodore 64), C128 (its 80 columns), ATASCII (Atari), Viewdata (Prestel), Mode 7 (BBC Micro), IGS (Atari ST) or SkyPix (Amiga). See <a href="#systems">emulations</a>.</dd>
         <dt>Screen mode, Font</dt><dd>40x25, 80x25 to 80x60 (80x28 in the VGA's 8x14 font) and 132 columns; your own <code>.fnt</code> or <code>.psf</code> fonts, from the <code>fonts</code> folder (<code>badterm --paths</code>); the Amiga fonts for Amiga boards; and code pages (CP866, KOI8-R, CP1251, Greek, Hebrew, Turkish, Baltic, Central and West European, ...) for boards in other languages. A BBS can also choose them itself. With one on the screen, what you type and paste goes in its code page, and copying gives the characters it shows.</dd>
         <dt>iCE colors</dt><dd>Auto leaves it to the BBS; On shows bright backgrounds; Off blinks.</dd>
         <dt>Phosphor mode, Bell</dt><dd>This BBS's own CRT look and bell, or the defaults from Settings.</dd>
@@ -169,7 +169,8 @@
         <dt>The mouse</dt><dd>A BBS or door that asks for the mouse (Synchronet's games do) gets your clicks, drags and wheel. Hold <kbd>Shift</kbd> to select and copy text instead.</dd>
         <dt>Fonts from the BBS</dt><dd>Fonts a BBS sends (CTerm's loadable fonts) are used where it asks for them.</dd>
         <dt>SyncTERM sound</dt><dd>Those doors' sound effects and music: WAV, AIFF, VOC, FLAC, MP3, Ogg Opus and Vorbis sounds and synthesized tones, on 16 channels mixed together. <kbd>Alt-M</kbd> turns sound off.</dd>
-        <dt>PETSCII</dt><dd>Commodore 64 BBSes, on a 40x25 screen in the C64's colors and character sets. The C64's F1 to F8 are on your F1 to F8, and RUN/STOP is <kbd>Esc</kbd>.</dd>
+        <dt>PETSCII</dt><dd>Commodore 64 BBSes, on a 40x25 screen in the C64's colors and character sets. The C64's F1 to F8 are on your F1 to F8, and RUN/STOP is <kbd>Esc</kbd>. Auto-login answers C64 boards' prompts, and copied text comes out as the characters on the screen.</dd>
+        <dt>C128</dt><dd>The Commodore 128's 80-column screen: the same PETSCII on 80x25, in the colors of its RGBI monitor.</dd>
         <dt>ATASCII</dt><dd>Atari 8-bit BBSes, on a 40x24 screen in light blue on blue.</dd>
         <dt>Viewdata</dt><dd>Prestel-style viewdata services such as Telstar: the 40x24 teletext page with its block graphics, double height and eight colors. <kbd>Enter</kbd> is the <kbd>#</kbd> key that ends what you type; <kbd>*</kbd> is <kbd>*</kbd>. <kbd>Alt-K</kbd> reveals concealed text, such as a quiz's answers.</dd>
         <dt>Mode 7</dt><dd>BBC Micro BBSes, on the BBC's teletext screen: 40x25, scrolling, with the BBC's own characters and keys (<kbd>Delete</kbd> is DEL).</dd>
