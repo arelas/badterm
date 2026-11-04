@@ -40,6 +40,11 @@ softbuffer = "0.4.8"
 arboard = { version = "3.7", default-features = false }
 # Keychain (macOS), Credential Manager (Windows), Secret Service over zbus (Linux, pure Rust).
 keyring = "4.2"
+# SyncTERM's graphics: JPEG XL pictures (pure Rust), base64 blobs, and
+# the MD5 sums of cached files.
+jxl-oxide = { version = "0.12.6", default-features = false }
+data-encoding = "2.11"
+md5 = "0.8"
 
 [profile.release]
 lto = "thin"

@@ -102,14 +102,16 @@ pub struct Paths {
     pub themes: PathBuf,
     /// The user's own monitor bezels (`.png`).
     pub bezels: PathBuf,
+    /// Files BBSes store here (SyncTERM's cache), a folder per BBS.
+    pub bbs_cache: PathBuf,
 }
 
 impl Paths {
     pub fn new() -> Paths {
         let proj = directories::ProjectDirs::from("dev", "Bad Cluster", "BadTerm");
-        let (config, data) = match &proj {
-            Some(p) => (p.config_dir().to_path_buf(), p.data_dir().to_path_buf()),
-            None => (PathBuf::from("."), PathBuf::from(".")),
+        let (config, data, cache) = match &proj {
+            Some(p) => (p.config_dir().to_path_buf(), p.data_dir().to_path_buf(), p.cache_dir().to_path_buf()),
+            None => (PathBuf::from("."), PathBuf::from("."), PathBuf::from(".")),
         };
         // BadTerm was called Phosphor up to 0.1.16: bring its folders along.
         if let Some(old) = directories::ProjectDirs::from("org", "Phosphor", "Phosphor") {
@@ -124,6 +126,7 @@ impl Paths {
             settings: config.join("settings.toml"),
             themes: config.join("themes"),
             bezels: config.join("bezels"),
+            bbs_cache: cache.join("bbs"),
             captures: data.join("captures"),
             known_hosts: config.join("known_hosts"),
             downloads: files.join("BadTerm"),

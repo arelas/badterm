@@ -27,6 +27,9 @@ tokio-rustls.workspace = true
 webpki-roots.workspace = true
 zmodem2.workspace = true
 serialport.workspace = true
+jxl-oxide.workspace = true
+data-encoding.workspace = true
+md5.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "net"] }

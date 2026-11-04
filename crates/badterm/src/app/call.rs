@@ -26,6 +26,7 @@ impl App {
         };
         let mut session = Session::new(entry, cols as usize, rows as usize, config);
         session.term.music_on_csi_m = self.settings.music == Music::All;
+        session.term.syncterm.cache_dir = Some(self.paths.bbs_cache.join(cache_folder(&session.entry)));
         self.dialer_open = false;
         self.session_id += 1;
         let id = self.session_id;
@@ -420,4 +421,13 @@ pub(super) fn capture_file(e: &Entry, captures: &std::path::Path, now: u64) -> P
         pattern.replace("{name}", &file_stem(&e.name)).replace("{date}", &format_date(now)).replace("{time}", &time);
     let path = expand_home(&name);
     if path.is_absolute() { path } else { captures.join(path) }
+}
+
+/// A BBS's cache folder: its address, made safe as a file name.
+fn cache_folder(entry: &Entry) -> String {
+    let name: String = format!("{}_{}", entry.host, entry.port)
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+        .collect();
+    name.trim_start_matches('.').to_string()
 }

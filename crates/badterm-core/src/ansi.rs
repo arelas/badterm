@@ -79,6 +79,11 @@ impl Encoding {
 
 const MAX_PARAMS: usize = 32;
 const MAX_STRING: usize = 4096;
+/// The Device Attributes reply: "CTerm" and the revision whose sequences
+/// BadTerm follows (1.332: the blob, flip and zoom graphics commands).
+pub const CTERM_DA: &[u8] = b"\x1b[=67;84;101;114;109;1;332c";
+/// CTerm's built-in fonts are 0-42; loaded ones would start here.
+const FIRST_LOADABLE_FONT: u32 = 43;
 /// A DCS string (a sixel picture) can be large; longer ones are cut off.
 const MAX_DCS: usize = 32 << 20;
 
@@ -93,7 +98,9 @@ enum State {
     Osc,
     /// DCS: collected (sixel graphics).
     Dcs,
-    /// SOS, PM, APC: ignored until ST.
+    /// APC: collected (SyncTERM's commands).
+    Apc,
+    /// SOS, PM: ignored until ST.
     IgnoreString,
     /// Saw ESC inside a string; `\` terminates it.
     StringEsc,
@@ -124,6 +131,8 @@ pub struct Terminal {
     /// The kind of string being read: OSC, DCS or another.
     string_kind: State,
     dcs: Vec<u8>,
+    /// SyncTERM's file cache, pictures and pixel buffers.
+    pub syncterm: crate::syncterm::SyncTerm,
     private: u8,
     intermediate: u8,
     params: Vec<u32>,
@@ -154,6 +163,7 @@ impl Terminal {
             state: State::Ground,
             string_kind: State::IgnoreString,
             dcs: Vec::new(),
+            syncterm: Default::default(),
             private: 0,
             intermediate: 0,
             params: Vec::with_capacity(MAX_PARAMS),
@@ -248,7 +258,7 @@ impl Terminal {
                 _ if self.state == State::Osc && self.osc.len() < MAX_STRING => self.osc.push(b),
                 _ => {}
             },
-            State::Dcs => match b {
+            State::Dcs | State::Apc => match b {
                 0x1B => self.state = State::StringEsc,
                 _ if self.dcs.len() < MAX_DCS => self.dcs.push(b),
                 _ => {}
@@ -388,7 +398,12 @@ impl Terminal {
                 self.string_kind = State::Dcs;
                 self.dcs.clear();
             }
-            b'X' | b'^' | b'_' => {
+            b'_' => {
+                self.state = State::Apc;
+                self.string_kind = State::Apc;
+                self.dcs.clear();
+            }
+            b'X' | b'^' => {
                 self.state = State::IgnoreString;
                 self.string_kind = State::IgnoreString;
             }
@@ -412,6 +427,17 @@ impl Terminal {
         match self.string_kind {
             State::Osc => {}
             State::Dcs => return self.finish_dcs(),
+            State::Apc => {
+                let apc = std::mem::take(&mut self.dcs);
+                if !self.syncterm.apc(&apc, &mut self.screen, &mut self.replies) {
+                    log::debug!("unhandled APC {:?}", String::from_utf8_lossy(&apc[..apc.len().min(32)]));
+                }
+                if apc.capacity() <= 1 << 20 {
+                    self.dcs = apc;
+                    self.dcs.clear();
+                }
+                return;
+            }
             _ => return,
         }
         let s = String::from_utf8_lossy(&self.osc).into_owned();
@@ -545,6 +571,7 @@ impl Terminal {
             0 => {}
             b'?' if b == b'S' => return self.graphics_attributes(),
             b'?' => return self.dec_mode(b),
+            b'=' if b == b'n' => return self.cterm_report(),
             // CTerm Device Attributes: what this CTerm-like terminal can do.
             b'<' if b == b'c' && self.params.first().is_none_or(|&v| v == 0) => {
                 return self.replies.extend_from_slice(b"\x1b[<0;2;3;4;5;6c");
@@ -597,9 +624,10 @@ impl Terminal {
             b'T' => s.scroll_down(n),
             b'X' => s.erase_chars(n),
             b'Z' => s.back_tab(n),
-            // Device Attributes: a VT220-class terminal with sixel graphics
-            // (4), which is how sixel programs look for it.
-            b'c' if self.params.first().is_none_or(|&v| v == 0) => self.replies.extend_from_slice(b"\x1b[?62;4c"),
+            // Device Attributes: CTerm, SyncTERM's emulation, which BBSes
+            // look for before sending its pictures and sounds; what it can
+            // do is asked next (`CSI < c`), and answered truthfully.
+            b'c' if self.params.first().is_none_or(|&v| v == 0) => self.replies.extend_from_slice(CTERM_DA),
             b'm' => self.sgr(),
             b'n' => match self.params.first().copied().unwrap_or(0) {
                 5 => self.replies.extend_from_slice(b"\x1b[0n"),
@@ -628,6 +656,51 @@ impl Terminal {
             b'h' | b'l' => {}
             _ => log::debug!("unhandled CSI {:?} {:?}", b as char, self.params),
         }
+    }
+
+    /// CTerm's state reports (`CSI = Ps n`).
+    fn cterm_report(&mut self) {
+        let reply = match self.params.first().copied().unwrap_or(1) {
+            // Fonts: the first loadable slot, the last selection's result
+            // (none yet), and the four slots' fonts.
+            1 => {
+                let f = self.screen.look.fonts;
+                format!("\x1b[=1;{FIRST_LOADABLE_FONT};99;{};{};{};{}n", f[0], f[1], f[2], f[3])
+            }
+            // The DEC modes that are set.
+            2 => {
+                let s = &self.screen;
+                let l = &s.look;
+                let set = [
+                    (7, s.autowrap),
+                    (25, s.cursor_visible),
+                    (31, l.bright_font),
+                    (32, l.bright_plain),
+                    (33, s.ice_colors),
+                    (34, l.blink_font),
+                    (35, l.blink_steady),
+                    (80, self.sixel_display_mode),
+                ];
+                let modes: Vec<String> = set.iter().filter(|m| m.1).map(|m| m.0.to_string()).collect();
+                format!("\x1b[=2;{}n", modes.join(";"))
+            }
+            // A cell's height and width in pixels.
+            3 => {
+                let (w, h) = self.screen.cell_px();
+                format!("\x1b[=3;{h};{w}n")
+            }
+            // No last column flag, no OSC 8 links.
+            4 => "\x1b[=4;0n".to_string(),
+            5 => "\x1b[=5;0n".to_string(),
+            6 => "\x1b[=6;0n".to_string(),
+            // Audio: no channel running.
+            7 => match self.params.get(1) {
+                Some(c) => format!("\x1b[=7;{c};0n"),
+                None => "\x1b[=7n".to_string(),
+            },
+            _ => return,
+        };
+        self.replies.extend_from_slice(reply.as_bytes());
     }
 
     /// XTSMGRAPHICS (`CSI ? Pi ; Pa S`): the number of sixel color
@@ -786,7 +859,7 @@ mod tests {
     fn device_attributes() {
         let mut t = term();
         t.feed(b"\x1b[c\x1b[0c");
-        assert_eq!(t.take_replies(), b"\x1b[?62;4c\x1b[?62;4c");
+        assert_eq!(t.take_replies(), [CTERM_DA, CTERM_DA].concat());
         // Secondary DA (`CSI > c`) and `CSI 1 c` are not answered.
         t.feed(b"\x1b[>c\x1b[1c");
         assert!(t.take_replies().is_empty());
@@ -913,6 +986,8 @@ mod tests {
         // The size of the screen in pixels, and the color registers.
         t.feed(b"\x1b[?2;1S\x1b[?1;1S\x1b[<c");
         assert_eq!(t.take_replies(), b"\x1b[?2;0;640;400S\x1b[?1;0;256S\x1b[<0;2;3;4;5;6c");
+        t.feed(b"\x1b[=1n\x1b[=2n\x1b[=3n\x1b[=7n");
+        assert_eq!(t.take_replies(), b"\x1b[=1;43;99;0;0;0;0n\x1b[=2;7;25n\x1b[=3;16;8n\x1b[=7n");
     }
 
     #[test]

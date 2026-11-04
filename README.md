@@ -84,7 +84,14 @@ BadTerm starts.
   where the text cursor is, in up to 256 colors, as SyncTERM and xterm
   draw them. They scroll with the text, stay in the scrollback, and text
   written over them replaces them. BadTerm says it does sixel when asked
-  (Device Attributes, and the graphics size query `ESC [ ? 2 ; 1 S`).
+  (CTerm's attributes, `ESC [ < c`, and the graphics size, `ESC [ ? 2 ; 1 S`).
+- **SyncTERM's pictures**, for Synchronet's graphical doors (SyncDoom and
+  the like): BBSes can store files in a cache on your computer (a folder
+  per BBS, in BadTerm's cache folder, at most 256 MB each) and draw PPM
+  and JPEG XL pictures, from it or sent inline, anywhere on the screen,
+  cropped, flipped, zoomed and masked, and copy and paste pixels. To get
+  them, BadTerm identifies itself as CTerm (SyncTERM's emulation, revision
+  1.332) when a BBS asks, and says which of its features it has.
 - **AVATAR** (AVT/0 and AVT/0+), the compact codes of Opus, Maximus and
   other FidoNet-era BBSes, alongside ANSI: set the entry's emulation to
   Avatar

@@ -98,14 +98,14 @@ The next things to do, in order.
 - [ ] More CTerm: `CSI = ...` modes, and the other font IDs (code pages)
 - [ ] Loadable fonts: CP437 8x14, Commodore, Atari, other code pages (850,
       866, ...), custom `.fnt`/`.psf`; Amiga fonts in 8-line modes
-- [ ] Configurable Device Attributes identity (e.g. CTerm, once its
-      extensions are supported)
+- [x] Device Attributes identify as CTerm (1.332), for SyncTERM's extensions
 - [ ] More screen modes: 40-column, resizable
 - [x] Avatar/0+ emulation
 - [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
 - [x] Sixel graphics
-- [ ] SyncTERM's pictures and sound: the file cache, PPM and JPEG XL
-      drawing, pixel copy and paste, and audio (for SyncDoom and the like)
+- [x] SyncTERM's pictures: the file cache, PPM and JPEG XL drawing, pixel
+      copy and paste (not yet: fonts from the cache, `SetFont`)
+- [ ] SyncTERM's audio APCs
 - [x] RIPscrip graphics (not yet: icon and scene files, RIP file transfers)
 - [x] Visual and audible bell options
 

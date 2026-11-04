@@ -588,46 +588,80 @@ impl Screen {
     /// Row `r` of a picture's tiles onto screen row `y`, from column `x0`.
     fn tile_row(&mut self, img: &crate::sixel::Image, r: usize, x0: usize, y: usize, cols: usize) {
         let (tw, th) = self.cell_px();
-        for c in 0..cols {
-            let x = x0 + c;
-            if x >= self.cols {
-                break;
-            }
-            let old = self.cells[y * self.cols + x].tile;
-            let mut px = match self.tiles.get(old) {
-                Some(t) if (t.width, t.height) == (tw, th) => t.pixels.to_vec(),
-                _ => vec![0; tw * th],
-            };
-            let mut any = false;
-            for ty in 0..th {
-                let iy = r * th + ty;
-                if iy >= img.height {
-                    break;
-                }
-                for tx in 0..tw {
-                    let ix = c * tw + tx;
-                    if ix >= img.width {
-                        break;
-                    }
-                    let p = img.pixels[iy * img.width + ix];
-                    if p != 0 {
-                        px[ty * tw + tx] = p;
-                        any = true;
-                    }
-                }
-            }
-            if !any {
-                continue;
-            }
-            if self.tiles.full() {
-                let mut used = std::collections::HashSet::new();
-                used.extend(self.cells.iter().map(|c| c.tile));
-                used.extend(self.scrollback.iter().flatten().map(|c| c.tile));
-                self.tiles.collect(&used);
-            }
-            let id = self.tiles.add(Tile { width: tw, height: th, pixels: px.into() });
-            self.cells[y * self.cols + x].tile = id;
+        let (left, top) = ((x0 * tw) as isize, (y * th) as isize);
+        let rect = (left, top, cols * tw, th);
+        self.draw_pixels(rect, |px, py| {
+            let (ix, iy) = ((px - left) as usize, (py - top) as usize + r * th);
+            if ix < img.width && iy < img.height { img.pixels[iy * img.width + ix] } else { 0 }
+        });
+    }
+
+    /// Draw pixels over the screen in `rect` (x, y, w, h, in screen pixels;
+    /// it may go off the screen, and that part is clipped): `pixel(x, y)`
+    /// is each one's color, 0xFFRRGGBB, or 0 to leave it as it is.
+    pub fn draw_pixels(&mut self, rect: (isize, isize, usize, usize), pixel: impl Fn(isize, isize) -> u32) {
+        let (tw, th) = self.cell_px();
+        let (sw, sh) = self.size_px();
+        let (x0, y0) = (rect.0.max(0) as usize, rect.1.max(0) as usize);
+        let x1 = ((rect.0 + rect.2 as isize).max(0) as usize).min(sw);
+        let y1 = ((rect.1 + rect.3 as isize).max(0) as usize).min(sh);
+        if x0 >= x1 || y0 >= y1 {
+            return;
         }
+        for cy in y0 / th..y1.div_ceil(th) {
+            for cx in x0 / tw..x1.div_ceil(tw) {
+                let idx = cy * self.cols + cx;
+                let mut px = match self.tiles.get(self.cells[idx].tile) {
+                    Some(t) if (t.width, t.height) == (tw, th) => t.pixels.to_vec(),
+                    _ => vec![0; tw * th],
+                };
+                let mut any = false;
+                for ty in 0..th {
+                    let y = cy * th + ty;
+                    if y < y0 || y >= y1 {
+                        continue;
+                    }
+                    for tx in 0..tw {
+                        let x = cx * tw + tx;
+                        if x < x0 || x >= x1 {
+                            continue;
+                        }
+                        let p = pixel(x as isize, y as isize);
+                        if p != 0 {
+                            px[ty * tw + tx] = p;
+                            any = true;
+                        }
+                    }
+                }
+                if !any {
+                    continue;
+                }
+                if self.tiles.full() {
+                    let mut used = std::collections::HashSet::new();
+                    used.extend(self.cells.iter().map(|c| c.tile));
+                    used.extend(self.scrollback.iter().flatten().map(|c| c.tile));
+                    self.tiles.collect(&used);
+                }
+                self.cells[idx].tile = self.tiles.add(Tile { width: tw, height: th, pixels: px.into() });
+            }
+        }
+    }
+
+    /// The color of a screen pixel, as pixel operations see it: the
+    /// cell's pixel graphics, or else its background (text isn't drawn
+    /// here, so it reads as background).
+    pub fn pixel_at(&self, x: usize, y: usize) -> crate::palette::Rgb {
+        let (tw, th) = self.cell_px();
+        let Some(cell) = self.cells.get((y / th) * self.cols + x / tw).filter(|_| x / tw < self.cols) else {
+            return 0;
+        };
+        if let Some(t) = self.tiles.get(cell.tile) {
+            let p = t.pixels.get((y % th) * t.width + x % tw).copied().unwrap_or(0);
+            if p != 0 {
+                return p & 0x00FF_FFFF;
+            }
+        }
+        cell.resolve_with(self.ice_colors, &self.look).1
     }
 
     /// Plain-text contents of a row, trailing blanks trimmed.
