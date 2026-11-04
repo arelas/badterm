@@ -20,6 +20,8 @@ pub struct LoginPrompt {
     pub remember: bool,
     /// Where a remembered password goes, for the label.
     pub keychain: bool,
+    /// A RIPscrip text variable's question, not a login.
+    pub rip: bool,
 }
 
 pub enum LoginAction {
@@ -39,6 +41,22 @@ impl LoginPrompt {
             can_remember: in_directory && prompt.kind == PromptKind::Password,
             remember: false,
             keychain,
+            rip: false,
+        }
+    }
+
+    /// RIPscrip asking for a text variable (see [`badterm_core::rip::Question`]).
+    pub fn rip_question(q: &badterm_core::rip::Question, bbs: &str) -> LoginPrompt {
+        LoginPrompt {
+            title: format!("{bbs} asks"),
+            instructions: format!("For the RIPscrip variable {}", q.name),
+            question: q.prompt.clone(),
+            echo: true,
+            field: TextField::new(&q.value, q.width),
+            can_remember: false,
+            remember: false,
+            keychain: false,
+            rip: true,
         }
     }
 
@@ -102,6 +120,7 @@ pub mod tests {
             can_remember,
             remember: false,
             keychain: true,
+            rip: false,
         }
     }
 

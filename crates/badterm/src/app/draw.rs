@@ -84,8 +84,12 @@ impl App {
                 format!(" {} \u{2502} {} transfer in progress \u{2502} Esc cancels", truncate(&e.name, 30), t.name());
             return ui::text(s, 0, 0, cols, &line, fg, bg);
         }
-        if self.login.is_some() {
-            let line = format!(" Logging in to {} \u{2502} Enter log in  Esc cancel", truncate(&e.name, 40));
+        if let Some(l) = &self.login {
+            let line = if l.rip {
+                format!(" {} asks \u{2502} Enter answer  Esc cancel", truncate(&e.name, 40))
+            } else {
+                format!(" Logging in to {} \u{2502} Enter log in  Esc cancel", truncate(&e.name, 40))
+            };
             return ui::text(s, 0, 0, cols, &line, fg, bg);
         }
         if let Some(r) = self.redial.as_ref().filter(|_| session.state == State::Closed) {

@@ -85,6 +85,8 @@ pub struct Session {
     writer: Option<Writer>,
     capture: Option<Capture>,
     transfer: Option<Transfer>,
+    /// The transfer is a RIP one whose RIP files are shown as they come.
+    rip_shows: bool,
     /// Bytes received since the BBS asked for an upload, held until the user
     /// picks files (they include the ZRINIT the sender needs to see).
     upload_wait: Option<Vec<u8>>,
@@ -131,6 +133,7 @@ impl Session {
             writer: None,
             capture: None,
             transfer: None,
+            rip_shows: false,
             upload_wait: None,
             auth_prompt: None,
             login,
@@ -268,6 +271,28 @@ impl Session {
         }
     }
 
+    /// A click on the RIP graphics: send what it sends. False if it sends
+    /// nothing (now: a question for the user may come first).
+    pub fn rip_press(&mut self, x: usize, y: usize) -> bool {
+        let out = self.term.rip_press(x, y);
+        if let Some(text) = &out {
+            self.send(text);
+        }
+        self.events.extend(self.term.take_events().into_iter().map(SessionEvent::Term));
+        out.is_some()
+    }
+
+    /// Answer RIPscrip's question for a text variable (None: cancelled),
+    /// sending what was waiting for it.
+    pub fn answer_rip(&mut self, answer: Option<String>) {
+        self.term.rip_answer(answer);
+        let replies = self.term.take_replies();
+        if !replies.is_empty() {
+            self.send(&replies);
+        }
+        self.events.extend(self.term.take_events().into_iter().map(SessionEvent::Term));
+    }
+
     /// Send the next part of the stored login (Alt-L): the user name, then
     /// the password. False when there is nothing (more) to send.
     pub fn send_login(&mut self) -> bool {
@@ -365,6 +390,66 @@ impl Session {
             self.send(&replies);
         }
         self.events.extend(self.term.take_events().into_iter().map(SessionEvent::Term));
+        if let Some((block, rest)) = self.term.take_rip_block() {
+            self.start_rip_block(&block);
+            self.process(rest);
+        }
+    }
+
+    /// A file transfer RIPscrip started: files go to (or come from) the
+    /// BBS's RIP folder.
+    fn start_rip_block(&mut self, b: &crate::rip::BlockTransfer) {
+        let dir = match &self.term.syncterm.cache_dir {
+            Some(c) => c.join("RIP"),
+            None => self.config.download_dir.clone(),
+        };
+        let xy = match b.protocol {
+            0 => Some(XyProtocol::Xmodem),
+            1 => Some(XyProtocol::XmodemCrc),
+            2 | 3 => Some(XyProtocol::Xmodem1k),
+            5 => Some(XyProtocol::Ymodem),
+            6 => Some(XyProtocol::YmodemG),
+            _ => None,
+        };
+        let started: Result<()> = (|| {
+            if b.upload {
+                // Only a file in the RIP folder, by its name.
+                let path = b.name.as_ref().map(|n| dir.join(n)).filter(|p| p.is_file());
+                let Some(path) = path else { anyhow::bail!("the BBS asked for a file that isn't here") };
+                match (b.protocol, xy) {
+                    (_, Some(p)) => self.start_xy_upload(p, vec![path]),
+                    (4, _) => self.start_kermit_upload(vec![path]),
+                    _ => {
+                        self.transfer = Some(Transfer::Upload(Upload::new(vec![path])?));
+                        self.events.push(SessionEvent::TransferStarted);
+                        Ok(())
+                    }
+                }
+            } else {
+                std::fs::create_dir_all(&dir)?;
+                match (b.protocol, xy) {
+                    (_, Some(p)) => self.start_xy_download_to(p, dir.clone(), b.name.clone()),
+                    (4, _) => {
+                        self.transfer = Some(Transfer::Kermit(Kermit::receive(dir.clone())));
+                        self.events.push(SessionEvent::TransferStarted);
+                        Ok(())
+                    }
+                    _ => {
+                        self.transfer = Some(Transfer::Download(Download::new(dir.clone())?));
+                        self.events.push(SessionEvent::TransferStarted);
+                        Ok(())
+                    }
+                }
+            }
+        })();
+        match started {
+            Ok(()) => self.rip_shows = !b.upload && b.shows(),
+            Err(e) => {
+                // As RIPterm refuses: ten CANs.
+                self.send(&[0x18; 10]);
+                self.events.push(SessionEvent::Notice(format!("RIP file transfer: {e:#}")));
+            }
+        }
     }
 
     /// If the transfer finished (or `force` gives a reason to stop it),
@@ -377,9 +462,23 @@ impl Session {
         let Some(t) = self.transfer.take() else { return };
         let (outcome, leftover) = t.finish();
         let outcome = if done { outcome } else { force.unwrap_or(outcome) };
+        // RIP files a RIP transfer brought, to be shown.
+        let show: Vec<PathBuf> = match &outcome {
+            Outcome::Completed(files) if std::mem::take(&mut self.rip_shows) => {
+                files.iter().filter(|f| f.extension().is_some_and(|e| e.eq_ignore_ascii_case("rip"))).cloned().collect()
+            }
+            _ => Vec::new(),
+        };
+        self.rip_shows = false;
         self.events.push(SessionEvent::TransferFinished(outcome));
         self.scan_tail.clear();
         self.trailer = Some(TrailerFilter::new());
+        for f in show {
+            match std::fs::read(&f) {
+                Ok(data) => self.show(&data),
+                Err(e) => log::warn!("showing {}: {e}", f.display()),
+            }
+        }
         self.process(leftover);
     }
 
@@ -441,10 +540,14 @@ impl Session {
     /// Receive with XMODEM or YMODEM: asks the BBS's sender to start.
     /// `name` is what an XMODEM file is saved as (YMODEM sends names).
     pub fn start_xy_download(&mut self, proto: XyProtocol, name: Option<String>) -> Result<()> {
+        self.start_xy_download_to(proto, self.config.download_dir.clone(), name)
+    }
+
+    fn start_xy_download_to(&mut self, proto: XyProtocol, dir: PathBuf, name: Option<String>) -> Result<()> {
         if self.transfer.is_some() {
             anyhow::bail!("a transfer is already in progress");
         }
-        let mut t = Transfer::XyDownload(XyReceive::new(proto, self.config.download_dir.clone(), name));
+        let mut t = Transfer::XyDownload(XyReceive::new(proto, dir, name));
         let mut out = Vec::new();
         t.tick(Instant::now(), &mut out);
         self.transfer = Some(t);

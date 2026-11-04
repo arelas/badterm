@@ -16,6 +16,7 @@ rust-version = "1.89"
 [workspace.dependencies]
 badterm-core = { path = "crates/badterm-core", version = "0.3.4" }
 rhai = "1.27"
+chrono = { version = "0.4.40", default-features = false, features = ["clock", "std"] }
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.11"

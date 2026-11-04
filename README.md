@@ -82,8 +82,12 @@ fonts and colors of a host terminal.
   mouse areas that send their commands. BadTerm answers the BBS's RIP
   query (`ESC [ !`), so the BBS knows to send them. Icons and scene
   files are kept in the BBS's folder of its file cache (or found in the
-  downloads), and the BBS can ask whether you have them. Not supported:
-  RIP's own file transfers and variables.
+  downloads), and the BBS can ask whether you have them. RIP's own file
+  transfers (XMODEM, YMODEM, Kermit or ZMODEM, started by the BBS) bring
+  them, and show scenes as they arrive. Text variables (`$DATE$`, `$XY$`,
+  ...) are filled in where buttons and the BBS's queries use them, and a
+  BBS can define its own, asking you for the value (and keeping it, if it
+  says to).
 - **Sixel graphics**: pictures sent by the BBS (`ESC P q`) are drawn
   where the text cursor is, in up to 256 colors, as SyncTERM and xterm
   draw them. They scroll with the text, stay in the scrollback, and text

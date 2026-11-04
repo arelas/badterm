@@ -172,6 +172,41 @@ fn zmodem_download_over_telnet() {
 }
 
 #[test]
+fn rip_block_transfer_shows_the_scene() {
+    use badterm_core::transfer::{XyProtocol, XySend};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let src = temp_dir("ripblk-src");
+    // A scene: a yellow line along the top.
+    let scene = src.join("PIC.RIP");
+    std::fs::write(&scene, b"!|c0E|L00000A00\r\n").unwrap();
+    let server = thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        // YMODEM, a RIP file to show.
+        sock.write_all(b"!|9\x1b05000000<>\r\n").unwrap();
+        let send = XySend::new(XyProtocol::Ymodem, vec![scene]).unwrap();
+        let outcome = bbs_transfer(&mut sock, Transfer::XyUpload(send));
+        thread::sleep(Duration::from_millis(300));
+        outcome
+    });
+    let cfg = config("ripblk");
+    let cache = cfg.download_dir.with_file_name("cache");
+    let mut entry = telnet_entry(port);
+    entry.encoding = badterm_core::Encoding::Rip;
+    let (mut session, rx) = dial(entry, cfg);
+    session.term.syncterm.cache_dir = Some(cache.clone());
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |_, ev| {
+        ev.iter().any(|e| matches!(e, SessionEvent::TransferFinished(_)))
+    });
+    assert!(matches!(server.join().unwrap(), Outcome::Completed(_)));
+    let saved = cache.join("RIP/PIC.RIP");
+    assert!(events.contains(&SessionEvent::TransferFinished(Outcome::Completed(vec![saved.clone()]))), "{events:?}");
+    let rip = session.term.rip().expect("RIP");
+    assert_eq!(rip.pixels()[5], 14, "the scene was drawn");
+}
+
+#[test]
 fn zmodem_upload_requested_by_bbs() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();

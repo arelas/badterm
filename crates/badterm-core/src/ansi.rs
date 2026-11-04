@@ -153,6 +153,8 @@ pub enum TermEvent {
     Music(Vec<Tone>),
     /// Sound from SyncTERM's audio commands.
     Audio(crate::audio::AudioOp),
+    /// RIPscrip wants the user to answer this (see [`Terminal::rip_answer`]).
+    RipQuestion(crate::rip::Question),
 }
 
 pub struct Terminal {
@@ -201,6 +203,9 @@ pub struct Terminal {
     rip: Option<Box<crate::rip::Rip>>,
     /// Where downloads go: RIP looks there for icons and scenes too.
     pub download_dir: Option<std::path::PathBuf>,
+    /// A RIP file transfer just started, and what came after it (the
+    /// protocol's first bytes), for the session.
+    rip_block: Option<(crate::rip::BlockTransfer, Vec<u8>)>,
     /// The Atari ST screen, when the encoding is IGS.
     igs: Option<Box<crate::igs::Igs>>,
     /// The Amiga screen, when the encoding is SkyPix.
@@ -245,6 +250,7 @@ impl Terminal {
             viewdata: Default::default(),
             rip: None,
             download_dir: None,
+            rip_block: None,
             igs: None,
             skypix: None,
             line_start: true,
@@ -414,6 +420,12 @@ impl Terminal {
                         self.held.extend_from_slice(&data[i + 1..]);
                         break;
                     }
+                    // A RIP file transfer: the rest is the protocol's.
+                    if let Some(block) = self.rip.as_mut().and_then(|r| r.block.take()) {
+                        let rest = data[i + 1..].strip_prefix(b"\n").unwrap_or(&data[i + 1..]);
+                        self.rip_block = Some((block, rest.to_vec()));
+                        break;
+                    }
                 }
             }
         }
@@ -562,6 +574,50 @@ impl Terminal {
         }
     }
 
+    fn rip_io(&mut self) -> Option<(&mut crate::rip::Rip, &mut Screen, crate::rip::Io<'_>)> {
+        let rip = self.rip.as_deref_mut()?;
+        let io = crate::rip::Io {
+            cache: self.syncterm.cache_dir.as_deref(),
+            downloads: self.download_dir.as_deref(),
+            replies: &mut self.replies,
+        };
+        Some((rip, &mut self.screen, io))
+    }
+
+    /// A file transfer RIP started, and the bytes after it.
+    pub fn take_rip_block(&mut self) -> Option<(crate::rip::BlockTransfer, Vec<u8>)> {
+        self.rip_block.take()
+    }
+
+    /// A RIP question or bell, as an event.
+    fn rip_events(&mut self) {
+        let Some(rip) = self.rip.as_deref_mut() else { return };
+        if std::mem::take(&mut rip.bell) {
+            self.events.push(TermEvent::Bell);
+        }
+        if let Some(q) = rip.take_question() {
+            self.events.push(TermEvent::RipQuestion(q));
+        }
+    }
+
+    /// A click on the RIP graphics at (x, y): what to send, if anything
+    /// (see [`crate::rip::Rip::press`]).
+    pub fn rip_press(&mut self, x: usize, y: usize) -> Option<Vec<u8>> {
+        let (rip, screen, mut io) = self.rip_io()?;
+        let out = rip.press(screen, x, y, &mut io);
+        self.rip_events();
+        out
+    }
+
+    /// The answer to a [`TermEvent::RipQuestion`] (None: cancelled); what
+    /// it lets be sent is in the replies.
+    pub fn rip_answer(&mut self, answer: Option<String>) {
+        if let Some((rip, screen, mut io)) = self.rip_io() {
+            rip.answer(screen, answer, &mut io);
+        }
+        self.rip_events();
+    }
+
     /// RIP lines, which start a line with `!|` (see [`crate::rip`]).
     fn rip_byte(&mut self, b: u8) -> bool {
         use crate::rip::Feed;
@@ -574,6 +630,7 @@ impl Terminal {
         match rip.byte(&mut self.screen, b, self.line_start, &mut io) {
             Feed::Pass => false,
             Feed::Done => {
+                let ask = rip.bell;
                 // A scene file plays here, as if the BBS had sent it.
                 if let Some(scene) = rip.take_scene() {
                     rip.scene_depth += 1;
@@ -588,6 +645,9 @@ impl Terminal {
                         rip.eat_lf = eat_lf;
                     }
                     self.line_start = true;
+                }
+                if ask || self.rip.as_ref().is_some_and(|r| r.has_question()) {
+                    self.rip_events();
                 }
                 true
             }

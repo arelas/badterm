@@ -480,6 +480,7 @@ name = "badterm-core"
 version = "0.3.4"
 dependencies = [
  "anyhow",
+ "chrono",
  "claxon",
  "csv",
  "data-encoding",

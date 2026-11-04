@@ -106,7 +106,9 @@ impl App {
             return false;
         }
         let Some(session) = self.session.as_mut().filter(|s| s.state == State::Connected) else { return false };
-        let Some(rip) = session.term.rip() else { return false };
+        if session.term.rip().is_none() {
+            return false;
+        }
         let (ox, oy, w, h) = self.view_rect;
         let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
         let x = mx.saturating_sub(ox) * self.renderer.native_width() / w.max(1);
@@ -117,9 +119,10 @@ impl App {
         else {
             return false;
         };
-        let Some(text) = rip.click(gx, gy) else { return false };
-        session.send(&text);
-        true
+        let sent = session.rip_press(gx, gy);
+        // A question it raised shows now.
+        self.session_events();
+        sent
     }
 
     /// Click an IGS mouse zone, when the BBS is waiting for one.

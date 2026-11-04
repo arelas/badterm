@@ -331,6 +331,18 @@ impl App {
 
     pub(super) fn login_key(&mut self, key: Key, mods: Mods) {
         let Some(login) = self.login.as_mut() else { return };
+        if login.rip {
+            let answer = match login.handle_key(key, mods) {
+                LoginAction::None => return,
+                LoginAction::Answer(a) => Some(a),
+                LoginAction::Cancel => None,
+            };
+            self.login = None;
+            if let Some(s) = self.session.as_mut() {
+                s.answer_rip(answer);
+            }
+            return self.session_events();
+        }
         let answer = match login.handle_key(key, mods) {
             LoginAction::None => return,
             LoginAction::Answer(a) => {

@@ -29,6 +29,7 @@ zmodem2.workspace = true
 serialport.workspace = true
 jxl-oxide.workspace = true
 rhai.workspace = true
+chrono.workspace = true
 data-encoding.workspace = true
 md5.workspace = true
 ogg.workspace = true

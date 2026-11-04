@@ -22,7 +22,12 @@
 //! height less one (16-bit, little-endian), then each row as four bit
 //! planes, the intensity plane first.
 //!
-//! Left out: variables (`1D`) and RIP's block-mode file transfers.
+//! Text variables (see [`crate::ripvars`]): the built-in ones and the
+//! user's own fill in what buttons and mouse areas send, and the BBS's
+//! queries (`1 ESC`); `1D` defines one, asking the user when it must.
+//!
+//! Block-mode file transfers (`9 ESC`) are started by the session (see
+//! [`BlockTransfer`]): files come to (and go from) the RIP folder.
 
 use std::path::{Path, PathBuf};
 
@@ -37,6 +42,9 @@ pub const ROWS: usize = 43;
 
 /// What a RIP terminal answers to `ESC [ !`: RIPscrip, version 1.54.
 pub const VERSION_REPLY: &[u8] = b"RIPSCRIP015400";
+
+/// The user's saved text variables, in the BBS's RIP folder.
+const VARS_FILE: &str = "variables.ini";
 
 /// How deep scenes may play other scenes.
 const MAX_SCENE_DEPTH: usize = 4;
@@ -116,21 +124,9 @@ fn encode_icon(w: usize, h: usize, px: &[u8]) -> Vec<u8> {
     out
 }
 
-/// A file's time as RIP gives it, `mm/dd/yy.hh:mm:ss` (UTC).
+/// A file's time as RIP gives it, `mm/dd/yy.hh:mm:ss` (local time).
 fn rip_time(t: std::time::SystemTime) -> String {
-    let secs = t.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let (days, rem) = ((secs / 86400) as i64, secs % 86400);
-    // Howard Hinnant's days-to-civil.
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{month:02}/{day:02}/{:02}.{:02}:{:02}:{:02}", year % 100, rem / 3600, rem / 60 % 60, rem % 60)
+    chrono::DateTime::<chrono::Local>::from(t).format("%m/%d/%y.%H:%M:%S").to_string()
 }
 
 /// The longest RIP line kept, continuations included.
@@ -230,6 +226,21 @@ pub struct Rip {
     regions: Vec<MouseRegion>,
     clipboard: Option<(usize, usize, Vec<u8>)>,
     text_block: Option<TextBlock>,
+    /// User text variables, the saved ones read in once.
+    vars: std::collections::BTreeMap<String, String>,
+    vars_loaded: bool,
+    /// Where the graphics were last clicked, for `$X$` and the like.
+    mouse: Option<(usize, usize)>,
+    /// A query to answer when the graphics are clicked outside buttons.
+    deferred: Option<Vec<u8>>,
+    /// A question for the user (taken by [`Rip::take_question`]), and what
+    /// to do with the answer.
+    question: Option<Question>,
+    pending: Option<Pending>,
+    /// `$BEEP$` and the other sounds: ring the bell.
+    pub bell: bool,
+    /// A file transfer the BBS started, for the session.
+    pub block: Option<BlockTransfer>,
     /// The text window, in text cells (x0, y0, x1, y1).
     text_window: (usize, usize, usize, usize),
     /// The RIP line being read, from its `!`.
@@ -242,6 +253,46 @@ pub struct Rip {
     pub scene_depth: usize,
     /// Changed since the front end last looked.
     pub dirty: bool,
+}
+
+/// `RIP_ENTER_BLOCK_MODE`: the BBS starts a file transfer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BlockTransfer {
+    pub upload: bool,
+    /// 0-3: XMODEM (checksum, CRC, 1K, 1K-G), 4 Kermit, 5 YMODEM, 6
+    /// YMODEM-G, 7 ZMODEM.
+    pub protocol: u8,
+    /// 0: RIP files to show; 1-4: files to keep (RIP, icons, help...); 5:
+    /// to keep and show.
+    pub file_type: u8,
+    /// The file's name, safe to use (needed for XMODEM, Kermit uploads).
+    pub name: Option<String>,
+}
+
+impl BlockTransfer {
+    /// RIP files received are played as they arrive.
+    pub fn shows(&self) -> bool {
+        matches!(self.file_type, 0 | 5)
+    }
+}
+
+/// Something to ask the user for a text variable.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Question {
+    pub name: String,
+    pub prompt: String,
+    /// What the answer starts as.
+    pub value: String,
+    pub width: usize,
+}
+
+/// What an answer to a [`Question`] is for.
+#[derive(Debug)]
+enum Pending {
+    /// `1D`: keep it (saved to disk if `save`); `required`: not blank.
+    Define { name: String, save: bool, required: bool, question: Question },
+    /// A query or host command waiting for the variable: send it after.
+    Send { name: String, text: Vec<u8> },
 }
 
 /// What [`Rip::byte`] did with a byte.
@@ -273,6 +324,14 @@ impl Default for Rip {
             regions: Vec::new(),
             clipboard: None,
             text_block: None,
+            vars: Default::default(),
+            vars_loaded: false,
+            mouse: None,
+            deferred: None,
+            question: None,
+            pending: None,
+            bell: false,
+            block: None,
             text_window: (0, 0, COLS - 1, ROWS - 1),
             line: None,
             eat_lf: false,
@@ -296,6 +355,149 @@ impl Rip {
 
     pub fn regions(&self) -> &[MouseRegion] {
         &self.regions
+    }
+
+    /// A click on the canvas at (x, y): what it sends, with its text
+    /// variables filled in. A mouse region's command, or else a query
+    /// waiting for a click (`1 ESC`, modes 1 and 2). None if nothing, or if
+    /// the user must answer a question first (see [`Rip::take_question`]).
+    pub fn press(&mut self, s: &mut Screen, x: usize, y: usize, io: &mut Io) -> Option<Vec<u8>> {
+        self.mouse = Some((x, y));
+        let text = self.click(x, y).or_else(|| self.deferred.clone())?;
+        self.expand_or_ask(s, text, io)
+    }
+
+    pub fn has_question(&self) -> bool {
+        self.question.is_some()
+    }
+
+    /// The question for the user, if a text variable needs one.
+    pub fn take_question(&mut self) -> Option<Question> {
+        self.question.take()
+    }
+
+    /// The user's answer to the last question (None: cancelled).
+    pub fn answer(&mut self, s: &mut Screen, answer: Option<String>, io: &mut Io) {
+        let Some(pending) = self.pending.take() else { return };
+        let Some(answer) = answer else { return };
+        match pending {
+            Pending::Define { name, save, required, question } => {
+                if required && answer.trim().is_empty() {
+                    self.ask(question.clone(), Pending::Define { name, save, required, question });
+                    return;
+                }
+                self.set_var(&name, &answer, save, io);
+            }
+            Pending::Send { name, text } => {
+                self.set_var(&name, &answer, false, io);
+                if let Some(out) = self.expand_or_ask(s, text, io) {
+                    io.replies.extend(out);
+                }
+            }
+        }
+    }
+
+    fn ask(&mut self, q: Question, pending: Pending) {
+        self.question = Some(q);
+        self.pending = Some(pending);
+    }
+
+    fn load_vars(&mut self, io: &Io) {
+        if !self.vars_loaded {
+            self.vars_loaded = true;
+            if let Some(dir) = io.rip_dir() {
+                self.vars = crate::ripvars::load(&dir.join(VARS_FILE));
+            }
+        }
+    }
+
+    fn set_var(&mut self, name: &str, value: &str, save: bool, io: &Io) {
+        self.vars.insert(name.to_string(), value.to_string());
+        if save && let Some(dir) = io.rip_dir() {
+            let path = dir.join(VARS_FILE);
+            let mut saved = crate::ripvars::load(&path);
+            saved.insert(name.to_string(), value.to_string());
+            if let Err(e) = crate::ripvars::save(&path, &saved) {
+                log::warn!("saving RIP variables: {e}");
+            }
+        }
+    }
+
+    /// `text` with its variables filled in; if one is the user's and not
+    /// yet known, None, and a question for the user, after which the text
+    /// is sent.
+    fn expand_or_ask(&mut self, s: &mut Screen, text: Vec<u8>, io: &mut Io) -> Option<Vec<u8>> {
+        match self.expand(s, &text, io) {
+            Ok(out) => Some(out),
+            Err(name) => {
+                let q =
+                    Question { prompt: format!("Enter {name}"), name: name.clone(), value: String::new(), width: 60 };
+                self.ask(q, Pending::Send { name, text });
+                None
+            }
+        }
+    }
+
+    /// Fill in `$NAME$`s: built-in values, actions (done, and gone), and
+    /// user variables; Err with the name of one not yet known.
+    fn expand(&mut self, s: &mut Screen, text: &[u8], io: &mut Io) -> Result<Vec<u8>, String> {
+        self.load_vars(io);
+        let mut out = Vec::with_capacity(text.len());
+        let mut i = 0;
+        while i < text.len() {
+            if text[i] == b'$'
+                && let Some(len) = text[i + 1..].iter().position(|&c| c == b'$')
+            {
+                let name = String::from_utf8_lossy(&text[i + 1..i + 1 + len]).to_ascii_uppercase();
+                if crate::ripvars::is_name(&name) {
+                    let value = match crate::ripvars::builtin(&name, self.mouse) {
+                        Some(v) => Some(v),
+                        None if self.action(s, &name) => Some(String::new()),
+                        None => self.vars.get(&name).cloned(),
+                    };
+                    match value {
+                        Some(v) => out.extend_from_slice(v.as_bytes()),
+                        None => return Err(name),
+                    }
+                    i += len + 2;
+                    continue;
+                }
+            }
+            out.push(text[i]);
+            i += 1;
+        }
+        Ok(out)
+    }
+
+    /// The active variables: do it, and say whether `name` is one.
+    fn action(&mut self, s: &mut Screen, name: &str) -> bool {
+        match name {
+            "RESET" => self.reset(s),
+            "EGW" => {
+                let v = self.view;
+                for y in v.y0..=v.y1 {
+                    self.pixels[y * WIDTH + v.x0..=y * WIDTH + v.x1].fill(0);
+                }
+            }
+            "ETW" => {
+                let (x0, y0, x1, y1) = self.text_window;
+                s.fill_rect(x0, y0, x1 - x0 + 1, y1 - y0 + 1, Cell { ch: b' ', ..s.pen });
+                s.move_to(x0, y0);
+            }
+            "MKILL" => self.regions.clear(),
+            "BEEP" | "BLIP" | "MUSIC" | "ALARM" | "PHASER" | "REVPHASER" => self.bell = true,
+            "CON" => s.cursor_visible = true,
+            "COFF" => s.cursor_visible = false,
+            // The rest (saving screens, the status bar, keyboard modes...)
+            // do nothing here, but aren't the user's.
+            "SAVEALL" | "RESTOREALL" | "SAVE" | "RESTORE" | "SMF" | "RMF" | "DTW" | "STW" | "RTW" | "SCB" | "RCB"
+            | "PCB" | "SBARON" | "SBAROFF" | "VT102ON" | "VT102OFF" | "DWAYON" | "DWAYOFF" | "HKEYON" | "HKEYOFF"
+            | "TABON" | "TABOFF" | "OFF" => {}
+            n if n.starts_with("SAVE") || n.starts_with("RESTORE") || n.starts_with("APP") => {}
+            _ => return false,
+        }
+        self.dirty = true;
+        true
     }
 
     /// What clicking the canvas at (x, y) sends, if it is in a mouse region
@@ -636,6 +838,50 @@ impl Rip {
                     _ => log::info!("RIP scene {:?} not found", String::from_utf8_lossy(a.rest())),
                 }
             }
+            (9, 0x1B) => {
+                let (mode, protocol, file_type) = (a.n1(), a.n1(), a.n2());
+                a.skip(4);
+                let rest = a.rest();
+                let name = rest.strip_suffix(b"<>").unwrap_or(rest);
+                self.block = Some(BlockTransfer {
+                    upload: mode == 1,
+                    protocol: protocol.min(7) as u8,
+                    file_type: file_type.min(5) as u8,
+                    name: file_name(name),
+                });
+            }
+            (1, b'D') => {
+                let flags = a.digits(3);
+                a.skip(2);
+                let Some(d) = crate::ripvars::Define::parse(a.rest()) else { return };
+                self.load_vars(io);
+                let now = self.vars.get(&d.name).cloned();
+                let (save, required, quiet) = (flags & 1 != 0, flags & 2 != 0, flags & 4 != 0);
+                // Not asking: a known variable takes the default, if any.
+                if quiet && now.is_some() {
+                    if !d.default.is_empty() {
+                        self.set_var(&d.name, &d.default, save, io);
+                    }
+                    return;
+                }
+                let value = if d.default.is_empty() { now.unwrap_or_default() } else { d.default.clone() };
+                let q = Question { name: d.name.clone(), prompt: d.prompt(), value, width: d.width };
+                self.ask(q.clone(), Pending::Define { name: d.name, save, required, question: q });
+            }
+            (1, 0x1B) => {
+                let mode = a.n1();
+                a.skip(3);
+                let text = host_command(a.rest());
+                if text.eq_ignore_ascii_case(b"$OFF$") {
+                    self.deferred = None;
+                } else if mode == 0 {
+                    if let Some(out) = self.expand_or_ask(s, text, io) {
+                        io.replies.extend(out);
+                    }
+                } else {
+                    self.deferred = Some(text);
+                }
+            }
             (1, b'F') => {
                 let mode = a.n2();
                 a.skip(4);
@@ -662,7 +908,14 @@ impl Rip {
 
     /// `RIP_RESET_WINDOWS`: everything back as it starts.
     fn reset(&mut self, s: &mut Screen) {
-        *self = Rip { line: self.line.take(), eat_lf: self.eat_lf, scene_depth: self.scene_depth, ..Rip::default() };
+        *self = Rip {
+            line: self.line.take(),
+            eat_lf: self.eat_lf,
+            scene_depth: self.scene_depth,
+            vars: std::mem::take(&mut self.vars),
+            vars_loaded: self.vars_loaded,
+            ..Rip::default()
+        };
         s.set_scroll_region(0, s.rows() - 1);
         s.erase_display(2);
         s.move_to(0, 0);
@@ -1183,6 +1436,50 @@ mod tests {
         );
         assert_eq!(file_name(b"a/b"), None);
         assert_eq!(file_name(b" x.icn "), Some("x.icn".into()));
+    }
+
+    #[test]
+    fn text_variables() {
+        use crate::ansi::TermEvent;
+        let dir = std::env::temp_dir().join(format!("badterm-ripvars-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut t = Terminal::new(COLS, ROWS, 0);
+        t.encoding = Encoding::Rip;
+        t.start_emulation();
+        t.syncterm.cache_dir = Some(dir.clone());
+        // A query of built-in variables, answered at once.
+        t.feed(b"!|1\x1b0000$RIPVER$ at $XY$^m\r\n");
+        assert_eq!(t.take_replies(), b"RIPSCRIP015400 at 0000:0000\r");
+        // A defined variable, saved, asked about first.
+        t.feed(b"!|1D00100NAME,20:?Your name?Ann\r\n");
+        let q = match t.take_events().pop() {
+            Some(TermEvent::RipQuestion(q)) => q,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!((q.name.as_str(), q.prompt.as_str(), q.value.as_str(), q.width), ("NAME", "Your name", "Ann", 20));
+        t.rip_answer(Some("Bob".into()));
+        assert!(std::fs::read_to_string(dir.join("RIP/variables.ini")).unwrap().contains("NAME=Bob"));
+        // A button sends it, and the mouse position; the bell rings.
+        t.feed(b"!|1M00000010101100000hi $name$ $X$$BEEP$\r\n");
+        assert_eq!(t.rip_press(5, 7), Some(b"hi Bob 0005".to_vec()));
+        assert_eq!(t.take_events(), [TermEvent::Bell]);
+        // One not known yet is asked for, and the query sent after.
+        t.feed(b"!|1\x1b0000age=$AGE$\r\n");
+        assert!(t.take_replies().is_empty());
+        assert!(matches!(t.take_events().pop(), Some(TermEvent::RipQuestion(q)) if q.name == "AGE"));
+        t.rip_answer(Some("42".into()));
+        assert_eq!(t.take_replies(), b"age=42");
+        // A new terminal reads the saved one; quietly defined, it stays.
+        let mut t = Terminal::new(COLS, ROWS, 0);
+        t.encoding = Encoding::Rip;
+        t.start_emulation();
+        t.syncterm.cache_dir = Some(dir.clone());
+        t.feed(b"!|1D00400NAME:\r\n!|1\x1b0000$NAME$\r\n");
+        assert_eq!(t.take_replies(), b"Bob");
+        // A deferred query goes with a click outside the buttons.
+        t.feed(b"!|1\x1b1000clicked $XY$\r\n");
+        assert_eq!(t.rip_press(300, 200), Some(b"clicked 0300:0200".to_vec()));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

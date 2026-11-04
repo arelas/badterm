@@ -21,6 +21,7 @@ pub mod music;
 pub mod palette;
 pub mod petscii;
 pub mod rip;
+pub mod ripvars;
 pub mod sauce;
 pub mod screen;
 pub mod script;

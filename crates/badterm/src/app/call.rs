@@ -129,7 +129,7 @@ impl App {
         }
         session.handle(ev);
         // The question went away (the connection closed).
-        if session.auth_prompt().is_none() {
+        if session.auth_prompt().is_none() && self.login.as_ref().is_some_and(|l| !l.rip) {
             self.login = None;
         }
         if connected && let Some(e) = self.session_entry_mut() {
@@ -139,6 +139,9 @@ impl App {
         }
         self.feed_script();
         if closed {
+            if self.login.as_ref().is_some_and(|l| l.rip) {
+                self.login = None;
+            }
             self.stop_script(Some("stopped, as the call ended"));
             self.schedule_redial();
         }
@@ -168,6 +171,12 @@ impl App {
         for ev in session.take_events() {
             match ev {
                 SessionEvent::Term(TermEvent::Bell) => self.bell(),
+                SessionEvent::Term(TermEvent::RipQuestion(q)) => {
+                    let bbs = self.session.as_ref().map_or_else(String::new, |s| s.entry.name.clone());
+                    self.login = Some(LoginPrompt::rip_question(&q, &bbs));
+                    self.dialer_open = false;
+                    self.scroll = 0;
+                }
                 SessionEvent::Term(TermEvent::Title(t)) => self.set_title(&format!("BadTerm \u{2014} {t}")),
                 SessionEvent::Term(TermEvent::Music(tones)) => {
                     if self.settings.music != Music::Off {
