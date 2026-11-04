@@ -53,6 +53,9 @@ impl Font {
         if let Some(data) = eight {
             return Font { height: 8, data, id };
         }
+        if id == badterm_core::viewdata::FONT {
+            return Font::viewdata(base);
+        }
         let data: &'static [u8] = match (id, base.height) {
             (42, 16) => include_bytes!("../assets/fonts/amiga/topaz_a1200.bin"),
             (40, 16) => include_bytes!("../assets/fonts/amiga/topazplus_a1200.bin"),
@@ -65,6 +68,16 @@ impl Font {
         Font { height: 16, data, id }
     }
 
+    /// Teletext's glyphs (see [`badterm_core::viewdata`]), at the base's height.
+    fn viewdata(base: Font) -> Font {
+        static TALL: std::sync::LazyLock<Vec<u8>> =
+            std::sync::LazyLock::new(|| viewdata_font(include_bytes!("../assets/fonts/vga_8x16.bin"), 16));
+        static SHORT: std::sync::LazyLock<Vec<u8>> =
+            std::sync::LazyLock::new(|| viewdata_font(include_bytes!("../assets/fonts/vga_8x8.bin"), 8));
+        let data: &'static [u8] = if base.height == 8 { &SHORT } else { &TALL };
+        Font { height: base.height, data, id: badterm_core::viewdata::FONT }
+    }
+
     /// Fonts that exist only at 8x8 (the C64's and Atari's): a screen in
     /// one is laid out in 8x8 cells.
     pub fn eight_only(id: u8) -> bool {
@@ -74,6 +87,54 @@ impl Font {
     fn row(&self, ch: u8, y: usize) -> u8 {
         self.data[ch as usize * self.height + y]
     }
+}
+
+/// The teletext font: the CP437 font `vga` (`h` rows a glyph) with the UK
+/// set's own characters in the control-code slots, and the 2x3 mosaics,
+/// contiguous at 0x80 + pattern and separated (with gaps) at 0xC0 +.
+fn viewdata_font(vga: &[u8], h: usize) -> Vec<u8> {
+    use badterm_core::viewdata as v;
+    let mut f = vga[..256 * h].to_vec();
+    let copy = |f: &mut Vec<u8>, to: u8, from: u8| {
+        let src = vga[from as usize * h..][..h].to_vec();
+        f[to as usize * h..][..h].copy_from_slice(&src);
+    };
+    copy(&mut f, v::GLYPH_POUND, 0x9C);
+    copy(&mut f, v::GLYPH_HALF, 0xAB);
+    copy(&mut f, v::GLYPH_QUARTER, 0xAC);
+    copy(&mut f, v::GLYPH_BARS, 0xBA);
+    copy(&mut f, v::GLYPH_DASH, 0xC4);
+    copy(&mut f, v::GLYPH_BLOCK, 0xDB);
+    copy(&mut f, v::GLYPH_DIVIDE, 0xF6);
+    // ¾: ¼ with a small 3 over the stroke.
+    copy(&mut f, v::GLYPH_THREE_QUARTERS, 0xAC);
+    if h == 16 {
+        let g = &mut f[v::GLYPH_THREE_QUARTERS as usize * h..][..h];
+        for (row, three) in [0xE0u8, 0x10, 0x60, 0x10, 0xE0].iter().enumerate() {
+            g[1 + row] = (g[1 + row] & 0x0F) | three;
+        }
+    }
+    // Mosaics: three bands of two blocks.
+    // Teletext's bands are 6, 8 and 6 lines of 20.
+    let b1 = (h * 3 + 5) / 10;
+    let bands = [(0, b1), (b1, h - b1), (h - b1, h)];
+    for pattern in 0..64u8 {
+        for (separated, base) in [(false, 0x80usize), (true, 0xC0)] {
+            let g = &mut f[(base + pattern as usize) * h..][..h];
+            for (band, &(top, bottom)) in bands.iter().enumerate() {
+                let (left, right) = (pattern >> (band * 2) & 1 != 0, pattern >> (band * 2 + 1) & 1 != 0);
+                // Separated blocks leave a gap on their right and below.
+                let (lbits, rbits, last) = if separated { (0xE0u8, 0x0E, bottom - 1) } else { (0xF0, 0x0F, bottom) };
+                for row in &mut g[top..bottom] {
+                    *row = 0;
+                }
+                for row in &mut g[top..last] {
+                    *row = if left { lbits } else { 0 } | if right { rbits } else { 0 };
+                }
+            }
+        }
+    }
+    f
 }
 
 /// How the native frame is fitted to the window.
@@ -231,7 +292,14 @@ impl Renderer {
                 let cursor_here = cursor_on && frame.cursor == Some((x, y));
                 // A VGA's ninth column repeats the eighth for the line-drawing
                 // glyphs, so their lines join up; otherwise it is background.
-                let extend = font.id == 0 && (0xC0..=0xDF).contains(&cell.ch);
+                let extend = font.id == 0 && (0xC0..=0xDF).contains(&cell.ch)
+                    || font.id == badterm_core::viewdata::FONT && (0x80..=0xBF).contains(&cell.ch);
+                // Teletext double height: half the glyph, stretched.
+                let glyph_row = |gy: usize| match cell.flags & (flags::DOUBLE_TOP | flags::DOUBLE_BOTTOM) {
+                    flags::DOUBLE_TOP => gy / 2,
+                    flags::DOUBLE_BOTTOM => (fh + gy) / 2,
+                    _ => gy,
+                };
                 // Graphics show through a black background.
                 let graphics = frame.graphics.filter(|_| {
                     y < frame.look_rows
@@ -241,7 +309,7 @@ impl Renderer {
                 });
                 let tile = frame.tiles.filter(|_| cell.tile != 0 && y < frame.look_rows).and_then(|t| t.get(cell.tile));
                 for gy in 0..fh {
-                    let mut bits = if hide { 0 } else { font.row(cell.ch, gy) as u16 };
+                    let mut bits = if hide { 0 } else { font.row(cell.ch, glyph_row(gy)) as u16 };
                     if cell.flags & flags::UNDERLINE != 0 && gy == fh - 1 && !hide {
                         bits = 0x1FF;
                     }
@@ -647,6 +715,49 @@ mod tests {
         r.draw(&frame, true, true);
         std::fs::write(dir.join("sixel.png"), crate::png::encode(r.pixels(), r.native_width(), r.native_height()))
             .unwrap();
+    }
+
+    /// A teletext page as BadTerm draws it, as a PNG at 2x:
+    /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm viewdata_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn viewdata_snapshot() {
+        use badterm_core::{Encoding, viewdata};
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        let mut page: Vec<u8> = vec![0x0C];
+        // A double-height title on blue, in yellow.
+        page.extend(b"\x1bD\x1b]\x1bM\x1bCBADTERM VIEWDATA   \x1bG#1.50\r\n\r\n");
+        // Mosaic stripes in each color, contiguous then separated.
+        for (i, c) in b"QRSTUVW".iter().enumerate() {
+            page.extend([0x1B, *c]);
+            page.extend(std::iter::repeat_n(0x7F, 10 + i));
+            page.extend([0x1B, b'Z']);
+            page.extend(std::iter::repeat_n(0x7F, 8));
+            page.extend(b"\r\n");
+        }
+        // A mosaic picture: diagonal ramps.
+        page.extend(b"\x1bW");
+        for b in [0x21u8, 0x23, 0x27, 0x2F, 0x3F, 0x7F, 0x7E, 0x7C, 0x78, 0x70, 0x60, 0x20] {
+            page.push(b);
+        }
+        page.extend(b"\r\n\x1bAText in red, \x1bBgreen, \x1bHflashing\x1bI, \x1bFcyan.\r\n");
+        page.extend(b"\x1bGThe UK set: # [ \\ ] ^ _ ` { | } ~ \x7f\r\n");
+        page.extend(b"\r\n\x1bCType * and # to choose.");
+        if let Ok(file) = std::env::var("BADTERM_VIEWDATA") {
+            page = std::fs::read(file).unwrap();
+        }
+        let mut t = Terminal::new(viewdata::COLS, viewdata::ROWS, 0);
+        t.encoding = Encoding::Viewdata;
+        t.start_emulation();
+        t.feed(&page);
+        let rows = viewdata::ROWS;
+        let lines: Vec<&[Cell]> = (0..rows).map(|y| t.screen.row(y)).collect();
+        let mut r = Renderer::new(Font::vga_8x16(), viewdata::COLS, rows);
+        r.draw(&Frame { look: &t.screen.look, look_rows: rows, ..Frame::plain(lines, None, true) }, true, true);
+        let (w, h) = (r.native_width() * 2, r.native_height() * 2);
+        let mut out = vec![0u32; w * h];
+        r.blit(&mut out, w, h, &Display::default());
+        std::fs::write(dir.join("viewdata.png"), crate::png::encode(&out, w, h)).unwrap();
     }
 
     /// The C64 and Atari screens shown on the website, as PNGs at 4x:

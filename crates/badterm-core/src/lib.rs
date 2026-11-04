@@ -27,6 +27,7 @@ pub mod tls;
 pub mod transfer;
 pub mod transport;
 pub mod update;
+pub mod viewdata;
 pub mod xmodem;
 
 pub use ansi::{Encoding, TermEvent, Terminal};

@@ -99,6 +99,7 @@ pub fn encode(key: Key, mods: Mods, encoding: Encoding) -> Vec<u8> {
     match encoding {
         Encoding::Petscii => return encode_petscii(key, mods),
         Encoding::Atascii => return encode_atascii(key, mods),
+        Encoding::Viewdata => return encode_viewdata(key),
         _ => {}
     }
     let seq: &[u8] = match key {
@@ -175,6 +176,21 @@ fn encode_petscii(key: Key, mods: Mods) -> Vec<u8> {
 }
 
 /// Keys on an Atari: RETURN is EOL, and its cursor and editing keys.
+/// A Prestel keyboard: Enter is its `#` key, which ends what you type;
+/// the arrows move the cursor as the screen's controls do.
+fn encode_viewdata(key: Key) -> Vec<u8> {
+    let b = match key {
+        Key::Char(c) => return badterm_core::viewdata::encode_char(c).map(|b| vec![b]).unwrap_or_default(),
+        Key::Enter => 0x5F,
+        Key::Backspace | Key::Left => 0x08,
+        Key::Right => 0x09,
+        Key::Down => 0x0A,
+        Key::Up => 0x0B,
+        _ => return Vec::new(),
+    };
+    vec![b]
+}
+
 fn encode_atascii(key: Key, mods: Mods) -> Vec<u8> {
     let b: u8 = match key {
         Key::Char(c) if mods.ctrl && c.is_ascii_alphabetic() => c.to_ascii_lowercase() as u8 - b'a' + 1,

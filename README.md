@@ -101,6 +101,13 @@ BadTerm starts.
   and their keys (Enter, DEL, the cursor keys, the C64's F1 to F8 and
   RUN/STOP on `Esc`). The fonts are BadTerm's own, in those machines'
   style
+- **Viewdata (Prestel)** BBSes, such as Telstar, set by the entry's
+  emulation: the 40x24 teletext page in its eight colors, with mosaic
+  block graphics (contiguous and separated, held across color changes),
+  double height, flashing and concealed text, and the UK character set.
+  Attributes are worked out from the page as a real decoder does, so a
+  BBS that rewrites part of a row gets the colors right. Enter sends the
+  `#` key.
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
 - **Session capture** to `.ans` files (`Alt-C`), or for an entry from the
@@ -412,7 +419,8 @@ An entry's "Emulation" sets how what the BBS sends is shown: CP437
 (ANSI-BBS, the usual), UTF-8, Avatar (AVT/0 and AVT/0+ alongside ANSI),
 RIPscrip (graphics: click a button or mouse area to send its command; the
 text screen is 80x43 over the 640x350 graphics), PETSCII (Commodore 64:
-F1 to F8 are the C64's, `Esc` is RUN/STOP) or ATASCII (Atari 8-bit).
+F1 to F8 are the C64's, `Esc` is RUN/STOP), ATASCII (Atari 8-bit) or
+Viewdata (Prestel: Enter is the `#` key).
 
 Passwords you enter in the directory, remember from the login dialog, or
 import with a SyncTERM list are moved into the OS keychain when the

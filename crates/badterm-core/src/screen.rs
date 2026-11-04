@@ -25,6 +25,10 @@ pub mod flags {
     pub const REVERSE: u8 = 1 << 3;
     pub const CONCEAL: u8 = 1 << 4;
     pub const FAINT: u8 = 1 << 5;
+    /// Teletext double height: the top half of the glyph, stretched.
+    pub const DOUBLE_TOP: u8 = 1 << 6;
+    /// And the bottom half, on the row below.
+    pub const DOUBLE_BOTTOM: u8 = 1 << 7;
 }
 
 pub const DEFAULT_FG: Color = Color::Pc(7);

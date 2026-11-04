@@ -897,6 +897,7 @@ fn from_qodem(text: &str) -> Vec<Entry> {
                 "AVATAR" => e.encoding = Encoding::Avatar,
                 "PETSCII" => e.encoding = Encoding::Petscii,
                 "ATASCII" => e.encoding = Encoding::Atascii,
+                "PRESTEL" => e.encoding = Encoding::Viewdata,
                 "L_UTF8" | "X_UTF8" => e.encoding = Encoding::Utf8,
                 _ => {}
             },

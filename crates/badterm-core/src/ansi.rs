@@ -27,11 +27,20 @@ pub enum Encoding {
     Avatar,
     /// CP437 ANSI with RIPscrip graphics (see [`crate::rip`]).
     Rip,
+    /// Prestel viewdata (see [`crate::viewdata`]).
+    Viewdata,
 }
 
 impl Encoding {
-    pub const ALL: [Encoding; 6] =
-        [Encoding::Cp437, Encoding::Utf8, Encoding::Petscii, Encoding::Atascii, Encoding::Avatar, Encoding::Rip];
+    pub const ALL: [Encoding; 7] = [
+        Encoding::Cp437,
+        Encoding::Utf8,
+        Encoding::Petscii,
+        Encoding::Atascii,
+        Encoding::Viewdata,
+        Encoding::Avatar,
+        Encoding::Rip,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -41,6 +50,7 @@ impl Encoding {
             Encoding::Atascii => "ATASCII",
             Encoding::Avatar => "Avatar",
             Encoding::Rip => "RIPscrip",
+            Encoding::Viewdata => "Viewdata",
         }
     }
 
@@ -55,6 +65,7 @@ impl Encoding {
             Encoding::Petscii => Some((crate::petscii::COLS, crate::petscii::ROWS)),
             Encoding::Atascii => Some((crate::atascii::COLS, crate::atascii::ROWS)),
             Encoding::Rip => Some((crate::rip::COLS, crate::rip::ROWS)),
+            Encoding::Viewdata => Some((crate::viewdata::COLS, crate::viewdata::ROWS)),
             _ => None,
         }
     }
@@ -73,6 +84,7 @@ impl Encoding {
                 .chars()
                 .filter_map(|c| if c == '\r' { Some(0x9B) } else { crate::atascii::encode_char(c) })
                 .collect(),
+            Encoding::Viewdata => text.chars().filter_map(crate::viewdata::encode_char).collect(),
         }
     }
 }
@@ -148,6 +160,7 @@ pub struct Terminal {
     petscii: crate::petscii::Petscii,
     atascii: crate::atascii::Atascii,
     avatar: crate::avatar::Avatar,
+    viewdata: crate::viewdata::Viewdata,
     /// The RIPscrip canvas, when the encoding is RIP.
     rip: Option<Box<crate::rip::Rip>>,
     /// Nothing has been printed on this line yet (where a RIP line can
@@ -182,6 +195,7 @@ impl Terminal {
             petscii: Default::default(),
             atascii: Default::default(),
             avatar: Default::default(),
+            viewdata: Default::default(),
             rip: None,
             line_start: true,
             held: Vec::new(),
@@ -195,6 +209,7 @@ impl Terminal {
             Encoding::Petscii => self.petscii.start(&mut self.screen),
             Encoding::Atascii => self.atascii.start(&mut self.screen),
             Encoding::Rip => self.rip = Some(Box::default()),
+            Encoding::Viewdata => self.viewdata.start(&mut self.screen),
             _ => {}
         }
     }
@@ -229,6 +244,7 @@ impl Terminal {
                     self.atascii.byte(&mut self.screen, b, &mut self.events);
                 }
             }
+            Encoding::Viewdata => self.viewdata.feed(&mut self.screen, data, &mut self.events),
             _ => {
                 if self.syncterm.hold.is_some() {
                     self.held.extend_from_slice(data);
@@ -385,7 +401,12 @@ impl Terminal {
             _ => match self.encoding {
                 // Like ANSI.SYS, every other byte is a glyph, including the
                 // "graphic" control characters (☺, ♥, ►, ...).
-                Encoding::Cp437 | Encoding::Petscii | Encoding::Atascii | Encoding::Avatar | Encoding::Rip => {
+                Encoding::Cp437
+                | Encoding::Petscii
+                | Encoding::Atascii
+                | Encoding::Avatar
+                | Encoding::Rip
+                | Encoding::Viewdata => {
                     if self.avatar.insert {
                         self.screen.insert_chars(1);
                     }
