@@ -29,15 +29,18 @@ pub enum Encoding {
     Rip,
     /// Prestel viewdata (see [`crate::viewdata`]).
     Viewdata,
+    /// Atari ST: VT-52 with IGS graphics (see [`crate::igs`]).
+    Igs,
 }
 
 impl Encoding {
-    pub const ALL: [Encoding; 7] = [
+    pub const ALL: [Encoding; 8] = [
         Encoding::Cp437,
         Encoding::Utf8,
         Encoding::Petscii,
         Encoding::Atascii,
         Encoding::Viewdata,
+        Encoding::Igs,
         Encoding::Avatar,
         Encoding::Rip,
     ];
@@ -51,6 +54,7 @@ impl Encoding {
             Encoding::Avatar => "Avatar",
             Encoding::Rip => "RIPscrip",
             Encoding::Viewdata => "Viewdata",
+            Encoding::Igs => "IGS",
         }
     }
 
@@ -66,6 +70,7 @@ impl Encoding {
             Encoding::Atascii => Some((crate::atascii::COLS, crate::atascii::ROWS)),
             Encoding::Rip => Some((crate::rip::COLS, crate::rip::ROWS)),
             Encoding::Viewdata => Some((crate::viewdata::COLS, crate::viewdata::ROWS)),
+            Encoding::Igs => Some((crate::igs::COLS, crate::igs::ROWS)),
             _ => None,
         }
     }
@@ -74,7 +79,7 @@ impl Encoding {
     /// the system's own end of line.
     pub fn encode_text(self, text: &str) -> Vec<u8> {
         match self {
-            Encoding::Cp437 | Encoding::Avatar | Encoding::Rip => cp437::encode(text),
+            Encoding::Cp437 | Encoding::Avatar | Encoding::Rip | Encoding::Igs => cp437::encode(text),
             Encoding::Utf8 => text.as_bytes().to_vec(),
             Encoding::Petscii => text
                 .chars()
@@ -163,6 +168,8 @@ pub struct Terminal {
     viewdata: crate::viewdata::Viewdata,
     /// The RIPscrip canvas, when the encoding is RIP.
     rip: Option<Box<crate::rip::Rip>>,
+    /// The Atari ST screen, when the encoding is IGS.
+    igs: Option<Box<crate::igs::Igs>>,
     /// Nothing has been printed on this line yet (where a RIP line can
     /// start).
     line_start: bool,
@@ -197,6 +204,7 @@ impl Terminal {
             avatar: Default::default(),
             viewdata: Default::default(),
             rip: None,
+            igs: None,
             line_start: true,
             held: Vec::new(),
         }
@@ -210,6 +218,7 @@ impl Terminal {
             Encoding::Atascii => self.atascii.start(&mut self.screen),
             Encoding::Rip => self.rip = Some(Box::default()),
             Encoding::Viewdata => self.viewdata.start(&mut self.screen),
+            Encoding::Igs => self.igs = Some(Box::default()),
             _ => {}
         }
     }
@@ -221,6 +230,27 @@ impl Terminal {
 
     pub fn rip_mut(&mut self) -> Option<&mut crate::rip::Rip> {
         self.rip.as_deref_mut()
+    }
+
+    /// The Atari ST screen, for an IGS system.
+    pub fn igs(&self) -> Option<&crate::igs::Igs> {
+        self.igs.as_deref()
+    }
+
+    pub fn igs_mut(&mut self) -> Option<&mut crate::igs::Igs> {
+        self.igs.as_deref_mut()
+    }
+
+    /// After IGS has drawn: its replies, bells and cursor.
+    fn igs_done(&mut self) {
+        let Some(igs) = self.igs.as_deref_mut() else { return };
+        self.replies.append(&mut igs.replies);
+        for _ in 0..std::mem::take(&mut igs.bells) {
+            self.events.push(TermEvent::Bell);
+        }
+        let (x, y) = igs.cursor();
+        self.screen.move_to(x, y);
+        self.screen.cursor_visible = igs.cursor_on;
     }
 
     /// Bytes the terminal wants sent to the remote (e.g. CPR replies).
@@ -245,6 +275,12 @@ impl Terminal {
                 }
             }
             Encoding::Viewdata => self.viewdata.feed(&mut self.screen, data, &mut self.events),
+            Encoding::Igs => {
+                if let Some(igs) = self.igs.as_deref_mut() {
+                    igs.feed(data);
+                }
+                self.igs_done();
+            }
             _ => {
                 if self.syncterm.hold.is_some() {
                     self.held.extend_from_slice(data);
@@ -265,6 +301,10 @@ impl Terminal {
     /// after a wait for a sound.
     pub fn poll(&mut self, now: std::time::Instant) {
         self.syncterm.audio.poll(now, &mut self.replies);
+        if let Some(igs) = self.igs.as_deref_mut().filter(|g| g.hold.is_some()) {
+            igs.poll(now);
+            self.igs_done();
+        }
         if self.syncterm.hold.is_some_and(|t| now >= t) {
             self.syncterm.hold = None;
             let held = std::mem::take(&mut self.held);
@@ -274,7 +314,8 @@ impl Terminal {
 
     /// When [`Terminal::poll`] has something to do.
     pub fn next_poll(&self) -> Option<std::time::Instant> {
-        [self.syncterm.hold, self.syncterm.audio.next_due()].into_iter().flatten().min()
+        let igs = self.igs.as_ref().and_then(|g| g.hold);
+        [self.syncterm.hold, self.syncterm.audio.next_due(), igs].into_iter().flatten().min()
     }
 
     fn byte(&mut self, b: u8) {
@@ -406,7 +447,8 @@ impl Terminal {
                 | Encoding::Atascii
                 | Encoding::Avatar
                 | Encoding::Rip
-                | Encoding::Viewdata => {
+                | Encoding::Viewdata
+                | Encoding::Igs => {
                     if self.avatar.insert {
                         self.screen.insert_chars(1);
                     }

@@ -213,7 +213,7 @@ impl App {
                 // Dialogs are drawn in the BBS's look too, so the screen
                 // behind them keeps its fonts and colors.
                 let sc = &session.term.screen;
-                let graphics = rip_graphics(session);
+                let graphics = bbs_graphics(session);
                 Frame {
                     look: &sc.look,
                     look_rows: sc.rows(),
@@ -230,7 +230,7 @@ impl App {
                 let cursor = (live && sc.cursor_visible && session.state == State::Connected).then(|| sc.cursor());
                 let selection = self.selection;
                 // Graphics belong to the live screen, not the scrollback.
-                let graphics = rip_graphics(session).filter(|_| self.scroll == 0);
+                let graphics = bbs_graphics(session).filter(|_| self.scroll == 0);
                 Frame {
                     selection,
                     look: &sc.look,
@@ -364,8 +364,16 @@ impl App {
     }
 }
 
-/// A RIP system's graphics, to draw under its screen.
-fn rip_graphics(session: &Session) -> Option<crate::render::Graphics<'_>> {
+/// A RIP or IGS system's graphics, to draw under its screen.
+fn bbs_graphics(session: &Session) -> Option<crate::render::Graphics<'_>> {
+    if let Some(igs) = session.term.igs() {
+        return Some(crate::render::Graphics {
+            pixels: igs.pixels(),
+            width: igs.width(),
+            height: igs.height(),
+            palette: igs.palette(),
+        });
+    }
     let rip = session.term.rip()?;
     Some(crate::render::Graphics {
         pixels: rip.pixels(),

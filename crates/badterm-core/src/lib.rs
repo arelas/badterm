@@ -11,6 +11,7 @@ pub mod avatar;
 pub mod cp437;
 pub mod dialer;
 pub mod export;
+pub mod igs;
 pub mod kermit;
 pub mod modem;
 pub mod music;

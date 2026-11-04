@@ -27,7 +27,7 @@ impl App {
         }
         match state {
             // A RIPscrip button or mouse region sends its command.
-            ElementState::Pressed if self.scroll == 0 && self.rip_click() => {}
+            ElementState::Pressed if self.scroll == 0 && (self.rip_click() || self.igs_click()) => {}
             ElementState::Pressed => {
                 self.selection = self.mouse_cell().map(Selection::at);
                 self.dragging = self.selection.is_some();
@@ -62,6 +62,25 @@ impl App {
             return false;
         };
         let Some(text) = rip.click(gx, gy) else { return false };
+        session.send(&text);
+        true
+    }
+
+    /// Click an IGS mouse zone, when the BBS is waiting for one.
+    fn igs_click(&mut self) -> bool {
+        if self.mouse_cell().is_none() {
+            return false;
+        }
+        let (ox, oy, w, h) = self.view_rect;
+        let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
+        let x = mx.saturating_sub(ox) * self.renderer.native_width() / w.max(1);
+        let y = my.saturating_sub(oy) * self.renderer.native_height() / h.max(1);
+        let Some(session) = self.session.as_mut().filter(|s| s.state == State::Connected) else { return false };
+        let rows = session.term.screen.rows();
+        let Some(igs) = session.term.igs_mut() else { return false };
+        let (iw, ih) = (igs.width(), igs.height());
+        let Some((gx, gy)) = self.renderer.graphics_point(x, y, rows, iw, ih) else { return false };
+        let Some(text) = igs.click(gx as i32, gy as i32) else { return false };
         session.send(&text);
         true
     }

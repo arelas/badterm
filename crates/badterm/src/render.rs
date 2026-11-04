@@ -760,6 +760,40 @@ mod tests {
         std::fs::write(dir.join("viewdata.png"), crate::png::encode(&out, w, h)).unwrap();
     }
 
+    /// An IGS (Atari ST) file as BadTerm draws it, as a PNG, with the
+    /// pauses in it skipped (stopping before the first one with
+    /// `BADTERM_IGS_PAUSES=1`):
+    /// `BADTERM_IGS=a.ig BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm igs_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn igs_snapshot() {
+        use badterm_core::{Encoding, igs};
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        let file = std::path::PathBuf::from(std::env::var("BADTERM_IGS").expect("set BADTERM_IGS"));
+        let stop_at = std::env::var("BADTERM_IGS_PAUSES").ok().and_then(|v| v.parse::<usize>().ok());
+        let mut t = Terminal::new(igs::COLS, igs::ROWS, 0);
+        t.encoding = Encoding::Igs;
+        t.start_emulation();
+        t.feed(&std::fs::read(&file).unwrap());
+        let mut pauses = 0;
+        while let Some(at) = t.next_poll() {
+            pauses += 1;
+            if stop_at.is_some_and(|n| pauses >= n) {
+                break;
+            }
+            t.poll(at);
+        }
+        let g = t.igs().unwrap();
+        let rows = igs::ROWS;
+        let lines: Vec<&[Cell]> = (0..rows).map(|y| t.screen.row(y)).collect();
+        let graphics =
+            Some(Graphics { pixels: g.pixels(), width: g.width(), height: g.height(), palette: g.palette() });
+        let mut r = Renderer::new(Font::vga_8x16(), igs::COLS, rows);
+        r.draw(&Frame { look_rows: rows, graphics, ..Frame::plain(lines, None, true) }, true, false);
+        let name = format!("{}.png", file.file_stem().unwrap().to_string_lossy());
+        std::fs::write(dir.join(name), crate::png::encode(r.pixels(), r.native_width(), r.native_height())).unwrap();
+    }
+
     /// The C64 and Atari screens shown on the website, as PNGs at 4x:
     /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm retro_site_snapshot -- --ignored`
     #[test]

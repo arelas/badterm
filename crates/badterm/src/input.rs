@@ -100,6 +100,7 @@ pub fn encode(key: Key, mods: Mods, encoding: Encoding) -> Vec<u8> {
         Encoding::Petscii => return encode_petscii(key, mods),
         Encoding::Atascii => return encode_atascii(key, mods),
         Encoding::Viewdata => return encode_viewdata(key),
+        Encoding::Igs => return encode_vt52(key, mods),
         _ => {}
     }
     let seq: &[u8] = match key {
@@ -176,6 +177,26 @@ fn encode_petscii(key: Key, mods: Mods) -> Vec<u8> {
 }
 
 /// Keys on an Atari: RETURN is EOL, and its cursor and editing keys.
+/// An Atari ST's keys, as its VT-52 screen sends them.
+fn encode_vt52(key: Key, mods: Mods) -> Vec<u8> {
+    let seq: &[u8] = match key {
+        Key::Char(c) if mods.ctrl && c.is_ascii_alphabetic() => return vec![c.to_ascii_lowercase() as u8 - b'a' + 1],
+        Key::Char(c) => return badterm_core::cp437::encode(&c.to_string()),
+        Key::Enter => b"\r",
+        Key::Backspace => b"\x08",
+        Key::Delete => b"\x7f",
+        Key::Tab => b"\t",
+        Key::Escape => b"\x1b",
+        Key::Up => b"\x1bA",
+        Key::Down => b"\x1bB",
+        Key::Right => b"\x1bC",
+        Key::Left => b"\x1bD",
+        Key::Home => b"\x1bH",
+        _ => return Vec::new(),
+    };
+    seq.to_vec()
+}
+
 /// A Prestel keyboard: Enter is its `#` key, which ends what you type;
 /// the arrows move the cursor as the screen's controls do.
 fn encode_viewdata(key: Key) -> Vec<u8> {

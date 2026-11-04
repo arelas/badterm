@@ -108,6 +108,14 @@ BadTerm starts.
   Attributes are worked out from the page as a real decoder does, so a
   BBS that rewrites part of a row gets the colors right. Enter sends the
   `#` key.
+- **IGS**, the graphics of Atari ST BBSes (Instant Graphics and Sound,
+  version 2.19): VT-52 text and GEM drawing on the ST's screen (medium
+  resolution, or low with sixteen colors): lines in their styles, widths
+  and ends, boxes, circles, ellipses, arcs and pie slices, polygons and
+  flood fills in the VDI's fill patterns and hatches, text in its sizes
+  and effects, markers, blits, palettes, loops and clickable mouse zones.
+  The ST's smallest text is in a 6x6 font of BadTerm's own. Not yet: the
+  sound chip's effects and music, MIDI, and color-cycling animation.
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
 - **Session capture** to `.ans` files (`Alt-C`), or for an entry from the
@@ -419,8 +427,8 @@ An entry's "Emulation" sets how what the BBS sends is shown: CP437
 (ANSI-BBS, the usual), UTF-8, Avatar (AVT/0 and AVT/0+ alongside ANSI),
 RIPscrip (graphics: click a button or mouse area to send its command; the
 text screen is 80x43 over the 640x350 graphics), PETSCII (Commodore 64:
-F1 to F8 are the C64's, `Esc` is RUN/STOP), ATASCII (Atari 8-bit) or
-Viewdata (Prestel: Enter is the `#` key).
+F1 to F8 are the C64's, `Esc` is RUN/STOP), ATASCII (Atari 8-bit),
+Viewdata (Prestel: Enter is the `#` key) or IGS (Atari ST).
 
 Passwords you enter in the directory, remember from the login dialog, or
 import with a SyncTERM list are moved into the OS keychain when the

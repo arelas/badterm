@@ -103,7 +103,7 @@ The next things to do, in order.
 - [x] Avatar/0+ emulation
 - [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
 - [x] Viewdata (Prestel) (not yet: BBC Micro Mode 7, revealing concealed text)
-- [ ] Atari ST IGS graphics
+- [x] Atari ST IGS graphics (not yet: its sound, MIDI, color cycling)
 - [ ] Amiga SkyPix graphics
 - [x] Sixel graphics
 - [x] SyncTERM's pictures: the file cache, PPM and JPEG XL drawing, pixel
