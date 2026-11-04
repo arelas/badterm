@@ -121,7 +121,8 @@ struct Buf {
 
 impl Buf {
     fn done(&self) -> bool {
-        let ended = self.sound.pcm().is_some_and(|p| self.pos as usize >= p.len() / 2 && (!self.looped || p.is_empty()));
+        let ended =
+            self.sound.pcm().is_some_and(|p| self.pos as usize >= p.len() / 2 && (!self.looped || p.is_empty()));
         self.decay.is_some_and(|(left, _)| left == 0) || ended
     }
 

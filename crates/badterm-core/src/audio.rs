@@ -880,7 +880,13 @@ mod tests {
         assert_eq!(synth(Shape::Silence, 441.0, 10), vec![0; 20]);
         let noisy = synth(Shape::SineSawHarm, 441.0, 1000);
         assert!(noisy.iter().any(|&v| v != 0));
-        assert!(format_supported(32, 100) && format_supported(1, 2) && format_supported(23, 2) && format_supported(32, 96) && !format_supported(35, 130));
+        assert!(
+            format_supported(32, 100)
+                && format_supported(1, 2)
+                && format_supported(23, 2)
+                && format_supported(32, 96)
+                && !format_supported(35, 130)
+        );
         assert_eq!(parse_id("0x20"), 32);
     }
 

@@ -1841,7 +1841,8 @@ impl Igs {
                 } else if a != b {
                     // Each step waits a screen refresh a pen, then the delay
                     // (200ths of a second), as IG does.
-                    let step = Duration::from_millis(((a.abs_diff(b) as u64 + 2) * 1000 / 60) + delay.max(0) as u64 * 5);
+                    let step =
+                        Duration::from_millis(((a.abs_diff(b) as u64 + 2) * 1000 / 60) + delay.max(0) as u64 * 5);
                     self.cycle = Some(Cycle { from: a, to: b, steps: times as u32 + 1, step });
                     self.cycle_step();
                 }
