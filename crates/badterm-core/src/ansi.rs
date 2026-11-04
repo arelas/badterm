@@ -106,8 +106,7 @@ const MAX_STRING: usize = 4096;
 /// The Device Attributes reply: "CTerm" and the revision whose sequences
 /// BadTerm follows (1.332: the blob, flip and zoom graphics commands).
 pub const CTERM_DA: &[u8] = b"\x1b[=67;84;101;114;109;1;332c";
-/// CTerm's built-in fonts are 0-42; loaded ones would start here.
-const FIRST_LOADABLE_FONT: u32 = 43;
+use crate::screen::FIRST_LOADABLE_FONT;
 /// A DCS string (a sixel picture) can be large; longer ones are cut off.
 const MAX_DCS: usize = 32 << 20;
 
@@ -126,6 +125,8 @@ enum State {
     Apc,
     /// SOS, PM: ignored until ST.
     IgnoreString,
+    /// `CSI = slot ; size {`: this many bytes of a font follow.
+    FontBlock(u8, usize),
     /// Saw ESC inside a string; `\` terminates it.
     StringEsc,
     /// An ANSI music string, up to Ctrl-N.
@@ -159,6 +160,8 @@ pub struct Terminal {
     dcs: Vec<u8>,
     /// SyncTERM's file cache, pictures and pixel buffers.
     pub syncterm: crate::syncterm::SyncTerm,
+    /// The mouse reporting the BBS has asked for.
+    pub mouse: crate::mouse::MouseModes,
     private: u8,
     intermediate: u8,
     params: Vec<u32>,
@@ -198,6 +201,7 @@ impl Terminal {
             string_kind: State::IgnoreString,
             dcs: Vec::new(),
             syncterm: Default::default(),
+            mouse: Default::default(),
             private: 0,
             intermediate: 0,
             params: Vec::with_capacity(MAX_PARAMS),
@@ -377,7 +381,7 @@ impl Terminal {
             }
         }
         // CAN and SUB abort any sequence in progress (ECMA-48).
-        if self.state != State::Ground && (b == 0x18 || b == 0x1A) {
+        if self.state != State::Ground && !matches!(self.state, State::FontBlock(..)) && (b == 0x18 || b == 0x1A) {
             self.state = State::Ground;
             return;
         }
@@ -392,6 +396,14 @@ impl Terminal {
                 _ if self.state == State::Osc && self.osc.len() < MAX_STRING => self.osc.push(b),
                 _ => {}
             },
+            State::FontBlock(slot, len) => {
+                self.dcs.push(b);
+                if self.dcs.len() >= len {
+                    self.state = State::Ground;
+                    let font = std::mem::take(&mut self.dcs);
+                    self.screen.look.load_font(slot, &font);
+                }
+            }
             State::Dcs | State::Apc => match b {
                 0x1B => self.state = State::StringEsc,
                 _ if self.dcs.len() < MAX_DCS => self.dcs.push(b),
@@ -553,7 +565,10 @@ impl Terminal {
             0x20..=0x2F => self.state = State::EscIntermediate,
             b'7' => self.screen.save_cursor(),
             b'8' => self.screen.restore_cursor(),
-            b'c' => self.screen.reset(),
+            b'c' => {
+                self.screen.reset();
+                self.mouse = Default::default();
+            }
             b'D' => self.screen.line_feed(),
             b'E' => {
                 self.screen.carriage_return();
@@ -598,6 +613,17 @@ impl Terminal {
     /// A DCS string: `p1 ; p2 q ...` is a sixel picture.
     fn finish_dcs(&mut self) {
         let dcs = std::mem::take(&mut self.dcs);
+        // CTerm's loadable font: `CTerm:Font:slot:base64`.
+        if let Some(rest) = dcs.strip_prefix(b"CTerm:Font:") {
+            let text = String::from_utf8_lossy(rest);
+            if let Some((slot, b64)) = text.split_once(':')
+                && let (Ok(slot), Some(data)) = (slot.trim().parse::<u8>(), crate::syncterm::decode_b64(b64))
+                && !self.screen.look.load_font(slot, &data)
+            {
+                log::debug!("not loading a {}-byte font into slot {slot}", data.len());
+            }
+            return;
+        }
         let start = dcs.iter().position(|b| !matches!(b, b'0'..=b'9' | b';')).unwrap_or(dcs.len());
         if dcs.get(start) == Some(&b'q') {
             let params: Vec<u32> =
@@ -716,9 +742,21 @@ impl Terminal {
             b'?' if b == b'S' => return self.graphics_attributes(),
             b'?' => return self.dec_mode(b),
             b'=' if b == b'n' => return self.cterm_report(),
+            // CTerm's older way to load a font: the font's bytes follow.
+            b'=' if b == b'{' => {
+                let slot = self.params.first().copied().unwrap_or(255).min(255) as u8;
+                let len = match self.params.get(1).copied().unwrap_or(0) {
+                    1 => 3584,
+                    2 => 2048,
+                    _ => 4096,
+                };
+                self.dcs.clear();
+                self.state = State::FontBlock(slot, len);
+                return;
+            }
             // CTerm Device Attributes: what this CTerm-like terminal can do.
             b'<' if b == b'c' && self.params.first().is_none_or(|&v| v == 0) => {
-                return self.replies.extend_from_slice(b"\x1b[<0;2;3;4;5;6c");
+                return self.replies.extend_from_slice(b"\x1b[<0;1;2;3;4;5;6;7c");
             }
             _ => {
                 log::debug!("unhandled private CSI {:?}{:?} {:?}", self.private as char, b as char, self.params);
@@ -825,7 +863,8 @@ impl Terminal {
                     (35, l.blink_steady),
                     (80, self.sixel_display_mode),
                 ];
-                let modes: Vec<String> = set.iter().filter(|m| m.1).map(|m| m.0.to_string()).collect();
+                let mut modes: Vec<String> = set.iter().filter(|m| m.1).map(|m| m.0.to_string()).collect();
+                modes.extend(self.mouse.set_modes().iter().map(|m| m.to_string()));
                 format!("\x1b[=2;{}n", modes.join(";"))
             }
             // A cell's height and width in pixels.
@@ -867,6 +906,9 @@ impl Terminal {
             _ => return,
         };
         for &mode in &self.params {
+            if self.mouse.set(mode, on) {
+                continue;
+            }
             match mode {
                 7 => self.screen.autowrap = on,
                 80 => self.sixel_display_mode = on,
@@ -1126,7 +1168,7 @@ mod tests {
 
         // The size of the screen in pixels, and the color registers.
         t.feed(b"\x1b[?2;1S\x1b[?1;1S\x1b[<c");
-        assert_eq!(t.take_replies(), b"\x1b[?2;0;640;400S\x1b[?1;0;256S\x1b[<0;2;3;4;5;6c");
+        assert_eq!(t.take_replies(), b"\x1b[?2;0;640;400S\x1b[?1;0;256S\x1b[<0;1;2;3;4;5;6;7c");
         t.feed(b"\x1b[=1n\x1b[=2n\x1b[=3n\x1b[=7n");
         assert_eq!(t.take_replies(), b"\x1b[=1;43;99;0;0;0;0n\x1b[=2;7;25n\x1b[=3;16;8n\x1b[=7n");
     }
@@ -1165,6 +1207,46 @@ mod tests {
         assert!(replies.ends_with("\x1b[=7;2;0n"), "{replies:?}");
         t.feed(b"\x1b_SyncTERM:Q;libsndfileFormat;0x20;100\x1b\\");
         assert_eq!(t.take_replies(), b"\x1b[=7;101;32;100;1n");
+    }
+
+    #[test]
+    fn loadable_fonts() {
+        use data_encoding::BASE64;
+        let mut t = term();
+        // An 8x16 font of solid glyphs, by DCS, into slot 43; then chosen.
+        let font = vec![0xFFu8; 4096];
+        let dcs = format!("\x1bPCTerm:Font:43:{}\x1b\\\x1b[0;43 D", BASE64.encode(&font));
+        t.feed(dcs.as_bytes());
+        let f = t.screen.look.loaded_font(43).expect("loaded");
+        assert_eq!((f.height, f.data.len()), (16, 4096));
+        assert_eq!(t.screen.look.fonts[0], 43);
+        // The older way: CSI = slot ; size { and the bytes (8x8 here).
+        let mut old = b"\x1b[=44;2{".to_vec();
+        old.extend(vec![0x18u8; 2048]);
+        old.extend(b"ok");
+        t.feed(&old);
+        assert_eq!(t.screen.look.loaded_font(44).unwrap().height, 8);
+        assert!(line(&t, 0).ends_with("ok"), "the font's bytes aren't text: {:?}", line(&t, 0));
+        // Built-in slots can't be replaced; a reset keeps loaded fonts.
+        t.feed(format!("\x1bPCTerm:Font:5:{}\x1b\\\x1bc", BASE64.encode(&font)).as_bytes());
+        assert!(t.screen.look.loaded_font(5).is_none());
+        assert!(t.screen.look.loaded_font(43).is_some());
+        // The same font twice is kept once.
+        t.feed(dcs.as_bytes());
+        t.feed(dcs.replace(":43:", ":45:").as_bytes());
+        let (a, b) = (t.screen.look.loaded_font(43).unwrap(), t.screen.look.loaded_font(45).unwrap());
+        assert!(std::ptr::eq(a.data, b.data));
+    }
+
+    #[test]
+    fn mouse_modes() {
+        let mut t = term();
+        t.feed(b"\x1b[?1003h\x1b[?1006h");
+        assert!(t.mouse.any && t.mouse.sgr && t.mouse.tracking());
+        t.feed(b"\x1b[=2n");
+        assert_eq!(t.take_replies(), b"\x1b[=2;7;25;1003;1006n");
+        t.feed(b"\x1b[?1003l\x1b[?1006l");
+        assert!(!t.mouse.tracking());
     }
 
     #[test]

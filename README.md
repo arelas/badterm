@@ -133,6 +133,14 @@ BadTerm starts.
   Settings and per directory entry
 - **Copy with the mouse**: drag to select text and it is copied when you let
   go; hold `Shift` as you let go to copy it with its colors, as ANSI
+- **The mouse for the BBS**: a BBS or door that asks for the mouse (xterm's
+  modes 9, 1000, 1002, 1003, 1006 and 1016, as Synchronet's doors use them)
+  gets your clicks, drags, movement and wheel, as text cells or pixels.
+  Hold `Shift` to select and copy text instead.
+- **Fonts from the BBS**: fonts a BBS sends (CTerm's loadable fonts, 8x16,
+  8x14 or 8x8, by `DCS`, the older `CSI = n ; n {` or from SyncTERM's
+  cache) are used where the BBS selects them, stretched to the screen's
+  cells if their height differs.
 - **Save the scrollback** (`Alt-S`) as an `.ans` file for ANSI viewers and
   editors, or as plain `.txt`, or save the screen as a `.png`
 - **Dialing directory** with add/edit/delete, quick connect, call counts,

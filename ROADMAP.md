@@ -95,7 +95,9 @@ The next things to do, in order.
 
 ## Emulation
 
-- [ ] More CTerm: `CSI = ...` modes, and the other font IDs (code pages)
+- [x] CTerm's loadable fonts, and xterm mouse reporting (9, 1000, 1002,
+      1003, 1006, 1016)
+- [ ] More CTerm: the other built-in font IDs (code pages), bracketed paste
 - [ ] Loadable fonts: CP437 8x14, Commodore, Atari, other code pages (850,
       866, ...), custom `.fnt`/`.psf`; Amiga fonts in 8-line modes
 - [x] Device Attributes identify as CTerm (1.332), for SyncTERM's extensions

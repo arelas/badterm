@@ -14,6 +14,7 @@ pub mod export;
 pub mod igs;
 pub mod kermit;
 pub mod modem;
+pub mod mouse;
 pub mod music;
 pub mod palette;
 pub mod petscii;

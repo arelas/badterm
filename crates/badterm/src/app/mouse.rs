@@ -21,7 +21,63 @@ impl App {
         Some((x, y))
     }
 
+    /// Where the mouse is, for a mouse report, if the BBS wants them and
+    /// may have them now (its screen showing live, Shift not held, which
+    /// keeps the mouse for selecting): the cell, and the pixel on the
+    /// terminal's own pixel grid.
+    fn mouse_report_at(&self) -> Option<((usize, usize), (usize, usize))> {
+        if self.scroll != 0 || self.mods.shift_key() {
+            return None;
+        }
+        let cell = self.mouse_cell()?;
+        let s = self.session.as_ref().filter(|s| s.state == State::Connected && s.term.mouse.tracking())?;
+        let (ox, oy, w, h) = self.view_rect;
+        let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
+        let nx = mx.saturating_sub(ox) * self.renderer.native_width() / w.max(1);
+        let ny = my.saturating_sub(oy) * self.renderer.native_height() / h.max(1);
+        let sc = &s.term.screen;
+        let (pw, ph) = sc.size_px();
+        let text_h = self.renderer.native_height() * sc.rows() / self.renderer.rows().max(1);
+        let px = (nx * pw / self.renderer.native_width().max(1)).min(pw - 1);
+        let py = (ny * ph / text_h.max(1)).min(ph - 1);
+        Some((cell, (px, py)))
+    }
+
+    /// Send the BBS a mouse report, if it wants this one.
+    fn mouse_report(&mut self, event: badterm_core::mouse::MouseEvent) -> bool {
+        let Some((cell, pixel)) = self.mouse_report_at() else { return false };
+        let mods =
+            badterm_core::mouse::MouseMods { shift: false, alt: self.mods.alt_key(), ctrl: self.mods.control_key() };
+        let Some(session) = self.session.as_mut() else { return false };
+        if let Some(bytes) = session.term.mouse.report(event, cell, pixel, mods) {
+            session.send(&bytes);
+            self.mouse_reported = Some((cell, pixel));
+        }
+        true
+    }
+
     pub(super) fn on_mouse_button(&mut self, button: MouseButton, state: ElementState) {
+        use badterm_core::mouse::MouseEvent;
+        let code = match button {
+            MouseButton::Left => Some(0),
+            MouseButton::Middle => Some(1),
+            MouseButton::Right => Some(2),
+            _ => None,
+        };
+        // A BBS that asked for the mouse gets it (the emulations with
+        // mouse menus of their own, RIP, IGS and SkyPix, aside).
+        if let Some(b) = code
+            && !self.dragging
+        {
+            let event = match state {
+                ElementState::Pressed => MouseEvent::Press(b),
+                ElementState::Released => MouseEvent::Release(b),
+            };
+            if self.mouse_report(event) {
+                self.mouse_held = (state == ElementState::Pressed).then_some(b);
+                return;
+            }
+        }
         if button != MouseButton::Left {
             return;
         }
@@ -95,6 +151,18 @@ impl App {
 
     pub(super) fn on_mouse_move(&mut self, x: f64, y: f64) {
         self.mouse = (x, y);
+        // Movement, for a BBS that wants it, when it's into another cell
+        // (or pixel, if it asked for pixels).
+        if !self.dragging
+            && let Some((cell, pixel)) = self.mouse_report_at()
+        {
+            let pixels = self.session.as_ref().is_some_and(|s| s.term.mouse.pixels);
+            let moved = self.mouse_reported.is_none_or(|(c, p)| if pixels { p != pixel } else { c != cell });
+            if moved {
+                self.mouse_report(badterm_core::mouse::MouseEvent::Move(self.mouse_held));
+            }
+            return;
+        }
         if self.dragging
             && let Some(cell) = self.mouse_cell()
             && let Some(sel) = self.selection.as_mut()
@@ -127,6 +195,10 @@ impl App {
         if let Some(v) = self.art.as_mut().filter(|_| self.art_picker.is_none()) {
             v.scroll(lines);
             return self.request_redraw();
+        }
+        // The wheel, for a BBS that wants the mouse: a report a turn.
+        if lines != 0 && !self.dialer_open && self.mouse_report(badterm_core::mouse::MouseEvent::Wheel(lines > 0)) {
+            return;
         }
         if let Some(s) = self.session.as_ref().filter(|_| !self.dialer_open) {
             self.selection = None;

@@ -233,6 +233,10 @@ pub struct App {
     dragging: bool,
     /// Mouse position in window pixels.
     mouse: (f64, f64),
+    /// For the BBS's mouse reports: the button held, and where the mouse
+    /// was last reported (cell and pixel), so moves within it aren't sent.
+    mouse_held: Option<u8>,
+    mouse_reported: Option<((usize, usize), (usize, usize))>,
     settings: Settings,
     /// Plays ANSI music.
     player: Player,
@@ -331,6 +335,8 @@ impl App {
             selection: None,
             dragging: false,
             mouse: (0.0, 0.0),
+            mouse_held: None,
+            mouse_reported: None,
             view_rect: (0, 0, 1, 1),
             shape: shape::WindowShape::default(),
             settings,

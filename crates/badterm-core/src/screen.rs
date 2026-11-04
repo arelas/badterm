@@ -108,7 +108,20 @@ pub struct Look {
     pub blink_font: bool,
     /// `CSI ?35h`: blink does not make text blink.
     pub blink_steady: bool,
+    /// Fonts the BBS has loaded (CTerm's loadable fonts), by slot.
+    pub loaded: Vec<LoadedFont>,
 }
+
+/// A font a BBS sent: 256 glyphs, 8 pixels wide and `height` high.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LoadedFont {
+    pub slot: u8,
+    pub height: u8,
+    pub data: &'static [u8],
+}
+
+/// CTerm's built-in fonts are 0-42; loaded ones go in the slots after.
+pub const FIRST_LOADABLE_FONT: u8 = 43;
 
 impl Default for Look {
     fn default() -> Look {
@@ -126,8 +139,32 @@ impl Look {
             bright_plain: false,
             blink_font: false,
             blink_steady: false,
+            loaded: Vec::new(),
         });
         &STANDARD
+    }
+
+    /// Load a font into a slot: 4096 bytes is 8x16, 3584 8x14, 2048 8x8.
+    /// False if the slot is a built-in one or the size is none of those.
+    pub fn load_font(&mut self, slot: u8, data: &[u8]) -> bool {
+        let height = match data.len() {
+            4096 => 16,
+            3584 => 14,
+            2048 => 8,
+            _ => return false,
+        };
+        if slot < FIRST_LOADABLE_FONT {
+            return false;
+        }
+        let font = LoadedFont { slot, height, data: intern(data) };
+        self.loaded.retain(|f| f.slot != slot);
+        self.loaded.push(font);
+        true
+    }
+
+    /// A loaded font, by its slot (the ID `CSI n ; slot SP D` selects).
+    pub fn loaded_font(&self, slot: u8) -> Option<LoadedFont> {
+        self.loaded.iter().find(|f| f.slot == slot).copied()
     }
 
     pub fn rgb(&self, c: Color) -> Rgb {
@@ -149,6 +186,22 @@ impl Look {
         let blink = self.blink_font && cell.flags & flags::BLINK != 0;
         self.fonts[bright as usize | (blink as usize) << 1]
     }
+}
+
+/// Font data kept for the rest of the run, once for each different font
+/// (BBSes send the same few again and again).
+fn intern(data: &[u8]) -> &'static [u8] {
+    use std::collections::HashSet;
+    use std::sync::Mutex;
+    static FONTS: Mutex<Option<HashSet<&'static [u8]>>> = Mutex::new(None);
+    let mut fonts = FONTS.lock().unwrap_or_else(|e| e.into_inner());
+    let set = fonts.get_or_insert_with(HashSet::new);
+    if let Some(&have) = set.get(data) {
+        return have;
+    }
+    let kept: &'static [u8] = Box::leak(data.to_vec().into_boxed_slice());
+    set.insert(kept);
+    kept
 }
 
 pub fn color_rgb(c: Color) -> Rgb {
@@ -268,7 +321,9 @@ impl Screen {
         self.autowrap = true;
         self.cursor_visible = true;
         self.ice_colors = self.base_ice;
-        self.look = Look::default();
+        // A reset keeps the fonts the BBS loaded, as CTerm does.
+        let loaded = std::mem::take(&mut self.look.loaded);
+        self.look = Look { loaded, ..Look::default() };
         self.look.fonts[0] = self.base_font;
     }
 

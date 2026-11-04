@@ -68,6 +68,27 @@ impl Font {
         Font { height: 16, data, id }
     }
 
+    /// A font the BBS loaded, at the base's height: one of another height
+    /// (8x14 on a 16-line screen, say) is stretched to it, once.
+    pub fn loaded(f: badterm_core::screen::LoadedFont, base: Font) -> Font {
+        let (from, to) = (f.height as usize, base.height);
+        if from == to {
+            return Font { height: to, data: f.data, id: f.slot };
+        }
+        use std::collections::HashMap;
+        use std::sync::Mutex;
+        /// Stretched fonts, by the font's address and the height.
+        type Scaled = HashMap<(usize, usize), &'static [u8]>;
+        static SCALED: Mutex<Option<Scaled>> = Mutex::new(None);
+        let mut cache = SCALED.lock().unwrap_or_else(|e| e.into_inner());
+        let data = *cache.get_or_insert_with(HashMap::new).entry((f.data.as_ptr() as usize, to)).or_insert_with(|| {
+            let scaled: Vec<u8> =
+                (0..256).flat_map(|c| (0..to).map(move |y| f.data[c * from + y * from / to])).collect();
+            Box::leak(scaled.into_boxed_slice())
+        });
+        Font { height: to, data, id: f.slot }
+    }
+
     /// Teletext's glyphs (see [`badterm_core::viewdata`]), at the base's height.
     fn viewdata(base: Font) -> Font {
         static TALL: std::sync::LazyLock<Vec<u8>> =
@@ -283,7 +304,10 @@ impl Renderer {
                 let (mut fg, mut bg, blinks) = cell.resolve_with(frame.ice, look);
                 let font = match look.font_for(cell) {
                     0 => self.font,
-                    id => Font::cterm(id, self.font),
+                    id => match look.loaded_font(id) {
+                        Some(f) => Font::loaded(f, self.font),
+                        None => Font::cterm(id, self.font),
+                    },
                 };
                 if frame.selection.is_some_and(|s| s.contains(x, y)) {
                     std::mem::swap(&mut fg, &mut bg);
@@ -677,6 +701,24 @@ mod tests {
             let stem = path.file_stem().unwrap().to_string_lossy().to_lowercase().replace(' ', "-");
             png(&out, w, h, out_dir.join(format!("bezel-{stem}.png")));
         }
+    }
+
+    #[test]
+    fn loaded_fonts_are_drawn_and_stretched() {
+        let mut t = Terminal::new(80, 25, 0);
+        // An 8x14 font whose every glyph is a single column at the left.
+        let mut old = b"\x1b[=43;1{".to_vec();
+        old.extend(vec![0x80u8; 3584]);
+        old.extend(b"\x1b[0;43 DA");
+        t.feed(&old);
+        let lines: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
+        let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
+        r.draw(&Frame { look: &t.screen.look, look_rows: 25, ..Frame::plain(lines, None, true) }, true, true);
+        let (px, nw) = (r.pixels(), r.native_width());
+        // Stretched to the 16-line cell: the column runs all the way down.
+        let fg = t.screen.look.rgb(badterm_core::screen::DEFAULT_FG);
+        assert!((0..16).all(|y| px[y * nw] == fg));
+        assert!((0..16).all(|y| px[y * nw + 1] != fg));
     }
 
     #[test]

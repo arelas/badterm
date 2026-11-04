@@ -238,6 +238,15 @@ impl SyncTerm {
                 let b = args.num("B").unwrap_or(0).clamp(0, 1) as usize;
                 self.buffers[b] = self.load(verb, last);
             }
+            // A cached font into a font slot.
+            ("C", "SetFont") => {
+                let (Some(slot), Some(name)) = (fields.first(), fields.get(1)) else { return true };
+                if let (Ok(slot), Some(data)) = (slot.trim().parse::<u8>(), self.read_cached(name))
+                    && !screen.look.load_font(slot, &data)
+                {
+                    log::debug!("not loading {name} ({} bytes) into font slot {slot}", data.len());
+                }
+            }
             ("C", "LoadPBM" | "LoadPBMBlob") => {
                 let Some(&last) = fields.last() else { return true };
                 let bytes = if verb == "LoadPBMBlob" { decode_b64(last) } else { self.read_cached(last) };
@@ -457,6 +466,10 @@ mod tests {
         assert_eq!(s.pixel_at(10, 20), 0);
 
         assert_eq!(apc(&mut st, &mut s, "SyncTERM:Q;JXL"), b"\x1b[=1;1-n");
+        // A cached font into a font slot.
+        apc(&mut st, &mut s, &format!("SyncTERM:C;S;my.fnt;{}", BASE64.encode(&[0x3Cu8; 2048])));
+        apc(&mut st, &mut s, "SyncTERM:C;SetFont;50;my.fnt");
+        assert_eq!(s.look.loaded_font(50).map(|f| f.height), Some(8));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
