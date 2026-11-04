@@ -231,6 +231,29 @@ const BAD_CLUSTER: Palette = Palette([
     0xE9E7E2, // white: ink
 ]);
 
+/// Dark Dracula: the Dracula colors (draculatheme.com) on pure black, as
+/// "Dracula Dark" has them, in the VGA's 16 places: black surfaces and
+/// panels, Dracula's selection and comment colors, its purple for the
+/// accent (yellow and brown), and its foreground for white.
+const DRACULA: Palette = Palette([
+    0x000000, // black: the surface
+    0x0A0A0A, // blue: an inner panel
+    0x44475A, // green: the selection
+    0x6272A4, // cyan: muted (Dracula's comment)
+    0xFF5555, // red: danger
+    0x0D0D0D, // magenta: the page
+    0x9D73D9, // brown: the accent, dimmed
+    0xC6C6C0, // light gray: dim text
+    0x282A36, // dark gray: a border
+    0x343746, // light blue: a rule
+    0x50FA7B, // light green
+    0x8BE9FD, // light cyan
+    0xFF6E6E, // light red
+    0xFF79C6, // light magenta: pink
+    0xBD93F9, // yellow: the accent, Dracula's purple
+    0xF8F8F2, // white: the foreground
+]);
+
 /// A scheme with no fills: everything on black, the borders in the dark
 /// shade of one color, text in its bright shade, and white for what is
 /// chosen or typed. (VGA's dark blue is too dark to read as text.)
@@ -260,7 +283,7 @@ const fn unfilled(dark: u8, bright: u8) -> Theme {
 }
 
 /// The built-in schemes, by name; the first is the default.
-pub const SCHEMES: [(&str, Theme); 12] = [
+pub const SCHEMES: [(&str, Theme); 13] = [
     (
         "Midnight",
         Theme {
@@ -511,6 +534,31 @@ pub const SCHEMES: [(&str, Theme); 12] = [
             note: a(DARK_GRAY, BLUE),
             error: a(LIGHT_RED, BLUE),
             palette: Some(BAD_CLUSTER),
+        },
+    ),
+    (
+        "Dark Dracula",
+        Theme {
+            title_bar: a(YELLOW, MAGENTA),
+            border: a(DARK_GRAY, BLACK),
+            headings: a(BROWN, BLACK),
+            entries: a(WHITE, BLACK),
+            selected: a(WHITE, GREEN),
+            info: a(CYAN, BLACK),
+            help: a(CYAN, BLACK),
+            help_key: a(YELLOW, BLACK),
+            status: a(BLACK, YELLOW),
+            status_alt: a(BLACK, LIGHT_MAGENTA),
+            window: a(BROWN, BLUE),
+            window_title: a(YELLOW, BLUE),
+            window_text: a(GRAY, BLUE),
+            field_name: a(CYAN, BLUE),
+            field_value: a(WHITE, BLUE),
+            input: a(WHITE, GREEN),
+            keys: a(YELLOW, BLUE),
+            note: a(CYAN, BLUE),
+            error: a(RED, BLUE),
+            palette: Some(DRACULA),
         },
     ),
 ];

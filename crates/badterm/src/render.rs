@@ -690,7 +690,7 @@ mod tests {
         use crate::ui::theme;
         let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
         std::fs::create_dir_all(&dir).unwrap();
-        for name in ["Bad Cluster", "Dark blue", "Dark cyan"] {
+        for name in ["Bad Cluster", "Dark blue", "Dark cyan", "Dark Dracula"] {
             let bc = theme::SCHEMES.iter().find(|(n, _)| *n == name).unwrap().1;
             let prefix = name.to_lowercase().replace(' ', "");
             theme::set_current(bc);

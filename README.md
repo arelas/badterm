@@ -366,7 +366,8 @@ or neither; an entry can have its own), redialing, the modem (see "Dialing
 with a modem" below), and the colors of BadTerm's own screens. Pick one of the color schemes (Midnight, the
 default; Classic blue, Gray windows, Green phosphor, Amber, Monochrome,
 Ocean, Crimson, Plum, Dark blue and Dark cyan, which have no colored
-backgrounds, or Bad Cluster, in the copper and teal of badcluster.dev), or,
+backgrounds, Bad Cluster, in the copper and teal of badcluster.dev, or Dark
+Dracula, Dracula's colors on black), or,
 under "Edit
 colors", give each part of the interface (title bar, selected entry,
 windows, input fields, key hints, ...) its own foreground and background
