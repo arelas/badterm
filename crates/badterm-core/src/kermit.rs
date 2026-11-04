@@ -5,15 +5,21 @@
 //! made printable (`tochar(x) = x + 32`). The two sides trade their
 //! parameters in the Send-Init (`S`) packet and its acknowledgement; this
 //! side offers long packets (up to [`MAX_LONG`] bytes), CRC-16 block checks
-//! (type 3), `~` run-length compression and file attributes (for the size),
-//! and takes whatever the other side can do. No sliding windows: each
-//! packet waits for its ACK, which is fine on a telnet or SSH link.
+//! (type 3), `~` run-length compression, file attributes (for the size) and
+//! sliding windows of up to [`WINDOW`] packets, and takes whatever the other
+//! side can do.
+//!
+//! With a window, a sender keeps sending data packets while earlier ones
+//! wait for their ACKs, which keeps a slow or distant link busy. The
+//! receiver acknowledges each packet as it comes, keeps ones that arrive
+//! after a damaged one until it is sent again, and writes them in order.
+//! Packets other than data go one at a time, as without a window.
 //!
 //! A download starts by itself when the BBS's Kermit sends its `S` packet
 //! (see [`find_send_init`]); an upload is started by the user once the
 //! BBS's Kermit is receiving.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufWriter, Read, Write};
 use std::path::PathBuf;
@@ -34,8 +40,12 @@ const MAX_RETRIES: u32 = 10;
 /// timeouts.
 const START_TRIES: u32 = 15;
 
+/// The most packets offered in flight at once (Kermit allows 31).
+pub const WINDOW: usize = 16;
+
 /// Capability bits.
 const CAP_LONG: u8 = 2;
+const CAP_WINDOWS: u8 = 4;
 const CAP_ATTRS: u8 = 8;
 
 fn tochar(x: u8) -> u8 {
@@ -99,6 +109,8 @@ struct Params {
     /// The repeat prefix, or ' ' for none.
     rept: u8,
     capas: u8,
+    /// The sliding window's size, if it can do them.
+    window: usize,
 }
 
 impl Params {
@@ -114,7 +126,8 @@ impl Params {
             qbin: b'Y',
             chkt: 3,
             rept: b'~',
-            capas: CAP_LONG | CAP_ATTRS,
+            capas: CAP_LONG | CAP_WINDOWS | CAP_ATTRS,
+            window: WINDOW,
         }
     }
 
@@ -131,7 +144,7 @@ impl Params {
             b'0' + self.chkt,
             self.rept,
             tochar(self.capas),
-            tochar(1),
+            tochar(self.window as u8),
             tochar((maxlx / 95) as u8),
             tochar((maxlx % 95) as u8),
         ]
@@ -152,6 +165,7 @@ impl Params {
             chkt: at(7).map(|c| c.wrapping_sub(b'0')).filter(|c| (1..=3).contains(c)).unwrap_or(1),
             rept: at(8).unwrap_or(b' '),
             capas: 0,
+            window: 1,
         };
         // Capability bytes go on while their low bit is set.
         let mut i = 9;
@@ -165,6 +179,9 @@ impl Params {
             }
         }
         // Then the window size, and the long packet length.
+        if p.capas & CAP_WINDOWS != 0 {
+            p.window = at(i).map_or(1, |c| (unchar(c) as usize).clamp(1, 31));
+        }
         if p.capas & CAP_LONG != 0 {
             let len = match (at(i + 1), at(i + 2)) {
                 (Some(a), Some(b)) => unchar(a) as usize * 95 + unchar(b) as usize,
@@ -189,6 +206,8 @@ struct Link {
     qbin: Option<u8>,
     rept: Option<u8>,
     attrs: bool,
+    /// How many packets may be unacknowledged at once.
+    window: usize,
     eol: u8,
     npad: u8,
     padc: u8,
@@ -206,6 +225,7 @@ impl Link {
             qbin: None,
             rept: None,
             attrs: false,
+            window: 1,
             eol: CR,
             npad: 0,
             padc: 0,
@@ -229,6 +249,7 @@ impl Link {
             qbin,
             rept,
             attrs: ours.capas & theirs.capas & CAP_ATTRS != 0,
+            window: if ours.capas & theirs.capas & CAP_WINDOWS != 0 { ours.window.min(theirs.window) } else { 1 },
             eol: theirs.eol,
             npad: theirs.npad,
             padc: theirs.padc,
@@ -430,6 +451,19 @@ enum State {
     Done,
 }
 
+/// A data packet sent and not yet acknowledged.
+struct Flight {
+    seq: u8,
+    packet: Vec<u8>,
+    acked: bool,
+    retries: u32,
+}
+
+/// How far `b` is after `a`, counting sequence numbers round from 63 to 0.
+fn seq_after(a: u8, b: u8) -> usize {
+    (b.wrapping_sub(a) & 63) as usize
+}
+
 enum Role {
     Receive { dir: PathBuf, file: Option<(BufWriter<File>, PathBuf)>, saved: Vec<PathBuf> },
     Send { queue: VecDeque<PathBuf>, file: Option<(File, PathBuf)>, sent: Vec<PathBuf>, eof: bool, skip: bool },
@@ -445,6 +479,13 @@ pub struct Kermit {
     last: Vec<u8>,
     /// Read but not yet sent (sending), as packets go out.
     pending_data: Vec<u8>,
+    /// Sending with a window: the data packets out, oldest first.
+    flight: VecDeque<Flight>,
+    /// Receiving: packets that came ahead of one still missing.
+    early: HashMap<u8, Packet>,
+    /// Receiving: the ACK last sent for each sequence number, to send
+    /// again if the packet comes again (empty: none yet).
+    acks: Vec<Vec<u8>>,
     retries: u32,
     last_heard: Instant,
     pub(crate) c: Common,
@@ -483,6 +524,9 @@ impl Kermit {
             seq: 0,
             last: Vec::new(),
             pending_data: Vec::new(),
+            flight: VecDeque::new(),
+            early: HashMap::new(),
+            acks: vec![Vec::new(); 64],
             retries: 0,
             last_heard: Instant::now(),
             c: Common::new(direction),
@@ -528,10 +572,38 @@ impl Kermit {
         self.last_heard = Instant::now();
     }
 
-    /// Acknowledge packet `seq` (receiving).
+    /// Acknowledge packet `seq` (receiving), unless that was done when it
+    /// came ahead of its turn.
     fn ack(&mut self, seq: u8, data: &[u8], out: &mut Vec<u8>) {
         self.seq = seq;
-        self.put(b'Y', data, out);
+        if self.acks[seq as usize].is_empty() {
+            self.put(b'Y', data, out);
+            self.acks[seq as usize] = self.last.clone();
+        } else {
+            self.last = self.acks[seq as usize].clone();
+            self.retries = 0;
+            self.last_heard = Instant::now();
+        }
+    }
+
+    /// Sending data with a window.
+    fn windowed(&self) -> bool {
+        self.sending() && self.state == State::Data && self.link.window > 1
+    }
+
+    /// Send again what the other side is most likely missing.
+    fn resend(&mut self, out: &mut Vec<u8>) {
+        if self.windowed() {
+            if let Some(f) = self.flight.iter_mut().find(|f| !f.acked) {
+                f.retries += 1;
+                if f.retries > MAX_RETRIES {
+                    return self.fail("too many retries", out);
+                }
+                out.extend_from_slice(&f.packet);
+            }
+        } else {
+            out.extend_from_slice(&self.last);
+        }
     }
 
     fn fail(&mut self, msg: impl Into<String>, out: &mut Vec<u8>) {
@@ -585,7 +657,13 @@ impl Kermit {
         if self.retries > limit {
             return self.fail("the other side stopped answering", out);
         }
-        if self.sending() || !self.last.is_empty() {
+        if self.sending() {
+            self.resend(out);
+        } else if self.link.window > 1 && self.state != State::Init {
+            // Ask for the first packet still missing.
+            let p = self.link.packet((self.seq + 1) & 63, b'N', &[], self.chkt());
+            out.extend_from_slice(&p);
+        } else if !self.last.is_empty() {
             out.extend_from_slice(&self.last);
         } else {
             // A receiver that has heard nothing NAKs packet 0.
@@ -612,7 +690,7 @@ impl Kermit {
                 Err(seq) => {
                     // Damaged: ask again (receiving), or resend (sending).
                     if self.sending() {
-                        out.extend_from_slice(&self.last);
+                        self.resend(out);
                     } else {
                         let p = self.link.packet(seq.unwrap_or(self.seq.wrapping_add(1) & 63), b'N', &[], chkt);
                         out.extend_from_slice(&p);
@@ -623,20 +701,67 @@ impl Kermit {
     }
 
     fn receiver_got(&mut self, p: Packet, out: &mut Vec<u8>) {
-        let expected = if self.state == State::Init { 0 } else { (self.seq + 1) & 63 };
-        if p.seq != expected {
-            // A repeat of the one just acknowledged: acknowledge it again.
-            if p.seq == self.seq && !self.last.is_empty() {
+        if self.state == State::Init {
+            if p.seq == 0 {
+                self.take_in_order(p, out);
+            } else if p.seq == self.seq && !self.last.is_empty() {
                 out.extend_from_slice(&self.last);
             }
             return;
         }
+        let window = self.link.window;
+        let next = (self.seq + 1) & 63;
+        let ahead = seq_after(next, p.seq);
+        if ahead >= window {
+            // One already taken, sent again: its ACK must have been lost.
+            if seq_after(p.seq, self.seq) < window {
+                out.extend_from_slice(&self.acks[p.seq as usize]);
+            }
+            return;
+        }
+        if self.early.contains_key(&p.seq) {
+            out.extend_from_slice(&self.acks[p.seq as usize]);
+            return;
+        }
+        // New: whatever was acknowledged under this number is past.
+        self.acks[p.seq as usize].clear();
+        if ahead > 0 {
+            // Ask again for the ones newly missing before it (those before
+            // an earlier early one were asked for then), and keep it; data
+            // is acknowledged now so the sender's window moves on.
+            let asked = self.early.keys().map(|&k| seq_after(next, k) + 1).max().unwrap_or(0);
+            for n in asked..ahead {
+                let seq = (next as usize + n) as u8 & 63;
+                if !self.early.contains_key(&seq) {
+                    let nak = self.link.packet(seq, b'N', &[], self.link.chkt);
+                    out.extend_from_slice(&nak);
+                }
+            }
+            if p.kind == b'D' {
+                let ack = self.link.packet(p.seq, b'Y', &[], self.link.chkt);
+                out.extend_from_slice(&ack);
+                self.acks[p.seq as usize] = ack;
+            }
+            self.early.insert(p.seq, p);
+            return;
+        }
+        self.take_in_order(p, out);
+        while self.c.outcome.is_none()
+            && let Some(p) = self.early.remove(&((self.seq + 1) & 63))
+        {
+            self.take_in_order(p, out);
+        }
+    }
+
+    /// The next packet in order.
+    fn take_in_order(&mut self, p: Packet, out: &mut Vec<u8>) {
         match (self.state, p.kind) {
             (State::Init, b'S') => {
                 let theirs = Params::decode(&p.data);
                 let ours = Params::ours();
                 self.ack(p.seq, &ours.encode(), out);
                 self.link = Link::agree(&ours, &theirs);
+                log::info!("Kermit: window {}, packets of {}", self.link.window, self.link.send_max);
                 self.state = State::File;
             }
             (State::File, b'F') => {
@@ -714,6 +839,9 @@ impl Kermit {
     }
 
     fn sender_got(&mut self, p: Packet, out: &mut Vec<u8>) {
+        if self.windowed() {
+            return self.window_got(p, out);
+        }
         // A NAK for the next packet acknowledges this one.
         let acked = match p.kind {
             b'Y' => p.seq == self.seq,
@@ -735,6 +863,7 @@ impl Kermit {
         match self.state {
             State::Init => {
                 self.link = Link::agree(&Params::ours(), &Params::decode(&reply));
+                log::info!("Kermit: window {}, packets of {}", self.link.window, self.link.send_max);
                 self.next_file(out);
             }
             State::Header if self.link.attrs => {
@@ -825,40 +954,129 @@ impl Kermit {
 
     fn start_data(&mut self, out: &mut Vec<u8>) {
         self.state = State::Data;
-        self.send_data(out);
+        if self.link.window > 1 {
+            // `fill_window` numbers from the last packet sent, the one
+            // just acknowledged.
+            self.seq = self.seq.wrapping_sub(1) & 63;
+            self.flight.clear();
+            self.fill_window(out);
+        } else {
+            self.send_data(out);
+        }
     }
 
-    /// Send the next data packet, or the end of the file.
-    fn send_data(&mut self, out: &mut Vec<u8>) {
-        let room = self.link.room();
-        // Keep enough read ahead to fill a packet even with no compression.
-        if let Role::Send { file: Some((f, path)), eof, .. } = &mut self.role
-            && !*eof
-            && self.pending_data.len() < room * 2
-        {
-            let mut buf = vec![0u8; room * 4];
-            match f.read(&mut buf) {
-                Ok(0) => *eof = true,
-                Ok(n) => self.pending_data.extend_from_slice(&buf[..n]),
-                Err(e) => {
-                    let msg = format!("reading {}: {e}", path.display());
-                    return self.fail(msg, out);
+    /// An ACK or NAK while data goes out with a window.
+    fn window_got(&mut self, p: Packet, out: &mut Vec<u8>) {
+        let i = self.flight.iter().position(|f| f.seq == p.seq);
+        match (p.kind, i) {
+            (b'Y', Some(i)) => {
+                self.flight[i].acked = true;
+                // "X" stops this file, "Z" the whole batch.
+                if let Some(&c @ (b'X' | b'Z')) = p.data.first() {
+                    self.stop_file(c == b'Z');
                 }
             }
-        }
-        if self.pending_data.is_empty() {
-            let at_end = matches!(self.role, Role::Send { eof: true, .. });
-            if !at_end {
-                // The read above got nothing yet but the file isn't done.
-                return self.send_data(out);
+            (b'N', Some(i)) if !self.flight[i].acked => {
+                let f = &mut self.flight[i];
+                f.retries += 1;
+                if f.retries > MAX_RETRIES {
+                    return self.fail("too many retries", out);
+                }
+                out.extend_from_slice(&f.packet);
             }
+            // A NAK for the packet after all those out: they all arrived.
+            (b'N', None) if p.seq == (self.seq + 1) & 63 => self.flight.iter_mut().for_each(|f| f.acked = true),
+            _ => return,
+        }
+        self.last_heard = Instant::now();
+        self.retries = 0;
+        while self.flight.front().is_some_and(|f| f.acked) {
+            self.flight.pop_front();
+        }
+        self.fill_window(out);
+    }
+
+    /// Stop reading the file being sent (the receiver asked); its end goes
+    /// out, saying to discard it, once the packets out are acknowledged.
+    fn stop_file(&mut self, whole_batch: bool) {
+        if let Role::Send { queue, eof, skip, .. } = &mut self.role {
+            *eof = true;
+            *skip = true;
+            if whole_batch {
+                queue.clear();
+            }
+        }
+        self.pending_data.clear();
+    }
+
+    /// Send data packets until the window is full; at the end of the file,
+    /// once they are all acknowledged, its end.
+    fn fill_window(&mut self, out: &mut Vec<u8>) {
+        while self.flight.len() < self.link.window {
+            let Some(data) = self.next_chunk(out) else { return };
+            if data.is_empty() {
+                break;
+            }
+            self.seq = (self.seq + 1) & 63;
+            let packet = self.link.packet(self.seq, b'D', &data, self.link.chkt);
+            out.extend_from_slice(&packet);
+            self.flight.push_back(Flight { seq: self.seq, packet, acked: false, retries: 0 });
+            self.last_heard = Instant::now();
+        }
+        let at_end = matches!(self.role, Role::Send { eof: true, .. }) && self.pending_data.is_empty();
+        if self.flight.is_empty() && at_end {
+            let skip = matches!(self.role, Role::Send { skip: true, .. });
+            self.seq = (self.seq + 1) & 63;
             self.state = State::Eof;
-            return self.put(b'Z', &[], out);
+            self.put(b'Z', if skip { b"D" } else { b"" }, out);
+        }
+    }
+
+    /// The next data packet's data, empty at the end of the file; None
+    /// when the file could not be read (and the transfer failed).
+    fn next_chunk(&mut self, out: &mut Vec<u8>) -> Option<Vec<u8>> {
+        let room = self.link.room();
+        loop {
+            // Keep enough read ahead to fill a packet even with no
+            // compression.
+            if let Role::Send { file: Some((f, path)), eof, .. } = &mut self.role
+                && !*eof
+                && self.pending_data.len() < room * 2
+            {
+                let mut buf = vec![0u8; room * 4];
+                match f.read(&mut buf) {
+                    Ok(0) => *eof = true,
+                    Ok(n) => self.pending_data.extend_from_slice(&buf[..n]),
+                    Err(e) => {
+                        let msg = format!("reading {}: {e}", path.display());
+                        self.fail(msg, out);
+                        return None;
+                    }
+                }
+            }
+            if !self.pending_data.is_empty() {
+                break;
+            }
+            if matches!(self.role, Role::Send { eof: true, .. } | Role::Send { file: None, .. }) {
+                return Some(Vec::new());
+            }
         }
         let (data, used) = self.link.encode(&self.pending_data, room);
         self.pending_data.drain(..used);
         self.c.progress.file_bytes += used as u64;
-        self.put(b'D', &data, out);
+        Some(data)
+    }
+
+    /// Send the next data packet, or the end of the file.
+    fn send_data(&mut self, out: &mut Vec<u8>) {
+        match self.next_chunk(out) {
+            None => {}
+            Some(data) if data.is_empty() => {
+                self.state = State::Eof;
+                self.put(b'Z', &[], out);
+            }
+            Some(data) => self.put(b'D', &data, out),
+        }
     }
 
     /// Stop sending this file: an end of file that says "discard".
@@ -904,7 +1122,25 @@ mod tests {
     /// Run a sender against a receiver in memory, optionally damaging
     /// every `damage`-th chunk on the way to the receiver.
     fn run(tx: &mut Kermit, rx: &mut Kermit, damage: Option<usize>) {
+        run_lossy(tx, rx, damage, None);
+    }
+
+    /// Drop every `nth` packet, from the start of each packet.
+    fn drop_packets(data: Vec<u8>, nth: usize, count: &mut usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        for packet in data.split_inclusive(|&b| b == CR) {
+            *count += 1;
+            if !count.is_multiple_of(nth) {
+                out.extend_from_slice(packet);
+            }
+        }
+        out
+    }
+
+    /// [`run`], also losing every `lose`-th packet each way.
+    fn run_lossy(tx: &mut Kermit, rx: &mut Kermit, damage: Option<usize>, lose: Option<usize>) {
         let (mut to_rx, mut to_tx) = (Vec::new(), Vec::new());
+        let (mut sent, mut answered) = (0, 0);
         tx.start(&mut to_rx);
         for n in 0..200_000 {
             if tx.c.outcome.is_some() && rx.c.outcome.is_some() {
@@ -915,15 +1151,25 @@ mod tests {
                 let i = data.len() / 2;
                 data[i] ^= 0x01;
             }
+            if let Some(nth) = lose {
+                data = drop_packets(data, nth, &mut sent);
+            }
             rx.c.input(&data);
             rx.pump(&mut to_tx);
-            let data = std::mem::take(&mut to_tx);
+            let mut data = std::mem::take(&mut to_tx);
+            if let Some(nth) = lose {
+                data = drop_packets(data, nth + 2, &mut answered);
+            }
             tx.c.input(&data);
             tx.pump(&mut to_rx);
             if to_rx.is_empty() && to_tx.is_empty() {
-                // Lost to damage: what a timeout would do.
+                // Lost to damage: what a timeout would do, on either side.
                 tx.last_heard = Instant::now() - TIMEOUT;
                 tx.tick(Instant::now(), &mut to_rx);
+                if n % 2 == 1 {
+                    rx.last_heard = Instant::now() - TIMEOUT;
+                    rx.tick(Instant::now(), &mut to_tx);
+                }
             }
         }
         panic!("transfer did not finish");
@@ -977,6 +1223,51 @@ mod tests {
         run(&mut tx, &mut rx, Some(7));
         assert!(matches!(rx.c.outcome, Some(Outcome::Completed(_))), "{:?}", rx.c.outcome);
         assert_eq!(fs::read(dst.join("a.dat")).unwrap(), data);
+    }
+
+    #[test]
+    fn sliding_windows_survive_lost_packets() {
+        let (src, dst) = (temp_dir("wsrc"), temp_dir("wdst"));
+        let data: Vec<u8> = (0..300_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 9) as u8).collect();
+        fs::write(src.join("w.dat"), &data).unwrap();
+        fs::write(src.join("x.dat"), &data[..5000]).unwrap();
+        // Packets go out ahead of their ACKs.
+        let mut tx = Kermit::send(vec![src.join("w.dat")]).unwrap();
+        let mut rx = Kermit::receive(dst.clone());
+        let mut out = Vec::new();
+        tx.start(&mut out);
+        rx.c.input(&out);
+        let mut back = Vec::new();
+        rx.pump(&mut back);
+        tx.c.input(&back);
+        let mut out = Vec::new();
+        tx.pump(&mut out);
+        while tx.state != State::Data {
+            let mut back = Vec::new();
+            rx.c.input(&std::mem::take(&mut out));
+            rx.pump(&mut back);
+            tx.c.input(&back);
+            tx.pump(&mut out);
+        }
+        assert_eq!((tx.link.window, tx.flight.len()), (WINDOW, WINDOW));
+        assert_eq!(out.iter().filter(|&&b| b == SOH).count(), WINDOW);
+        // The whole way, losing packets both ways, and damaging some.
+        for (lose, damage) in [(Some(5), None), (Some(13), Some(9)), (Some(3), None)] {
+            let dst = temp_dir("wdst2");
+            let mut tx = Kermit::send(vec![src.join("w.dat"), src.join("x.dat")]).unwrap();
+            let mut rx = Kermit::receive(dst.clone());
+            run_lossy(&mut tx, &mut rx, damage, lose);
+            assert!(matches!(rx.c.outcome, Some(Outcome::Completed(_))), "{lose:?}: {:?}", rx.c.outcome);
+            assert!(matches!(tx.c.outcome, Some(Outcome::Completed(_))), "{lose:?}: {:?}", tx.c.outcome);
+            assert_eq!(fs::read(dst.join("w.dat")).unwrap(), data, "{lose:?}");
+            assert_eq!(fs::read(dst.join("x.dat")).unwrap(), &data[..5000]);
+        }
+        // A Kermit without windows gets one packet at a time.
+        let mut old = Params::ours();
+        old.capas &= !CAP_WINDOWS;
+        let theirs = Params::decode(&old.encode());
+        assert_eq!(Link::agree(&Params::ours(), &theirs).window, 1);
+        assert_eq!(Params::decode(&Params::ours().encode()).window, WINDOW);
     }
 
     #[test]

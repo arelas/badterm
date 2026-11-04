@@ -120,3 +120,29 @@ fn upload_to_c_kermit() {
     assert!(status.success(), "C-Kermit: {status}");
     assert_eq!(std::fs::read(dst.join("upload.bin")).unwrap(), data);
 }
+
+#[test]
+fn sliding_windows_with_c_kermit() {
+    if kermit().is_none() {
+        return;
+    }
+    // C-Kermit offers a window by default, so the tests above use ours
+    // (16). Down: a smaller one, of 4.
+    let (src, dst) = (temp_dir("wsrc"), temp_dir("wdst"));
+    let data = test_data(300_000);
+    std::fs::write(src.join("BIG.DAT"), &data).unwrap();
+    let rx = Transfer::Kermit(Kermit::receive(dst.clone()));
+    let (outcome, mut child) = run(&["-v", "4", "-s", "BIG.DAT"], &src, rx);
+    let _ = child.kill();
+    assert_eq!(outcome, Outcome::Completed(vec![dst.join("BIG.DAT")]));
+    assert_eq!(std::fs::read(dst.join("BIG.DAT")).unwrap(), data);
+    // Up: C-Kermit takes a larger one, so ours is used; it saves the
+    // name in lower case.
+    let up = temp_dir("wup");
+    let tx = Transfer::Kermit(Kermit::send(vec![src.join("BIG.DAT")]).unwrap());
+    let (outcome, mut child) = run(&["-v", "31", "-r"], &up, tx);
+    let status = child.wait().unwrap();
+    assert_eq!(outcome, Outcome::Completed(vec![src.join("BIG.DAT")]));
+    assert!(status.success(), "C-Kermit: {status}");
+    assert_eq!(std::fs::read(up.join("big.dat")).unwrap(), data);
+}

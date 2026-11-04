@@ -66,10 +66,10 @@ fonts and colors of a host terminal.
   BBSes and doors that offer them: start the BBS's side, then `Alt-G` to
   download or `Alt-U` to upload. YMODEM keeps file names and sizes and sends
   several files; XMODEM asks what to save a download as.
-- **Kermit**, with long packets, CRC checks, compression and file sizes, as
-  C-Kermit and G-Kermit speak it: a download starts by itself when the
-  BBS's Kermit sends; to upload, start the BBS's Kermit receiving, then
-  `Alt-U` and choose Kermit.
+- **Kermit**, with long packets, sliding windows, CRC checks, compression
+  and file sizes, as C-Kermit and G-Kermit speak it: a download starts by
+  itself when the BBS's Kermit sends; to upload, start the BBS's Kermit
+  receiving, then `Alt-U` and choose Kermit.
 - **A file picker** for uploads: browse folders, mark several files with
   `Space`, or press `Tab` to type a path
 - **An ANSI viewer** (`Alt-F`, `badterm file.ans`, or drop a file on the

@@ -133,7 +133,7 @@ The next things to do, in order.
 
 ## File transfer
 
-- [x] Kermit (not yet: sliding windows)
+- [x] Kermit, with sliding windows
 - [ ] Per-entry upload/download directories
 
 ## Dialer and UI
