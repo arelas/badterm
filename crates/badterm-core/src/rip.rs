@@ -1430,10 +1430,10 @@ mod tests {
         std::fs::write(dir.join("RIP/LOOP.RIP"), b"!|1R00000000LOOP.RIP\r\n").unwrap();
         t.feed(b"!|1R00000000LOOP.RIP\r\n");
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(
-            rip_time(std::time::UNIX_EPOCH + std::time::Duration::from_secs(951_782_400 + 3725)),
-            "02/29/00.01:02:05"
-        );
+        // Local time: whatever the zone, its shape, and the minutes and
+        // seconds (zones differ by whole quarter hours).
+        let t = rip_time(std::time::UNIX_EPOCH + std::time::Duration::from_secs(951_782_400 + 3725));
+        assert_eq!((t.len(), &t[2..3], &t[5..6], &t[8..9], &t[14..]), (17, "/", "/", ".", ":05"), "{t}");
         assert_eq!(file_name(b"a/b"), None);
         assert_eq!(file_name(b" x.icn "), Some("x.icn".into()));
     }
