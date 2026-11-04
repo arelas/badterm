@@ -111,9 +111,11 @@ The next things to do, in order.
 
 - [x] CTerm's loadable fonts, and xterm mouse reporting (9, 1000, 1002,
       1003, 1006, 1016)
-- [ ] More CTerm: the other built-in font IDs (code pages), bracketed paste
-- [ ] More built-in fonts: CP437 8x14, other code pages (850, 866, ...),
-      custom `.fnt`/`.psf` from disk; Amiga fonts in 8-line modes
+- [x] CTerm's built-in code-page fonts (IDs 1-31), and bracketed paste
+- [ ] Typing in the code page the BBS's font is in (Cyrillic keys sent as
+      CP866 or KOI8-R, say), rather than CP437
+- [ ] More fonts: CP437 8x14, custom `.fnt`/`.psf` from disk; Amiga fonts
+      in 8-line modes
 - [x] Device Attributes identify as CTerm (1.332), for SyncTERM's extensions
 - [ ] More screen modes: 40-column, resizable
 - [x] Avatar/0+ emulation

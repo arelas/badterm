@@ -59,7 +59,8 @@ Options:
     --nine-dot      9-dot characters
     --aspect        4:3, as on a CRT
     --font NAME     topaz, topaz-plus, microknight, microknight-plus,
-                    p0t-noodle or mosoul (Amiga art)
+                    p0t-noodle or mosoul (Amiga art), or a code page:
+                    cp866, koi8-r, cp1251, iso-8859-2, cp850, ...
     --bezel NAME    draw a monitor bezel around it (as in the settings,
                     e.g. 'Beige, 1980s', or one of your own)
   -h, --help      Show this help
@@ -115,6 +116,9 @@ fn parse_args() -> Result<Command, String> {
                     .iter()
                     .find(|(_, n)| slug(n) == slug(&name))
                     .map(|&(id, _)| id)
+                    .or_else(|| {
+                        render::CODEPAGE_FONTS.iter().find(|(_, n, _)| slug(n) == slug(&name)).map(|&(id, ..)| id)
+                    })
                     .ok_or_else(|| format!("unknown font {name}"))?;
             }
             "--glow" => {

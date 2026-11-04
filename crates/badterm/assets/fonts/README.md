@@ -47,3 +47,17 @@ punctuation are the VGA 8x8 font's above, and the graphics characters are
 drawn by rules in the script (so is the Atari's `|`, a solid bar there
 where the VGA's has a gap). Which character goes where follows Rebecca
 Bettencourt's mapping tables (https://github.com/kreativekorp/charset).
+
+## codepages_8x16.bin and codepages_8x8.bin
+
+CTerm's built-in code-page fonts, IDs 1 to 31 in order (Cyrillic, Greek,
+Hebrew, Turkish, Baltic, Central and West European, Armenian, CP850, CP865,
+CP866, KOI8-R and -U and the rest, as SyncTERM numbers and names them in
+`CSI n ; m SP D`): 31 fonts of 256 glyphs, 16 (or 8) bytes each. Extracted
+from `conio_fontdata` in `src/conio/allfonts.c` of Synchronet
+(<https://gitlab.synchro.net/main/sbbs>), part of its conio library,
+Copyright Rob Swindell, distributed under the GNU Lesser General Public
+License version 2.1 or (at your option) any later version, and used here
+under the terms of GPL version 3 or later. Where it has no 8x8 version of a
+font (IDs 1, 4, 5, 6, 10, 12, 13, 22, 27, 30 and 31), the 8x8 one here is
+made from the 8x16 by joining each pair of rows.

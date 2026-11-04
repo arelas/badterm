@@ -17,8 +17,45 @@ pub struct Font {
     pub id: u8,
 }
 
-/// The fonts BadTerm has besides CP437, by CTerm font ID (as SyncTERM
-/// numbers them), with their names. All are 8x16.
+/// CTerm's built-in code-page fonts (IDs 1-31, as SyncTERM numbers them),
+/// with short names and their languages: SyncTERM's own bitmaps, at 8x16
+/// and 8x8 (see assets/fonts/README.md).
+pub const CODEPAGE_FONTS: [(u8, &str, &str); 31] = [
+    (1, "CP1251 swiss", "Cyrillic"),
+    (2, "KOI8-R", "Russian"),
+    (3, "ISO-8859-2", "Central European"),
+    (4, "ISO-8859-4 wide9", "Baltic"),
+    (5, "CP866 (c)", "Russian"),
+    (6, "ISO-8859-9", "Turkish"),
+    (7, "haik8", "Armenian"),
+    (8, "ISO-8859-8", "Hebrew"),
+    (9, "KOI8-U", "Ukrainian"),
+    (10, "ISO-8859-15 thin", "West European"),
+    (11, "ISO-8859-4 9bit", "Baltic"),
+    (12, "KOI8-R (b)", "Russian"),
+    (13, "ISO-8859-4 wide", "Baltic"),
+    (14, "ISO-8859-5", "Cyrillic"),
+    (15, "ARMSCII-8", "Armenian"),
+    (16, "ISO-8859-15", "West European"),
+    (17, "CP850 thin", "Latin I"),
+    (18, "CP850", "Latin I"),
+    (19, "CP865 thin", "Nordic"),
+    (20, "CP1251", "Cyrillic"),
+    (21, "ISO-8859-7", "Greek"),
+    (22, "KOI8-R (c)", "Russian"),
+    (23, "ISO-8859-4", "Baltic"),
+    (24, "ISO-8859-1", "West European"),
+    (25, "CP866", "Russian"),
+    (26, "CP437 thin", "English"),
+    (27, "CP866 (b)", "Russian"),
+    (28, "CP865", "Nordic"),
+    (29, "CP866U", "Ukrainian"),
+    (30, "ISO-8859-1 thin", "West European"),
+    (31, "CP1131 swiss", "Belarusian"),
+];
+
+/// The Amiga fonts BadTerm has, by CTerm font ID, with their names. All
+/// are 8x16.
 pub const EXTRA_FONTS: [(u8, &str); 6] = [
     (42, "Topaz"),
     (40, "Topaz Plus"),
@@ -55,6 +92,16 @@ impl Font {
         }
         if id == badterm_core::viewdata::FONT {
             return Font::viewdata(base);
+        }
+        // The code pages: 8x16, or 8x8 in the 43- and 50-line modes.
+        if (1..=31).contains(&id) {
+            static TALL: &[u8] = include_bytes!("../assets/fonts/codepages_8x16.bin");
+            static SHORT: &[u8] = include_bytes!("../assets/fonts/codepages_8x8.bin");
+            let i = id as usize - 1;
+            return match base.height {
+                8 => Font { height: 8, data: &SHORT[i * 2048..][..2048], id },
+                _ => Font { height: 16, data: &TALL[i * 4096..][..4096], id },
+            };
         }
         let data: &'static [u8] = match (id, base.height) {
             (42, 16) => include_bytes!("../assets/fonts/amiga/topaz_a1200.bin"),
@@ -701,6 +748,22 @@ mod tests {
             let stem = path.file_stem().unwrap().to_string_lossy().to_lowercase().replace(' ', "-");
             png(&out, w, h, out_dir.join(format!("bezel-{stem}.png")));
         }
+    }
+
+    #[test]
+    fn code_page_fonts() {
+        // KOI8-R (2) puts Cyrillic in the top half, where CP437 has box
+        // drawing: the same byte, another glyph.
+        let vga = Font::vga_8x16();
+        let koi = Font::cterm(2, vga);
+        assert_eq!((koi.height, koi.id), (16, 2));
+        assert!((0..16).any(|y| koi.row(0xC1, y) != vga.row(0xC1, y)));
+        // ASCII is the same shape in both, near enough to have glyphs.
+        assert!((0..16).any(|y| koi.row(b'A', y) != 0));
+        // 8-line modes get the 8x8 (made from the 8x16 where SyncTERM has none).
+        let small = Font::cterm(1, Font::vga_8x8());
+        assert_eq!(small.height, 8);
+        assert!((0..8).any(|y| small.row(b'A', y) != 0));
     }
 
     #[test]

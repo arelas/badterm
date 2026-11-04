@@ -162,6 +162,9 @@ pub struct Terminal {
     pub syncterm: crate::syncterm::SyncTerm,
     /// The mouse reporting the BBS has asked for.
     pub mouse: crate::mouse::MouseModes,
+    /// `CSI ? 2004 h`: pasted text comes between `ESC [ 200 ~` and
+    /// `ESC [ 201 ~`, so the BBS can tell it from typing.
+    pub bracketed_paste: bool,
     private: u8,
     intermediate: u8,
     params: Vec<u32>,
@@ -202,6 +205,7 @@ impl Terminal {
             dcs: Vec::new(),
             syncterm: Default::default(),
             mouse: Default::default(),
+            bracketed_paste: false,
             private: 0,
             intermediate: 0,
             params: Vec::with_capacity(MAX_PARAMS),
@@ -283,6 +287,19 @@ impl Terminal {
         let (x, y) = igs.cursor();
         self.screen.move_to(x, y);
         self.screen.cursor_visible = igs.cursor_on;
+    }
+
+    /// Pasted text, as the BBS should get it: in brackets if it asked for
+    /// them (with any escape taken out, so the text can't end them early).
+    pub fn paste(&self, text: &str) -> Vec<u8> {
+        if !self.bracketed_paste {
+            return self.encoding.encode_text(text);
+        }
+        let text: String = text.chars().filter(|&c| c != '\x1b').collect();
+        let mut out = b"\x1b[200~".to_vec();
+        out.extend(self.encoding.encode_text(&text));
+        out.extend_from_slice(b"\x1b[201~");
+        out
     }
 
     /// Bytes the terminal wants sent to the remote (e.g. CPR replies).
@@ -568,6 +585,7 @@ impl Terminal {
             b'c' => {
                 self.screen.reset();
                 self.mouse = Default::default();
+                self.bracketed_paste = false;
             }
             b'D' => self.screen.line_feed(),
             b'E' => {
@@ -862,6 +880,7 @@ impl Terminal {
                     (34, l.blink_font),
                     (35, l.blink_steady),
                     (80, self.sixel_display_mode),
+                    (2004, self.bracketed_paste),
                 ];
                 let mut modes: Vec<String> = set.iter().filter(|m| m.1).map(|m| m.0.to_string()).collect();
                 modes.extend(self.mouse.set_modes().iter().map(|m| m.to_string()));
@@ -912,6 +931,7 @@ impl Terminal {
             match mode {
                 7 => self.screen.autowrap = on,
                 80 => self.sixel_display_mode = on,
+                2004 => self.bracketed_paste = on,
                 25 => self.screen.cursor_visible = on,
                 // CTerm: blink attribute selects bright background (iCE colors).
                 // CTerm: bright and blink select fonts, and need not
@@ -1236,6 +1256,16 @@ mod tests {
         t.feed(dcs.replace(":43:", ":45:").as_bytes());
         let (a, b) = (t.screen.look.loaded_font(43).unwrap(), t.screen.look.loaded_font(45).unwrap());
         assert!(std::ptr::eq(a.data, b.data));
+    }
+
+    #[test]
+    fn bracketed_paste() {
+        let mut t = term();
+        assert_eq!(t.paste("hi\r"), b"hi\r");
+        t.feed(b"\x1b[?2004h");
+        assert_eq!(t.paste("a\x1b[201~b"), b"\x1b[200~a[201~b\x1b[201~");
+        t.feed(b"\x1bc");
+        assert!(!t.bracketed_paste);
     }
 
     #[test]

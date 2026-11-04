@@ -10,7 +10,7 @@ use badterm_core::screen::{Cell, Screen};
 
 use super::*;
 use crate::input::{Key, Mods};
-use crate::render::EXTRA_FONTS;
+use crate::render::{CODEPAGE_FONTS, EXTRA_FONTS};
 use crate::secrets::{self, Store};
 
 pub const COLS: usize = 80;
@@ -397,7 +397,10 @@ impl DialerUi {
                     form.mode = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_FONT => {
-                    let all: Vec<u8> = std::iter::once(0).chain(EXTRA_FONTS.iter().map(|&(id, _)| id)).collect();
+                    let all: Vec<u8> = std::iter::once(0)
+                        .chain(EXTRA_FONTS.iter().map(|&(id, _)| id))
+                        .chain(CODEPAGE_FONTS.iter().map(|&(id, ..)| id))
+                        .collect();
                     let i = all.iter().position(|&f| f == form.font).unwrap_or(0);
                     let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
                     form.font = all[next];
@@ -739,8 +742,8 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
             }
             F_FONT => {
                 text(s, fx, yy, fw, &format!("\u{25C4} {:<16} \u{25BA}", font_name(form.font)), fg, bg);
-                if form.font != 0 {
-                    label(s, fx + 21, yy, "(Amiga)", t.note.fg(), bg);
+                if let Some(note) = font_note(form.font) {
+                    label(s, fx + 21, yy, &format!("({note})"), t.note.fg(), bg);
                 }
             }
             F_ICE => {
@@ -815,7 +818,20 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
 }
 
 fn font_name(id: u8) -> &'static str {
-    EXTRA_FONTS.iter().find(|&&(f, _)| f == id).map_or("CP437 (IBM PC)", |&(_, name)| name)
+    EXTRA_FONTS
+        .iter()
+        .find(|&&(f, _)| f == id)
+        .map(|&(_, name)| name)
+        .or_else(|| CODEPAGE_FONTS.iter().find(|&&(f, ..)| f == id).map(|&(_, name, _)| name))
+        .unwrap_or("CP437 (IBM PC)")
+}
+
+/// What a font is for, beside its name in the entry form.
+fn font_note(id: u8) -> Option<&'static str> {
+    if EXTRA_FONTS.iter().any(|&(f, _)| f == id) {
+        return Some("Amiga");
+    }
+    CODEPAGE_FONTS.iter().find(|&&(f, ..)| f == id).map(|&(.., lang)| lang)
 }
 
 #[cfg(test)]

@@ -369,7 +369,7 @@ impl App {
             Err(e) => return self.notify(format!("Paste failed: {e}")),
         };
         let text = text.replace("\r\n", "\r").replace('\n', "\r");
-        let bytes = session.term.encoding.encode_text(&text);
+        let bytes = session.term.paste(&text);
         session.send(&bytes);
     }
 

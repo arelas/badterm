@@ -23,11 +23,13 @@ fonts and colors of a host terminal.
 - **ANSI-BBS emulation**: cursor movement, erase/insert/delete, scroll regions,
   save/restore cursor, cursor position reports (used by BBSes to detect ANSI),
   CP437 "graphic" control characters, form feed clears the screen
-- **Fonts**: the IBM VGA fonts, and the Amiga fonts (Topaz, Topaz Plus,
-  MicroKnight, MicroKnight Plus, P0T-NOoDLE, mO'sOul) for Amiga BBSes: set
-  per directory entry, or by the BBS with CTerm's font selection
-  (`CSI n ; m SP D`, including the bright and blink font slots of
-  `CSI ?31h` / `?34h`)
+- **Fonts**: the IBM VGA fonts; the Amiga fonts (Topaz, Topaz Plus,
+  MicroKnight, MicroKnight Plus, P0T-NOoDLE, mO'sOul) for Amiga BBSes; and
+  SyncTERM's 31 code-page fonts (Cyrillic in CP866, KOI8-R and CP1251,
+  Greek, Hebrew, Turkish, Baltic, Central and West European, Armenian,
+  CP850, CP865...) for BBSes in other languages: set per directory entry,
+  or by the BBS with CTerm's font selection (`CSI n ; m SP D`, including
+  the bright and blink font slots of `CSI ?31h` / `?34h`)
 - **Palette changes** from the BBS (`OSC 4`, reset with `OSC 104`), as
   SyncTERM does
 - **Colors**: 16-color VGA palette with bold-as-bright, **iCE colors** (blink
@@ -133,7 +135,8 @@ fonts and colors of a host terminal.
 - **The mouse for the BBS**: a BBS or door that asks for the mouse (xterm's
   modes 9, 1000, 1002, 1003, 1006 and 1016, as Synchronet's doors use them)
   gets your clicks, drags, movement and wheel, as text cells or pixels.
-  Hold `Shift` to select and copy text instead.
+  Hold `Shift` to select and copy text instead. Pasting goes in brackets
+  (`ESC [ 200 ~` ... `201 ~`) when the BBS asks for that (`CSI ? 2004 h`).
 - **Fonts from the BBS**: fonts a BBS sends (CTerm's loadable fonts, 8x16,
   8x14 or 8x8, by `DCS`, the older `CSI = n ; n {` or from SyncTERM's
   cache) are used where the BBS selects them, stretched to the screen's
@@ -516,7 +519,8 @@ BadTerm is free software, licensed under the GNU General Public License,
 version 3 or (at your option) any later version. See [LICENSE](LICENSE).
 
 The bundled VGA fonts come from DOSBox (GPL-2.0-or-later), and the Amiga
-fonts from TrueSchool's collection (GPL with the font exception); the C64,
+fonts from TrueSchool's collection (GPL with the font exception), the
+code-page fonts from Synchronet's SyncTERM (LGPL-2.1-or-later); the C64,
 Atari and 6x6 fonts are BadTerm's own. See
 [crates/badterm/assets/fonts/README.md](crates/badterm/assets/fonts/README.md)
 and [crates/badterm-core/assets/README.md](crates/badterm-core/assets/README.md).
