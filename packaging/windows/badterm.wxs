@@ -1,8 +1,8 @@
 <!--
   WiX (v5) source for BadTerm's MSI, for managed Windows deployments
-  (paths are from the repository root, where it is built)
   (Intune, Group Policy, SCCM); the Inno Setup installer (badterm.iss) is
-  the one for people.
+  the one for people. Built from the repository root, which its paths are
+  relative to:
 
     wix build -arch x64 -d Version=0.3.5 -o dist\badterm-v0.3.5-windows-x64.msi packaging\windows\badterm.wxs
 
