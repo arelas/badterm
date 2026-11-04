@@ -386,10 +386,12 @@ impl App {
             (0..sc.scrollback_len()).map(|i| sc.scrollback_line(i)).chain((0..sc.rows()).map(|y| sc.row(y))).collect();
         let (data, what) = match format {
             SaveFormat::Ansi => {
-                let opts = AnsiOptions { ice: sc.ice_colors, unicode: false };
+                let opts = AnsiOptions { ice: sc.ice_colors, unicode: false, codepage: None };
                 (export::ansi(&all, opts), format!("{} lines", all.len()))
             }
-            SaveFormat::Text => (export::text(&all).into_bytes(), format!("{} lines", all.len())),
+            SaveFormat::Text => {
+                (export::text_in(&all, session.term.codepage()).into_bytes(), format!("{} lines", all.len()))
+            }
             SaveFormat::Png => {
                 let mut r = Renderer::new(Font::vga_8x16(), sc.cols(), sc.rows());
                 let font = if Font::eight_only(sc.look.fonts[0]) { Font::vga_8x8() } else { Self::font_for(sc.rows()) };

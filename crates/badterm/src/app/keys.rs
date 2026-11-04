@@ -335,7 +335,7 @@ impl App {
             _ if session.state == State::Closed => {}
             Key::Insert if mods.shift => self.paste(),
             _ => {
-                let bytes = input::encode(key, mods, session.term.encoding);
+                let bytes = input::encode(key, mods, session.term.encoding, session.term.codepage());
                 if !bytes.is_empty() {
                     session.term.interrupt();
                     session.send(&bytes);

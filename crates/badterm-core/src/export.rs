@@ -2,14 +2,22 @@
 //! and ANSI as BBS art viewers and editors expect it (CP437 bytes for `.ans`
 //! files, or Unicode for pasting).
 
+use crate::codepage::CodePage;
 use crate::cp437;
 use crate::palette::ANSI_TO_VGA;
 use crate::screen::{Cell, Color, DEFAULT_BG, DEFAULT_FG, flags};
 
 /// Plain text, one line per row, trailing blanks and blank lines trimmed.
 pub fn text(lines: &[&[Cell]]) -> String {
-    let mut out: Vec<String> =
-        lines.iter().map(|row| row.iter().map(|c| glyph(c.ch)).collect::<String>().trim_end().to_string()).collect();
+    text_in(lines, None)
+}
+
+/// [`text`], from a screen in a code page other than CP437.
+pub fn text_in(lines: &[&[Cell]], codepage: Option<&CodePage>) -> String {
+    let mut out: Vec<String> = lines
+        .iter()
+        .map(|row| row.iter().map(|c| glyph(c.ch, codepage)).collect::<String>().trim_end().to_string())
+        .collect();
     while out.last().is_some_and(String::is_empty) {
         out.pop();
     }
@@ -28,6 +36,8 @@ pub struct AnsiOptions {
     pub ice: bool,
     /// Write glyphs as UTF-8 instead of CP437 bytes (for the clipboard).
     pub unicode: bool,
+    /// The code page the screen is in, if not CP437 (for `unicode`).
+    pub codepage: Option<&'static CodePage>,
 }
 
 /// ANSI with SGR attributes, one CRLF-terminated line per row. Trailing
@@ -50,7 +60,7 @@ pub fn ansi(lines: &[&[Cell]], opts: AnsiOptions) -> Vec<u8> {
             }
             if opts.unicode {
                 let mut buf = [0; 4];
-                out.extend_from_slice(glyph(c.ch).encode_utf8(&mut buf).as_bytes());
+                out.extend_from_slice(glyph(c.ch, opts.codepage).encode_utf8(&mut buf).as_bytes());
             } else {
                 out.push(safe_byte(c.ch));
             }
@@ -63,8 +73,14 @@ pub fn ansi(lines: &[&[Cell]], opts: AnsiOptions) -> Vec<u8> {
     out
 }
 
-fn glyph(ch: u8) -> char {
-    if ch == 0 { ' ' } else { cp437::to_unicode(ch) }
+/// A glyph as Unicode: in the code page, if there is one and it has a
+/// character there (ISO-8859's 0x80-0x9F are controls: CP437's glyph then).
+fn glyph(ch: u8, codepage: Option<&CodePage>) -> char {
+    match codepage.map(|cp| cp.decode(ch)) {
+        _ if ch == 0 => ' ',
+        Some(c) if ch >= 0x80 && !c.is_control() && c != '\u{fffd}' => c,
+        _ => cp437::to_unicode(ch),
+    }
 }
 
 /// CP437 glyphs that would act as control codes in a file are written as
@@ -165,11 +181,23 @@ mod tests {
         let mut t = Terminal::new(10, 2, 0);
         t.screen.put(0x1B);
         t.screen.put(0x01);
-        let raw = ansi(&rows(&t), AnsiOptions { ice: true, unicode: false });
+        let raw = ansi(&rows(&t), AnsiOptions { ice: true, unicode: false, codepage: None });
         assert_eq!(raw, b"\x1b[?33h\x1b[0m \x01\r\n");
-        let uni = ansi(&rows(&t), AnsiOptions { ice: false, unicode: true });
+        let uni = ansi(&rows(&t), AnsiOptions { ice: false, unicode: true, codepage: None });
         assert_eq!(String::from_utf8(uni).unwrap(), "\x1b[0m\u{2190}\u{263A}\r\n");
         // Nothing at all.
         assert_eq!(ansi(&rows(&Terminal::new(10, 2, 0)), AnsiOptions::default()), b"\x1b[0m");
+    }
+
+    #[test]
+    fn copying_from_a_code_page() {
+        let mut t = Terminal::new(20, 2, 0);
+        t.feed(&[0x8F, 0xE0, 0xA8, 0xA2, 0xA5, 0xE2, b' ', 0xC9, 0xCD]);
+        let cp866 = crate::codepage::for_font(25);
+        assert_eq!(text_in(&rows(&t), cp866), "Привет ╔═\n");
+        // ISO-8859's controls (0x80-0x9F) are copied as CP437's glyphs.
+        let mut t = Terminal::new(4, 1, 0);
+        t.feed(&[0x81, 0xE9]);
+        assert_eq!(text_in(&rows(&t), crate::codepage::for_font(24)), "üé\n");
     }
 }

@@ -95,7 +95,12 @@ pub fn translate(event: &KeyEvent) -> Option<Key> {
 
 /// Encode a key for the remote system using ANSI-BBS conventions (or a
 /// C64's or Atari's).
-pub fn encode(key: Key, mods: Mods, encoding: Encoding) -> Vec<u8> {
+pub fn encode(
+    key: Key,
+    mods: Mods,
+    encoding: Encoding,
+    codepage: Option<&badterm_core::codepage::CodePage>,
+) -> Vec<u8> {
     match encoding {
         Encoding::Petscii => return encode_petscii(key, mods),
         Encoding::Atascii => return encode_atascii(key, mods),
@@ -118,8 +123,10 @@ pub fn encode(key: Key, mods: Mods, encoding: Encoding) -> Vec<u8> {
                     _ => vec![],
                 };
             }
-            return match encoding {
-                Encoding::Utf8 => c.to_string().into_bytes(),
+            return match (encoding, codepage) {
+                (Encoding::Utf8, _) => c.to_string().into_bytes(),
+                // The BBS's code page, when it shows its screen in one.
+                (_, Some(cp)) => cp.encode(c).map(|b| vec![b]).unwrap_or_default(),
                 _ => cp437::from_unicode(c).map(|b| vec![b]).unwrap_or_default(),
             };
         }

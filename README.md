@@ -29,7 +29,10 @@ fonts and colors of a host terminal.
   Greek, Hebrew, Turkish, Baltic, Central and West European, Armenian,
   CP850, CP865...) for BBSes in other languages: set per directory entry,
   or by the BBS with CTerm's font selection (`CSI n ; m SP D`, including
-  the bright and blink font slots of `CSI ?31h` / `?34h`)
+  the bright and blink font slots of `CSI ?31h` / `?34h`). With a
+  code-page font on the screen, what you type and paste is sent in that
+  code page (Cyrillic as CP866 or KOI8-R, say), and text you copy comes
+  out as the characters it shows
 - **Palette changes** from the BBS (`OSC 4`, reset with `OSC 104`), as
   SyncTERM does
 - **Colors**: 16-color VGA palette with bold-as-bright, **iCE colors** (blink

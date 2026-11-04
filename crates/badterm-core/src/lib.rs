@@ -8,6 +8,7 @@ pub mod atascii;
 pub mod audio;
 pub mod autologin;
 pub mod avatar;
+pub mod codepage;
 pub mod cp437;
 pub mod dialer;
 pub mod export;

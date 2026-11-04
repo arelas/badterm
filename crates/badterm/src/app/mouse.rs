@@ -178,10 +178,11 @@ impl App {
         let rows = terminal_rows(session, self.scroll);
         let lines = sel.lines(&rows);
         let text = if as_ansi {
-            let opts = AnsiOptions { ice: session.term.screen.ice_colors, unicode: true };
+            let opts =
+                AnsiOptions { ice: session.term.screen.ice_colors, unicode: true, codepage: session.term.codepage() };
             String::from_utf8_lossy(&export::ansi(&lines, opts)).into_owned()
         } else {
-            export::text(&lines).trim_end_matches('\n').to_string()
+            export::text_in(&lines, session.term.codepage()).trim_end_matches('\n').to_string()
         };
         let msg = match arboard::Clipboard::new().and_then(|mut c| c.set_text(text)) {
             Ok(()) if as_ansi => "Copied as ANSI".to_string(),

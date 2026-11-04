@@ -316,15 +316,32 @@ impl Terminal {
         self.screen.cursor_visible = igs.cursor_on;
     }
 
+    /// The code page the BBS's text is in, when it has chosen a code-page
+    /// font for its screen (CP866, KOI8-R...): typing, pasting and copying
+    /// go through it rather than CP437.
+    pub fn codepage(&self) -> Option<&'static crate::codepage::CodePage> {
+        matches!(self.encoding, Encoding::Cp437 | Encoding::Avatar | Encoding::Rip)
+            .then(|| crate::codepage::for_font(self.screen.look.fonts[0]))
+            .flatten()
+    }
+
+    /// Text typed or pasted, as the BBS expects its bytes.
+    pub fn encode_text(&self, text: &str) -> Vec<u8> {
+        match self.codepage() {
+            Some(cp) => cp.encode_str(&text.replace("\r\n", "\r")),
+            None => self.encoding.encode_text(text),
+        }
+    }
+
     /// Pasted text, as the BBS should get it: in brackets if it asked for
     /// them (with any escape taken out, so the text can't end them early).
     pub fn paste(&self, text: &str) -> Vec<u8> {
         if !self.bracketed_paste {
-            return self.encoding.encode_text(text);
+            return self.encode_text(text);
         }
         let text: String = text.chars().filter(|&c| c != '\x1b').collect();
         let mut out = b"\x1b[200~".to_vec();
-        out.extend(self.encoding.encode_text(&text));
+        out.extend(self.encode_text(&text));
         out.extend_from_slice(b"\x1b[201~");
         out
     }
@@ -1334,6 +1351,19 @@ mod tests {
         t.feed(dcs.replace(":43:", ":45:").as_bytes());
         let (a, b) = (t.screen.look.loaded_font(43).unwrap(), t.screen.look.loaded_font(45).unwrap());
         assert!(std::ptr::eq(a.data, b.data));
+    }
+
+    #[test]
+    fn typing_in_the_bbs_code_page() {
+        let mut t = term();
+        assert_eq!(t.encode_text("é"), [0x82]);
+        // The BBS picks CP866 (font 25) for its screen.
+        t.feed(b"\x1b[0;25 D");
+        assert_eq!(t.encode_text("Да"), [0x84, 0xA0]);
+        assert_eq!(t.paste("Ж\r"), [0x86, b'\r']);
+        // UTF-8 sessions stay UTF-8.
+        t.encoding = Encoding::Utf8;
+        assert!(t.codepage().is_none());
     }
 
     #[test]
