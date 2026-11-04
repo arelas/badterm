@@ -49,6 +49,9 @@ md5 = "0.8"
 # reference decoder to 5e-5 in our tests, and is quick).
 ogg = "0.9.2"
 rusty-opus = "1.0.2"
+# And FLAC and Ogg Vorbis (pure Rust).
+claxon = "0.4.3"
+lewton = "0.10.2"
 
 [profile.release]
 lto = "thin"

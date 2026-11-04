@@ -28,15 +28,81 @@ const MAX_FRAMES: usize = RATE as usize * 600;
 /// Interleaved stereo frames (left, right) at [`RATE`].
 pub type Pcm = Arc<[i16]>;
 
+/// A sound in a slot or on a channel. Its length is known at once; its
+/// frames once they're decoded, which for the slow formats (Opus, Vorbis,
+/// FLAC) happens on a thread of its own, so the screen doesn't wait.
+#[derive(Clone)]
+pub struct Sound(Arc<SoundData>);
+
+struct SoundData {
+    frames: usize,
+    pcm: std::sync::OnceLock<Pcm>,
+}
+
+impl Sound {
+    pub fn ready(pcm: Pcm) -> Sound {
+        let data = SoundData { frames: pcm.len() / 2, pcm: std::sync::OnceLock::new() };
+        let _ = data.pcm.set(pcm);
+        Sound(Arc::new(data))
+    }
+
+    /// A sound `frames` long, decoded by `decode` on another thread (to
+    /// nothing, if that fails).
+    fn decoded_later(frames: usize, decode: impl FnOnce() -> Option<Vec<i16>> + Send + 'static) -> Sound {
+        let sound = Sound(Arc::new(SoundData { frames, pcm: std::sync::OnceLock::new() }));
+        let fill = sound.0.clone();
+        let spawned = std::thread::Builder::new().name("decode".into()).spawn(move || {
+            let _ = fill.pcm.set(decode().unwrap_or_default().into());
+        });
+        if let Err(e) = spawned {
+            log::warn!("decoding a sound: {e}");
+            let _ = sound.0.pcm.set(Vec::new().into());
+        }
+        sound
+    }
+
+    /// Its length in frames (once decoded, the true one).
+    pub fn frames(&self) -> usize {
+        self.pcm().map_or(self.0.frames, |p| p.len() / 2)
+    }
+
+    /// Its frames, once decoded.
+    pub fn pcm(&self) -> Option<&Pcm> {
+        self.0.pcm.get()
+    }
+
+    /// Wait for it to be decoded (for tests and tools).
+    pub fn wait(&self) -> &Pcm {
+        loop {
+            if let Some(p) = self.pcm() {
+                return p;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+impl PartialEq for Sound {
+    fn eq(&self, other: &Sound) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl std::fmt::Debug for Sound {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "Sound({} frames{})", self.0.frames, if self.pcm().is_some() { "" } else { ", decoding" })
+    }
+}
+
 /// What the front end's mixer is to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AudioOp {
-    /// Play `pcm` on `channel` after what is queued there (or, with
+    /// Play `sound` on `channel` after what is queued there (or, with
     /// `crossfade`, fade out what is playing while this fades in over
     /// `fade_in` frames). `volume` is in dB, added to the channel's.
     Queue {
         channel: usize,
-        pcm: Pcm,
+        sound: Sound,
         fade_in: usize,
         fade_out: usize,
         crossfade: bool,
@@ -59,7 +125,7 @@ enum Busy {
 }
 
 pub struct Audio {
-    slots: Vec<Option<Pcm>>,
+    slots: Vec<Option<Sound>>,
     busy: [Busy; CHANNELS],
     /// Channels to report on when they stop (`Update`).
     notify: [bool; CHANNELS],
@@ -124,7 +190,7 @@ impl Audio {
                     crate::syncterm::decode_b64(data)?
                 };
                 match decode(&bytes) {
-                    Some(pcm) => self.slots[slot?] = Some(pcm),
+                    Some(sound) => self.slots[slot?] = Some(sound),
                     None => log::info!("audio {verb}: can't decode it"),
                 }
             }
@@ -133,7 +199,7 @@ impl Audio {
                 let hz: f64 = field(rest, "F").and_then(|f| f.trim().parse().ok()).unwrap_or(0.0);
                 let frames = duration(field(rest, "T")?, Some(hz)).min(MAX_FRAMES);
                 if frames > 0 {
-                    self.slots[slot?] = Some(synth(shape, hz, frames).into());
+                    self.slots[slot?] = Some(Sound::ready(synth(shape, hz, frames).into()));
                 }
             }
             "Copy" => {
@@ -142,7 +208,7 @@ impl Audio {
             }
             "Queue" => {
                 let channel = channel.filter(|&c| c >= FIRST_APC_CHANNEL)?;
-                let pcm = self.slots[slot?].take().filter(|p| !p.is_empty())?;
+                let sound = self.slots[slot?].take().filter(|s| s.frames() > 0)?;
                 let both = field(rest, "V").map(volume).unwrap_or(0.0);
                 let left = field(rest, "VL").map(volume).unwrap_or(both);
                 let right = field(rest, "VR").map(volume).unwrap_or(both);
@@ -150,7 +216,7 @@ impl Audio {
                 let crossfade = rest.contains(&"X");
                 let looped = rest.contains(&"L");
                 let now = Instant::now();
-                let length = Duration::from_secs_f64((pcm.len() / 2) as f64 / RATE as f64);
+                let length = Duration::from_secs_f64(sound.frames() as f64 / RATE as f64);
                 self.busy[channel] = match (looped, self.busy[channel]) {
                     (true, _) => Busy::Looping,
                     (false, Busy::Until(t)) if !crossfade && t > now => Busy::Until(t + length),
@@ -158,7 +224,7 @@ impl Audio {
                 };
                 ops.push(AudioOp::Queue {
                     channel,
-                    pcm,
+                    sound,
                     fade_in,
                     fade_out: field(rest, "O").map_or(0, |d| duration(d, None)),
                     crossfade,
@@ -256,13 +322,16 @@ pub fn format_supported(pm: u32, ps: u32) -> bool {
     const AIFF: u32 = 2;
     const VOC: u32 = 8;
     const WAVEX: u32 = 19;
+    const FLAC: u32 = 23;
     const OGG: u32 = 32;
+    const VORBIS: u32 = 96;
     const OPUS: u32 = 100;
     match pm {
         WAV | WAVEX => matches!(ps, 2..=7),
         AIFF => matches!(ps, 1..=4 | 6),
         VOC => matches!(ps, 2 | 5),
-        OGG => ps == OPUS,
+        FLAC => matches!(ps, 1..=3),
+        OGG => matches!(ps, VORBIS | OPUS),
         _ => false,
     }
 }
@@ -396,20 +465,86 @@ fn soften(mono: &mut [i16], hz: f64) {
     }
 }
 
-/// A sound file, as stereo frames at [`RATE`].
-pub fn decode(data: &[u8]) -> Option<Pcm> {
+/// A sound file, as stereo frames at [`RATE`]: WAV, AIFF and VOC at once,
+/// Ogg (Opus or Vorbis) and FLAC on a thread (their length read first).
+pub fn decode(data: &[u8]) -> Option<Sound> {
     let (rate, channels, samples) = if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WAVE") {
         decode_wav(data)?
     } else if data.starts_with(b"FORM") && matches!(data.get(8..12), Some(b"AIFF" | b"AIFC")) {
         decode_aiff(data)?
     } else if data.starts_with(b"Creative Voice File\x1a") {
         decode_voc(data)?
-    } else if data.starts_with(b"OggS") {
-        decode_opus(data)?
+    } else if data.starts_with(b"OggS") || data.starts_with(b"fLaC") {
+        let (frames, decode) = later(data)?;
+        let frames = frames.min(MAX_FRAMES);
+        return Some(Sound::decoded_later(frames, move || {
+            let (rate, channels, samples) = decode()?;
+            Some(to_stereo(rate, channels, &samples))
+        }));
     } else {
         return None;
     };
-    Some(to_stereo(rate, channels, &samples).into())
+    Some(Sound::ready(to_stereo(rate, channels, &samples).into()))
+}
+
+/// What a decoder makes: (rate, channels, interleaved samples in -1..1).
+type Decoded = (u32, usize, Vec<f32>);
+
+/// A slow format's length in frames at [`RATE`], from its headers, and
+/// the work of decoding it.
+#[allow(clippy::type_complexity)]
+fn later(data: &[u8]) -> Option<(usize, Box<dyn FnOnce() -> Option<Decoded> + Send>)> {
+    let at_rate = |n: u64, rate: u32| (n as f64 * RATE as f64 / rate.max(1) as f64) as usize;
+    if data.starts_with(b"fLaC") {
+        let reader = claxon::FlacReader::new(std::io::Cursor::new(data.to_vec())).ok()?;
+        let info = reader.streaminfo();
+        let frames = at_rate(info.samples.unwrap_or(0), info.sample_rate);
+        return Some((frames, Box::new(move || decode_flac(reader))));
+    }
+    // Ogg: the stream's codec from its first packet, its length from the
+    // last page's granule position.
+    let mut reader = ogg::PacketReader::new(std::io::Cursor::new(data));
+    let head = reader.read_packet().ok()??.data;
+    let mut last = 0;
+    while let Ok(Some(p)) = reader.read_packet() {
+        last = p.absgp_page();
+    }
+    let owned = data.to_vec();
+    if head.starts_with(b"OpusHead") {
+        let pre_skip = u16le(&head, 10)? as u64;
+        Some((at_rate(last.saturating_sub(pre_skip), 48_000), Box::new(move || decode_opus(&owned))))
+    } else if head.starts_with(b"\x01vorbis") {
+        let rate = u32le(&head, 12)?;
+        Some((at_rate(last, rate), Box::new(move || decode_vorbis(owned))))
+    } else {
+        None
+    }
+}
+
+fn decode_flac(mut reader: claxon::FlacReader<std::io::Cursor<Vec<u8>>>) -> Option<Decoded> {
+    let info = reader.streaminfo();
+    let scale = 1.0 / (1u64 << (info.bits_per_sample.clamp(1, 32) - 1)) as f32;
+    let mut samples = Vec::new();
+    for s in reader.samples() {
+        samples.push(s.ok()? as f32 * scale);
+        if samples.len() > MAX_FRAMES * 2 * info.channels as usize / 2 {
+            break;
+        }
+    }
+    Some((info.sample_rate, info.channels as usize, samples))
+}
+
+fn decode_vorbis(data: Vec<u8>) -> Option<Decoded> {
+    let mut reader = lewton::inside_ogg::OggStreamReader::new(std::io::Cursor::new(data)).ok()?;
+    let (rate, channels) = (reader.ident_hdr.audio_sample_rate, reader.ident_hdr.audio_channels as usize);
+    let mut samples = Vec::new();
+    while let Ok(Some(packet)) = reader.read_dec_packet_itl() {
+        samples.extend(packet.iter().map(|&s| s as f32 / 32768.0));
+        if samples.len() > MAX_FRAMES * channels.max(1) {
+            break;
+        }
+    }
+    Some((rate, channels, samples))
 }
 
 /// Samples in -1..1 (interleaved, `channels` of them) at `rate`, as
@@ -664,7 +799,7 @@ mod tests {
     #[test]
     fn files_decode_to_stereo_at_44k() {
         // 8-bit unsigned mono WAV at 22050 Hz: twice as many frames out.
-        let pcm = decode(&wav(22050, 1, 8, &[128, 255, 0, 128])).unwrap();
+        let pcm = decode(&wav(22050, 1, 8, &[128, 255, 0, 128])).unwrap().wait().clone();
         assert_eq!(pcm.len(), 8 * 2);
         assert_eq!(pcm[0], 0);
         assert_eq!(pcm[2], pcm[3], "mono goes to both sides");
@@ -672,12 +807,12 @@ mod tests {
         assert!((16000..16500).contains(&pcm[2]), "{}", pcm[2]);
         assert!(pcm[4] > 32000);
         // 16-bit stereo at the same rate is kept as it is.
-        let pcm = decode(&wav(44100, 2, 16, &[0, 0x40, 0, 0xC0])).unwrap();
+        let pcm = decode(&wav(44100, 2, 16, &[0, 0x40, 0, 0xC0])).unwrap().wait().clone();
         assert_eq!(&pcm[..], &[16384, -16384]);
         // A VOC: an 8-bit block at 1 MHz / (256 - 233) = 43478 Hz.
         let mut voc = b"Creative Voice File\x1a\x1a\x00\x0a\x01\x29\x11".to_vec();
         voc.extend([1, 6, 0, 0, 233, 0, 128, 255, 128, 0, 0]);
-        let pcm = decode(&voc).unwrap();
+        let pcm = decode(&voc).unwrap().wait().clone();
         assert!(pcm.len() >= 8 && pcm.iter().any(|&s| s > 30000));
         // AIFF: 16-bit big-endian mono at 44100 Hz.
         let mut comm = 1u16.to_be_bytes().to_vec();
@@ -691,7 +826,7 @@ mod tests {
         aiff.extend(12u32.to_be_bytes());
         aiff.extend([0u8; 8]);
         aiff.extend([0x40, 0x00, 0xC0, 0x00]);
-        assert_eq!(&decode(&aiff).unwrap()[..], &[16384, 16384, -16384, -16384]);
+        assert_eq!(&decode(&aiff).unwrap().wait()[..], &[16384, 16384, -16384, -16384]);
         assert!(decode(b"not a sound").is_none());
     }
 
@@ -709,10 +844,10 @@ mod tests {
         apc(&mut a, &mut ops, "Queue;C=1;S=3");
         assert!(ops.is_empty());
         apc(&mut a, &mut ops, "Queue;C=2;S=3;V=50;I=5;L");
-        let Some(AudioOp::Queue { channel: 2, pcm, looped: true, fade_in: 220, volume, .. }) = ops.first() else {
+        let Some(AudioOp::Queue { channel: 2, sound, looped: true, fade_in: 220, volume, .. }) = ops.first() else {
             panic!("{ops:?}")
         };
-        assert_eq!(pcm.len(), 1000 * 2);
+        assert_eq!(sound.frames(), 1000);
         assert!((volume.0 + 6.02).abs() < 0.01);
         // The slot is emptied; its copy isn't.
         apc(&mut a, &mut ops, "Queue;C=3;S=3");
@@ -745,17 +880,20 @@ mod tests {
         assert_eq!(synth(Shape::Silence, 441.0, 10), vec![0; 20]);
         let noisy = synth(Shape::SineSawHarm, 441.0, 1000);
         assert!(noisy.iter().any(|&v| v != 0));
-        assert!(format_supported(32, 100) && format_supported(1, 2) && !format_supported(23, 2));
+        assert!(format_supported(32, 100) && format_supported(1, 2) && format_supported(23, 2) && format_supported(32, 96) && !format_supported(35, 130));
         assert_eq!(parse_id("0x20"), 32);
     }
 
-    /// An Ogg Opus file: `BADTERM_OPUS=a.opus cargo test -p badterm-core --release opus -- --ignored --nocapture`
+    /// A sound file (Ogg Opus or Vorbis, FLAC, WAV...): `BADTERM_SOUND=a.opus cargo test -p badterm-core --release sound_file -- --ignored --nocapture`
     #[test]
     #[ignore]
-    fn opus_decodes() {
-        let data = std::fs::read(std::env::var("BADTERM_OPUS").expect("set BADTERM_OPUS")).unwrap();
+    fn sound_file_decodes() {
+        let data = std::fs::read(std::env::var("BADTERM_SOUND").expect("set BADTERM_SOUND")).unwrap();
         let t = Instant::now();
-        let pcm = decode(&data).expect("decodes");
+        let sound = decode(&data).expect("decodes");
+        let frames = sound.frames();
+        let pcm = sound.wait().clone();
+        eprintln!("length from the headers {frames}, decoded {}", pcm.len() / 2);
         let secs = pcm.len() as f64 / 2.0 / RATE as f64;
         let peak = pcm.iter().map(|s| s.unsigned_abs()).max().unwrap_or(0);
         let rms = (pcm.iter().map(|&s| (s as f64).powi(2)).sum::<f64>() / pcm.len() as f64).sqrt();
@@ -766,14 +904,6 @@ mod tests {
             zc as f64 / secs,
             t.elapsed()
         );
-        // The length from the last page's granule position.
-        let mut r = ogg::PacketReader::new(std::io::Cursor::new(&data[..]));
-        let mut last = 0;
-        while let Ok(Some(p)) = r.read_packet() {
-            last = p.absgp_page();
-        }
-        let pre_skip = u16le(&data, 28 + 10).unwrap() as u64;
-        eprintln!("granule length {:.2} s", (last - pre_skip) as f64 / 48_000.0);
         if let Ok(out) = std::env::var("BADTERM_WAV_OUT") {
             let bytes: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
             let mut f = b"RIFF\0\0\0\0WAVEfmt ".to_vec();

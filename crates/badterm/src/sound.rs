@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 
-use badterm_core::audio::{self, AudioOp, BASE_DB, CHANNELS, FIRST_APC_CHANNEL, Pcm};
+use badterm_core::audio::{self, AudioOp, BASE_DB, CHANNELS, FIRST_APC_CHANNEL, Sound};
 use badterm_core::music::Tone;
 
 /// Quiet: a square wave at full scale is harsh.
@@ -105,7 +105,8 @@ fn db(v: f32) -> f32 {
 
 /// A sound on a channel, playing.
 struct Buf {
-    pcm: Pcm,
+    /// Silent, and not started, until it's decoded.
+    sound: Sound,
     /// Where it is, in frames at [`audio::RATE`] (fractional when the
     /// output's rate differs).
     pos: f64,
@@ -119,17 +120,16 @@ struct Buf {
 }
 
 impl Buf {
-    fn frames(&self) -> usize {
-        self.pcm.len() / 2
-    }
-
     fn done(&self) -> bool {
-        self.decay.is_some_and(|(left, _)| left == 0) || !self.looped && self.pos as usize >= self.frames()
+        let ended = self.sound.pcm().is_some_and(|p| self.pos as usize >= p.len() / 2 && (!self.looped || p.is_empty()));
+        self.decay.is_some_and(|(left, _)| left == 0) || ended
     }
 
     /// The next frame, `step` frames of the sound per output frame.
     fn next(&mut self, step: f64) -> (f32, f32) {
-        let n = self.frames();
+        // Not decoded yet: wait (a sound decoded to nothing is done).
+        let Some(pcm) = self.sound.pcm().cloned() else { return (0.0, 0.0) };
+        let n = pcm.len() / 2;
         if self.done() || n == 0 {
             return (0.0, 0.0);
         }
@@ -142,7 +142,7 @@ impl Buf {
         } else {
             i
         };
-        let at = |k: usize, c: usize| self.pcm[k * 2 + c] as f32 / 32768.0;
+        let at = |k: usize, c: usize| pcm[k * 2 + c] as f32 / 32768.0;
         let (l, r) = (at(i, 0) + (at(j, 0) - at(i, 0)) * t, at(i, 1) + (at(j, 1) - at(i, 1)) * t);
         let mut g = 1.0;
         let played = self.pos as usize;
@@ -228,10 +228,10 @@ impl Mixer {
 
     fn audio(&mut self, op: AudioOp) {
         match op {
-            AudioOp::Queue { channel, pcm, fade_in, fade_out, crossfade, looped, volume } => {
+            AudioOp::Queue { channel, sound, fade_in, fade_out, crossfade, looped, volume } => {
                 let Some(c) = self.channels.get_mut(channel) else { return };
                 let buf =
-                    Buf { pcm, pos: 0.0, fade_in, fade_out, looped, gain: (db(volume.0), db(volume.1)), decay: None };
+                    Buf { sound, pos: 0.0, fade_in, fade_out, looped, gain: (db(volume.0), db(volume.1)), decay: None };
                 if crossfade && let Some(mut head) = c.queue.pop_front() {
                     // What was playing fades out (looping on) as this fades in.
                     head.decay = Some((fade_in.max(1), fade_in.max(1)));
@@ -595,7 +595,7 @@ mod tests {
     fn queue(m: &mut Mixer, channel: usize, pcm: &[i16], crossfade: bool, looped: bool, fade_in: usize) {
         m.audio(AudioOp::Queue {
             channel,
-            pcm: pcm.into(),
+            sound: Sound::ready(pcm.into()),
             fade_in,
             fade_out: 0,
             crossfade,

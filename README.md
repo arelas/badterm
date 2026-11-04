@@ -149,10 +149,11 @@ BadTerm starts.
   it off, or also on for `ESC [ M`, which many doors use but which
   otherwise means "delete a line"
 - **SyncTERM's sound**, for Synchronet's doors: sound effects and music the
-  BBS sends (WAV, AIFF, VOC and Ogg Opus, from the cache or inline) or
-  has BadTerm synthesize, on 16 channels mixed together with fades, loops,
-  crossfades and volume, as CTerm documents them. `Alt-M`'s "off"
-  silences these too
+  BBS sends (WAV, AIFF, VOC, FLAC, and Ogg Opus or Vorbis, from the cache
+  or inline) or has BadTerm synthesize, on 16 channels mixed together with
+  fades, loops, crossfades and volume, as CTerm documents them. Long music
+  is decoded in the background, so the screen doesn't wait for it.
+  `Alt-M`'s "off" silences these too
 - **Phosphor mode** (`Alt-P`): the look of a CRT, with glowing text,
   scanlines and curved glass, in color or as a green or amber monochrome
   monitor, for every BBS or chosen per directory entry. How much the text

@@ -108,8 +108,8 @@ The next things to do, in order.
 - [x] Sixel graphics
 - [x] SyncTERM's pictures: the file cache, PPM and JPEG XL drawing, pixel
       copy and paste (not yet: fonts from the cache, `SetFont`)
-- [x] SyncTERM's audio APCs (WAV, AIFF, VOC, Ogg Opus; not yet: FLAC,
-      Ogg Vorbis, MP3, or music played in the foreground, `MF`)
+- [x] SyncTERM's audio APCs (WAV, AIFF, VOC, FLAC, Ogg Opus and Vorbis;
+      not yet: MP3, or music played in the foreground, `MF`)
 - [x] RIPscrip graphics (not yet: icon and scene files, RIP file transfers)
 - [x] Visual and audible bell options
 
