@@ -134,13 +134,13 @@ The next things to do, in order.
 ## File transfer
 
 - [x] Kermit, with sliding windows
-- [ ] Per-entry upload/download directories
+- [x] Per-entry upload/download directories
 
 ## Dialer and UI
 
 - [x] Per-entry capture and text log files
-- [ ] More per-entry settings: hide status line
-- [ ] Multiple directories / groups
+- [x] More per-entry settings: hide the status line
+- [x] Groups in the directory (`G`)
 - [x] Import more formats: qodem
 - [ ] More in the settings screen: default font and screen mode, key bindings
 - [ ] Multiple simultaneous sessions (tabs)

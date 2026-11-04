@@ -70,7 +70,7 @@ const RIGHT: [Group; 2] = [
             ("Ins/E/Del", "Add / edit / remove"),
             ("P", "Pin to the top"),
             ("/ or F3", "Find"),
-            ("S", "Sort"),
+            ("S / G", "Sort / one group"),
             ("Q", "Quick connect"),
             ("I / X", "Import / export"),
             ("O", "Settings"),

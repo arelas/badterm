@@ -12,10 +12,13 @@ impl App {
             // The login asks instead.
             Err(e) => self.notify(format!("Could not read the password from the keychain: {e}")),
         }
+        let downloads = self.entry_folder(&entry, Folders::DOWNLOADS);
+        // Uploads start in this BBS's folder, not the last one's.
+        self.upload_dir = PathBuf::new();
         let config = SessionConfig {
             scrollback: SCROLLBACK_LINES,
             known_hosts: self.paths.known_hosts.clone(),
-            download_dir: self.folder(Folders::DOWNLOADS),
+            download_dir: downloads.clone(),
             ssh_agent: true,
             ssh_key_dir: self.paths.ssh_keys.clone(),
             modem: self.settings.modem.clone(),
@@ -28,7 +31,7 @@ impl App {
         session.term.music_on_csi_m = self.settings.music == Music::All;
         session.term.music_enabled = self.settings.music != Music::Off;
         session.term.syncterm.cache_dir = Some(self.paths.bbs_cache.join(cache_folder(&session.entry)));
-        session.term.download_dir = Some(self.folder(Folders::DOWNLOADS));
+        session.term.download_dir = Some(downloads);
         self.dialer_open = false;
         self.session_id += 1;
         let id = self.session_id;
@@ -201,7 +204,13 @@ impl App {
             (Outcome::Completed(files), Some(Direction::Download)) => match files.as_slice() {
                 [] => "Download finished; no files were sent".into(),
                 [one] => format!("Downloaded {}", one.display()),
-                many => format!("Downloaded {} files to {}", many.len(), self.folder(Folders::DOWNLOADS).display()),
+                many => {
+                    let dir = self
+                        .session
+                        .as_ref()
+                        .map_or_else(|| self.folder(Folders::DOWNLOADS), |s| s.download_dir().to_path_buf());
+                    format!("Downloaded {} files to {}", many.len(), dir.display())
+                }
             },
             (Outcome::Completed(files), _) => match files.as_slice() {
                 [one] => format!("Uploaded {}", one.file_name().unwrap_or_default().to_string_lossy()),

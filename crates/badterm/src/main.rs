@@ -68,7 +68,7 @@ Options:
 
 enum Command {
     /// Start, calling an address or showing a file.
-    Run(Option<Entry>, Option<PathBuf>),
+    Run(Option<Box<Entry>>, Option<PathBuf>),
     Import(PathBuf),
     Export(PathBuf),
     Paths,
@@ -156,7 +156,7 @@ fn parse_args() -> Result<Command, String> {
             a if std::path::Path::new(a).is_file() => cmd = Command::Run(None, Some(PathBuf::from(a))),
             a => {
                 let entry = Entry::from_address(a).ok_or_else(|| format!("not a valid address: {a}"))?;
-                cmd = Command::Run(Some(entry), None);
+                cmd = Command::Run(Some(Box::new(entry)), None);
             }
         }
     }
@@ -198,7 +198,7 @@ fn main() -> ExitCode {
         Command::Render(input, output, opts) => {
             viewer::render_file(&input, &output, opts).map(|(w, h)| println!("Wrote {} ({w}x{h})", output.display()))
         }
-        Command::Run(startup, view) => run(paths, startup, view),
+        Command::Run(startup, view) => run(paths, startup.map(|e| *e), view),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

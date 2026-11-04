@@ -189,6 +189,8 @@ impl App {
             _ => false,
         };
 
+        // An entry can do without the status bar on its screen.
+        let mut has_status = true;
         let frame = match &self.session {
             _ if splash || self.help_open || self.settings_open || self.art_picker.is_some() => {
                 let mut rows: Vec<&[Cell]> = (0..settings_ui::ROWS).map(|y| self.page_screen.row(y)).collect();
@@ -209,7 +211,10 @@ impl App {
             }
             Some(session) if overlay => {
                 let mut rows: Vec<&[Cell]> = (0..self.overlay.rows()).map(|y| self.overlay.row(y)).collect();
-                rows.push(self.status.row(0));
+                has_status = !session.entry.hide_status;
+                if has_status {
+                    rows.push(self.status.row(0));
+                }
                 // Dialogs are drawn in the BBS's look too, so the screen
                 // behind them keeps its fonts and colors.
                 let sc = &session.term.screen;
@@ -225,7 +230,10 @@ impl App {
             Some(session) => {
                 let sc = &session.term.screen;
                 let mut rows = terminal_rows(session, self.scroll);
-                rows.push(self.status.row(0));
+                has_status = !session.entry.hide_status;
+                if has_status {
+                    rows.push(self.status.row(0));
+                }
                 let live = self.scroll == 0 || sc.scrollback_len() == 0;
                 let cursor = (live && sc.cursor_visible && session.state == State::Connected).then(|| sc.cursor());
                 let selection = self.selection;
@@ -249,7 +257,7 @@ impl App {
         // "Exit BadTerm?" over whatever is showing.
         let confirm_screen;
         let frame = if self.confirm_exit {
-            let n = frame.rows.len() - 1;
+            let n = frame.rows.len() - usize::from(has_status);
             let cols = frame.rows.first().map_or(COLS, |r| r.len());
             let mut sc = Screen::new(cols, n, 0);
             for (y, row) in frame.rows[..n].iter().enumerate() {
@@ -266,7 +274,7 @@ impl App {
             ui::confirm_box(&mut sc, "Exit BadTerm?", &msg, &[("Y", "Exit"), ("N", "Stay")]);
             confirm_screen = sc;
             let mut rows: Vec<&[Cell]> = (0..n).map(|y| confirm_screen.row(y)).collect();
-            rows.push(frame.rows[n]);
+            rows.extend(frame.rows.get(n).copied());
             Frame { rows, cursor: None, ..frame }
         } else {
             frame
@@ -276,7 +284,7 @@ impl App {
         let frame = Frame { ui_look: &ui_look, ..frame };
         // The terminal's own height (and font) unless the dialer or the idle
         // screen is showing; one more row for the status bar.
-        let text_rows = frame.rows.len() - 1;
+        let text_rows = frame.rows.len() - usize::from(has_status);
         let cols = frame.rows.first().map_or(COLS, |r| r.len());
         let cell_w = if self.settings.nine_dot { 9 } else { 8 };
         // A C64 or Atari screen is laid out in its 8x8 font.
@@ -285,7 +293,7 @@ impl App {
         } else {
             Self::font_for(text_rows)
         };
-        self.renderer.set_layout(base, cell_w, cols, text_rows + 1);
+        self.renderer.set_layout(base, cell_w, cols, frame.rows.len());
         self.renderer.draw(&frame, (self.tick / 2).is_multiple_of(2), self.tick.is_multiple_of(2));
         if self.flash_until.is_some() {
             self.renderer.flash(text_rows);
@@ -309,7 +317,7 @@ impl App {
                 // 720x400, as on a CRT); the status bar comes along.
                 let pixel_aspect = match self.settings.aspect.ratio() {
                     Some(ratio) => {
-                        let text_h = (self.renderer.native_height() * text_rows / (text_rows + 1)) as f64;
+                        let text_h = (self.renderer.native_height() * text_rows / frame.rows.len()) as f64;
                         self.renderer.native_width() as f64 / text_h / ratio
                     }
                     None => 1.0,

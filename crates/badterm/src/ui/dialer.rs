@@ -35,8 +35,9 @@ pub enum Action {
     Settings,
 }
 
-const FIELDS: [&str; 19] = [
+const FIELDS: [&str; 23] = [
     "Name",
+    "Group",
     "Address",
     "Port",
     "Protocol",
@@ -46,6 +47,7 @@ const FIELDS: [&str; 19] = [
     "iCE colors",
     "Phosphor mode",
     "Bell",
+    "Status line",
     "Baud rate",
     "Terminal type",
     "User name",
@@ -54,35 +56,43 @@ const FIELDS: [&str; 19] = [
     "SSH key file",
     "Capture",
     "Capture file",
+    "Downloads",
+    "Uploads",
     "Comment",
 ];
-const F_ADDRESS: usize = 1;
-const F_PORT: usize = 2;
-const F_PROTOCOL: usize = 3;
-const F_ENCODING: usize = 4;
-const F_ROWS: usize = 5;
-const F_FONT: usize = 6;
-const F_ICE: usize = 7;
-const F_CRT: usize = 8;
-const F_BELL: usize = 9;
-const F_BAUD: usize = 10;
-const F_TERM: usize = 11;
-const F_USER: usize = 12;
-const F_PASSWORD: usize = 13;
-const F_AUTO_LOGIN: usize = 14;
-const F_KEY_FILE: usize = 15;
-const F_CAPTURE: usize = 16;
-const F_CAPTURE_FILE: usize = 17;
-const F_COMMENT: usize = 18;
+const F_GROUP: usize = 1;
+const F_ADDRESS: usize = 2;
+const F_PORT: usize = 3;
+const F_PROTOCOL: usize = 4;
+const F_ENCODING: usize = 5;
+const F_ROWS: usize = 6;
+const F_FONT: usize = 7;
+const F_ICE: usize = 8;
+const F_CRT: usize = 9;
+const F_BELL: usize = 10;
+const F_STATUS: usize = 11;
+const F_BAUD: usize = 12;
+const F_TERM: usize = 13;
+const F_USER: usize = 14;
+const F_PASSWORD: usize = 15;
+const F_AUTO_LOGIN: usize = 16;
+const F_KEY_FILE: usize = 17;
+const F_CAPTURE: usize = 18;
+const F_CAPTURE_FILE: usize = 19;
+const F_DOWNLOADS: usize = 20;
+const F_UPLOADS: usize = 21;
+const F_COMMENT: usize = 22;
 /// The fields changed with Space or the arrow keys rather than typed into.
-const OPTION_FIELDS: [usize; 10] =
-    [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_ICE, F_CRT, F_BELL, F_BAUD, F_AUTO_LOGIN, F_CAPTURE];
+const OPTION_FIELDS: [usize; 11] =
+    [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_ICE, F_CRT, F_BELL, F_STATUS, F_BAUD, F_AUTO_LOGIN, F_CAPTURE];
+/// How many fields the form shows at once; it scrolls through the rest.
+const FORM_ROWS: usize = 19;
 
 struct Form {
     /// Index of the entry being edited, or None for a new entry.
     index: Option<usize>,
     base: Entry,
-    text: [TextField; 19],
+    text: [TextField; 23],
     /// The stored password could not be read from the keychain, so an empty
     /// password field means "unchanged" rather than "none".
     keychain_unread: bool,
@@ -101,11 +111,23 @@ struct Form {
     baud: u32,
     auto_login: bool,
     capture: bool,
+    hide_status: bool,
     focus: usize,
+    /// The first field shown.
+    top: usize,
     error: Option<String>,
 }
 
 impl Form {
+    /// Keep the field with the focus in view.
+    fn scroll(&mut self) {
+        if self.focus < self.top {
+            self.top = self.focus;
+        } else if self.focus >= self.top + FORM_ROWS {
+            self.top = self.focus + 1 - FORM_ROWS;
+        }
+    }
+
     fn new(index: Option<usize>, e: Entry, store: &dyn Store) -> (Form, Option<String>) {
         let t = |s: &str| TextField::new(s, 120);
         let (password, problem) = match secrets::password(&e, store) {
@@ -116,8 +138,10 @@ impl Form {
             index,
             text: [
                 t(&e.name),
+                t(&e.group),
                 t(&e.host),
                 TextField::new(&e.port.to_string(), 5),
+                TextField::default(),
                 TextField::default(),
                 TextField::default(),
                 TextField::default(),
@@ -133,6 +157,8 @@ impl Form {
                 TextField::new(&e.key_file, 400),
                 TextField::default(),
                 TextField::new(&e.capture_file, 400),
+                TextField::new(&e.download_dir, 400),
+                TextField::new(&e.upload_dir, 400),
                 t(&e.comment),
             ],
             keychain_unread: problem.is_some(),
@@ -146,7 +172,9 @@ impl Form {
             baud: e.baud,
             auto_login: e.auto_login,
             capture: e.capture,
+            hide_status: e.hide_status,
             focus: 0,
+            top: 0,
             error: problem.clone(),
             base: e,
         };
@@ -200,6 +228,10 @@ impl Form {
             auto_login: self.auto_login,
             capture: self.capture,
             capture_file: self.text[F_CAPTURE_FILE].value.trim().to_string(),
+            download_dir: self.text[F_DOWNLOADS].value.trim().to_string(),
+            upload_dir: self.text[F_UPLOADS].value.trim().to_string(),
+            hide_status: self.hide_status,
+            group: self.text[F_GROUP].value.trim().to_string(),
             username: self.text[F_USER].value.clone(),
             password,
             keychain: kept,
@@ -237,6 +269,8 @@ pub struct DialerUi {
     filter: TextField,
     /// Keys go to the filter (after `/`).
     finding: bool,
+    /// Only this group's entries are listed.
+    group: Option<String>,
     mode: Mode,
     /// Default directory offered for import/export paths.
     pub files_dir: PathBuf,
@@ -250,6 +284,7 @@ impl DialerUi {
             top: 0,
             filter: TextField::new("", 60),
             finding: false,
+            group: None,
             mode: Mode::List,
             files_dir,
             secrets,
@@ -280,7 +315,7 @@ impl DialerUi {
     }
 
     pub fn handle_key(&mut self, key: Key, mods: Mods, dir: &mut Directory) -> Action {
-        let view = dir.view(&self.filter.value);
+        let view = dir.view_group(&self.filter.value, self.group.as_deref());
         let n = view.len();
         self.selected = self.selected.min(n.saturating_sub(1));
         let current = view.get(self.selected).copied();
@@ -324,6 +359,19 @@ impl DialerUi {
                     return Action::Changed;
                 }
                 Key::Char('o') | Key::Char('O') => return Action::Settings,
+                Key::Char('g') | Key::Char('G') => {
+                    // All, then each group in turn.
+                    let groups = dir.groups();
+                    let at = self.group.as_ref().and_then(|g| groups.iter().position(|h| h == g));
+                    self.group = match at {
+                        None => groups.first().cloned(),
+                        Some(i) => groups.get(i + 1).cloned(),
+                    };
+                    self.selected = 0;
+                    if groups.is_empty() {
+                        self.show_message("No entries are in a group yet: give one a group in its settings (E).");
+                    }
+                }
                 Key::Char('/') | Key::F(3) => self.finding = true,
                 Key::Char('f') if mods.ctrl => self.finding = true,
                 Key::Delete | Key::Char('d') | Key::Char('D') if current.is_some() => self.mode = Mode::ConfirmDelete,
@@ -423,6 +471,9 @@ impl DialerUi {
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_CAPTURE => {
                     form.capture = !form.capture;
                 }
+                Key::Char(' ') | Key::Left | Key::Right if form.focus == F_STATUS => {
+                    form.hide_status = !form.hide_status;
+                }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_BELL => {
                     let all: Vec<Option<BellMode>> =
                         std::iter::once(None).chain(BellMode::ALL.into_iter().map(Some)).collect();
@@ -485,12 +536,15 @@ impl DialerUi {
             }
             Mode::Message(_) => self.mode = Mode::List,
         }
+        if let Mode::Edit(form) = &mut self.mode {
+            form.scroll();
+        }
         Action::None
     }
 
     /// Keys while typing a filter.
     fn find_key(&mut self, key: Key, mods: Mods, dir: &Directory, current: Option<usize>) -> Action {
-        let n = dir.view(&self.filter.value).len();
+        let n = dir.view_group(&self.filter.value, self.group.as_deref()).len();
         match key {
             Key::Escape => {
                 self.finding = false;
@@ -528,7 +582,7 @@ impl DialerUi {
 
     /// Select the entry with this (system id, name), e.g. after re-sorting.
     fn select(&mut self, dir: &Directory, id: &(String, String)) {
-        let view = dir.view(&self.filter.value);
+        let view = dir.view_group(&self.filter.value, self.group.as_deref());
         let pos = view.iter().position(|&i| dir.entries[i].system_id() == id.0 && dir.entries[i].name == id.1);
         self.selected = pos.unwrap_or(0);
     }
@@ -566,13 +620,19 @@ impl DialerUi {
 
     /// Render into `s` (80x25). Returns the text cursor position, if any.
     pub fn draw(&mut self, s: &mut Screen, dir: &Directory) -> Option<(usize, usize)> {
+        // A group no entry is in any more.
+        if self.group.as_ref().is_some_and(|g| !dir.groups().contains(g)) {
+            self.group = None;
+        }
         let t = theme::current();
         s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', t.help.fg(), t.help.bg()));
         let title = format!(" BadTerm {} \u{2502} Dialing Directory", env!("CARGO_PKG_VERSION"));
         text(s, 0, 0, COLS, &title, t.title_bar.fg(), t.title_bar.bg());
-        let view = dir.view(&self.filter.value);
+        let view = dir.view_group(&self.filter.value, self.group.as_deref());
         let entries = |n: usize| if n == 1 { "entry" } else { "entries" };
-        let count = if view.len() == dir.entries.len() {
+        let count = if let Some(g) = &self.group {
+            format!("{}: {} of {} {} ", truncate(g, 20), view.len(), dir.entries.len(), entries(dir.entries.len()))
+        } else if view.len() == dir.entries.len() {
             format!("{} {} ", dir.entries.len(), entries(dir.entries.len()))
         } else {
             format!("{} of {} {} ", view.len(), dir.entries.len(), entries(dir.entries.len()))
@@ -642,6 +702,9 @@ impl DialerUi {
         if let Some(e) = view.get(self.selected).map(|&i| &dir.entries[i]) {
             let last = e.last_connected.map(format_date).unwrap_or_else(|| "never".into());
             let mut info = format!(" Last called: {last}   Emulation: {}", e.encoding.name());
+            if !e.group.is_empty() && self.group.is_none() {
+                info.push_str(&format!("   Group: {}", e.group));
+            }
             if !e.comment.is_empty() {
                 info.push_str(&format!("   {}", e.comment));
             }
@@ -660,7 +723,8 @@ impl DialerUi {
                 cursor = Some(pos);
             }
         } else {
-            let keys = format!("S Sort ({})  Q Quick connect  I Import  X Export  O Settings", dir.sort.name());
+            let keys =
+                format!("S Sort ({})  G Group  Q Quick connect  I Import  X Export  O Settings", dir.sort.name());
             text(s, 1, 24, COLS - 2, &keys, t.help.fg(), t.help.bg());
         }
 
@@ -702,7 +766,7 @@ impl DialerUi {
 
 fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
     // The title, a blank row, the fields, the error line and the border.
-    let (w, h) = (64, FIELDS.len() + 4);
+    let (w, h) = (64, FORM_ROWS + 4);
     let (x, y) = ((COLS - w) / 2, (ROWS - h) / 2);
     let title = if form.index.is_some() { "Edit Entry" } else { "New Entry" };
     let t = theme::current();
@@ -710,8 +774,8 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
     let mut cursor = (0, 0);
     let fx = x + 18;
     let fw = w - 20;
-    for (i, name) in FIELDS.iter().enumerate() {
-        let yy = y + 2 + i;
+    for (i, name) in FIELDS.iter().enumerate().skip(form.top).take(FORM_ROWS) {
+        let yy = y + 2 + i - form.top;
         let focused = i == form.focus;
         let name_attr = if focused { t.keys } else { t.field_name };
         text(s, x + 2, yy, 16, &format!("{name:>15}"), name_attr.fg(), name_attr.bg());
@@ -779,6 +843,13 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                     label(s, fx + 19, yy, "(Settings)", t.note.fg(), bg);
                 }
             }
+            F_STATUS => {
+                let v = if form.hide_status { "Off" } else { "On " };
+                text(s, fx, yy, fw, &format!("\u{25C4} {v} \u{25BA}"), fg, bg);
+                if form.hide_status {
+                    label(s, fx + 8, yy, "(the BBS's screen alone)", t.note.fg(), bg);
+                }
+            }
             F_CAPTURE => {
                 let v = if form.capture { "On " } else { "Off" };
                 text(s, fx, yy, fw, &format!("\u{25C4} {v} \u{25BA}"), fg, bg);
@@ -804,6 +875,8 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 let hint = match i {
                     F_ADDRESS if form.protocol == Protocol::Modem => "phone number",
                     F_CAPTURE_FILE => "{name} {date} {time}; .txt: text only",
+                    F_DOWNLOADS | F_UPLOADS => "the folder in the settings",
+                    F_GROUP => "none; G in the list shows one group",
                     _ => "",
                 };
                 if !hint.is_empty() && form.text[i].value.is_empty() && !focused {
@@ -811,6 +884,13 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 }
             }
         }
+    }
+    // There are more fields above or below.
+    if form.top > 0 {
+        label(s, x + w - 1, y + 2, "\u{25B2}", t.window.fg(), t.window.bg());
+    }
+    if form.top + FORM_ROWS < FIELDS.len() {
+        label(s, x + w - 1, y + 1 + FORM_ROWS, "\u{25BC}", t.window.fg(), t.window.bg());
     }
     if let Some(err) = &form.error {
         text(s, x + 2, y + h - 2, w - 4, err, t.error.fg(), t.error.bg());

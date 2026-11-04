@@ -16,6 +16,17 @@ impl App {
         }
     }
 
+    /// A folder for calling this entry: its own downloads or uploads
+    /// folder, if it has one, or [`App::folder`].
+    pub(super) fn entry_folder(&self, e: &Entry, i: usize) -> PathBuf {
+        let own = match i {
+            Folders::DOWNLOADS => e.download_dir.trim(),
+            Folders::UPLOADS => e.upload_dir.trim(),
+            _ => "",
+        };
+        if own.is_empty() { self.folder(i) } else { ui::expand_home(own) }
+    }
+
     /// A folder: the one chosen in the settings, or the default.
     pub(super) fn folder(&self, i: usize) -> PathBuf {
         self.settings.folders.get(i).cloned().unwrap_or_else(|| self.default_folder(i))

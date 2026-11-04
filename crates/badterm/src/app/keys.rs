@@ -459,7 +459,10 @@ impl App {
     pub(super) fn open_upload(&mut self, requested: bool) {
         self.download_prompt = None;
         if self.upload_dir.as_os_str().is_empty() {
-            self.upload_dir = self.folder(Folders::UPLOADS);
+            self.upload_dir = match &self.session {
+                Some(s) => self.entry_folder(&s.entry, Folders::UPLOADS),
+                None => self.folder(Folders::UPLOADS),
+            };
         }
         self.upload_prompt = Some(UploadPrompt::new(requested, self.upload_dir.clone(), self.upload_protocol));
     }

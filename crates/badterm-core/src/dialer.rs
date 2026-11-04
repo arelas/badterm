@@ -131,6 +131,18 @@ pub struct Entry {
     /// `~/.ssh/id_*` files are tried.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub key_file: String,
+    /// Where this BBS's downloads go, and where uploads to it start
+    /// looking; empty for the folders in the settings.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub download_dir: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub upload_dir: String,
+    /// No status bar under this BBS's screen.
+    #[serde(skip_serializing_if = "is_false")]
+    pub hide_status: bool,
+    /// The group it is listed in (the directory can show one at a time).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub group: String,
     pub comment: String,
     /// The password is kept in the OS keychain rather than in `password`.
     #[serde(skip_serializing_if = "is_false")]
@@ -166,6 +178,10 @@ impl Default for Entry {
             capture: false,
             capture_file: String::new(),
             key_file: String::new(),
+            download_dir: String::new(),
+            upload_dir: String::new(),
+            hide_status: false,
+            group: String::new(),
             comment: String::new(),
             keychain: false,
             pinned: false,
@@ -441,6 +457,19 @@ pub struct Directory {
 }
 
 impl Directory {
+    /// The groups entries are in, in order, without repeats (ignoring case).
+    pub fn groups(&self) -> Vec<String> {
+        let mut groups: Vec<String> = Vec::new();
+        for e in &self.entries {
+            let g = e.group.trim();
+            if !g.is_empty() && !groups.iter().any(|h| h.eq_ignore_ascii_case(g)) {
+                groups.push(g.to_string());
+            }
+        }
+        groups.sort_by_key(|g| g.to_lowercase());
+        groups
+    }
+
     /// Load the directory, returning an empty one if the file does not exist.
     pub fn load(path: &Path) -> Result<Directory> {
         match fs::read_to_string(path) {
@@ -468,13 +497,19 @@ impl Directory {
     /// Indices of the entries to list, in `self.sort` order, keeping those
     /// whose name, address or comment contains `filter` (ignoring case).
     pub fn view(&self, filter: &str) -> Vec<usize> {
+        self.view_group(filter, None)
+    }
+
+    /// [`Directory::view`], of one group's entries.
+    pub fn view_group(&self, filter: &str, group: Option<&str>) -> Vec<usize> {
         let filter = filter.trim().to_lowercase();
         let mut v: Vec<usize> = (0..self.entries.len())
             .filter(|&i| {
                 let e = &self.entries[i];
-                filter.is_empty()
-                    || [&e.name, &e.host, &e.comment].iter().any(|f| f.to_lowercase().contains(&filter))
-                    || e.address().to_lowercase().contains(&filter)
+                group.is_none_or(|g| e.group.trim().eq_ignore_ascii_case(g))
+                    && (filter.is_empty()
+                        || [&e.name, &e.host, &e.comment, &e.group].iter().any(|f| f.to_lowercase().contains(&filter))
+                        || e.address().to_lowercase().contains(&filter))
             })
             .collect();
         let name = |i: &usize| self.entries[*i].name.to_lowercase();
@@ -1129,6 +1164,15 @@ mod tests {
         assert_eq!(d.view(""), [1, 0]);
 
         assert_eq!(d.view("ALPHA"), [0]);
+        // Groups.
+        d.entries[0].group = "Retro".into();
+        d.entries[1].group = "retro ".into();
+        assert_eq!(d.groups(), ["Retro"]);
+        d.entries[1].group = "Art".into();
+        assert_eq!(d.groups(), ["Art", "Retro"]);
+        assert_eq!(d.view_group("", Some("retro")), [0]);
+        assert_eq!(d.view_group("", Some("Art")), [1]);
+        assert_eq!(d.view("art"), [1]);
         assert_eq!(d.view("commas"), [0]);
         assert_eq!(d.view(":2323"), [1]);
         assert!(d.view("nothing like it").is_empty());

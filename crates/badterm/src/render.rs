@@ -615,6 +615,7 @@ mod tests {
                 Entry {
                     name: "Example BBS".into(),
                     comment: "Runs Synchronet".into(),
+                    group: "Favorites".into(),
                     ..Entry::from_address("bbs.example.org").unwrap()
                 },
                 Entry::from_address("ssh://secure.example.net:2222").unwrap(),
@@ -636,6 +637,16 @@ mod tests {
             ui.handle_key(crate::input::Key::Char('e'), crate::input::Mods::default(), &mut d);
             let cursor = ui.draw(&mut s, &d);
             shot(&mut r, &s, cursor, &format!("{prefix}-edit.png"));
+            // The form's last fields, scrolled to.
+            ui.handle_key(crate::input::Key::Up, crate::input::Mods::default(), &mut d);
+            let cursor = ui.draw(&mut s, &d);
+            shot(&mut r, &s, cursor, &format!("{prefix}-edit-end.png"));
+            ui.handle_key(crate::input::Key::Escape, crate::input::Mods::default(), &mut d);
+            // One group.
+            ui.handle_key(crate::input::Key::Char('g'), crate::input::Mods::default(), &mut d);
+            ui.draw(&mut s, &d);
+            shot(&mut r, &s, None, &format!("{prefix}-group.png"));
+            ui.handle_key(crate::input::Key::Char('g'), crate::input::Mods::default(), &mut d);
             let mut settings = crate::settings::Settings { colors: bc, ..Default::default() };
             settings.colors = bc;
             let mut sui = crate::ui::settings::SettingsUi::default();

@@ -152,8 +152,10 @@ fonts and colors of a host terminal.
 - **Save the scrollback** (`Alt-S`) as an `.ans` file for ANSI viewers and
   editors, or as plain `.txt`, or save the screen as a `.png`
 - **Dialing directory** with add/edit/delete, quick connect, call counts,
-  last-called dates, pinned favorites, search (`/`), and sorting by name,
-  last called or number of calls (`S`). It starts with
+  last-called dates, pinned favorites, search (`/`), sorting by name,
+  last called or number of calls (`S`), and groups (`G` shows one at a
+  time). Each entry can have its own download and upload folders, and
+  can do without the status line. It starts with
   [The Vortex BBS](telnet://vortexbbs.com), the project's home BBS.
 - **Passwords in the OS keychain** (Keychain on macOS, Credential Manager on
   Windows, the Secret Service on Linux) rather than the directory file. Where
@@ -275,8 +277,9 @@ hanging up.
 | `E` / `F2` | Edit the selected entry |
 | `Del` / `D` | Remove the selected entry |
 | `P` | Pin or unpin the entry (pinned entries are listed first) |
-| `/`, `F3`, `Ctrl-F` | Search by name, address or comment (`Enter` dials, `Esc` clears) |
+| `/`, `F3`, `Ctrl-F` | Search by name, address, comment or group (`Enter` dials, `Esc` clears) |
 | `S` | Sort by name, last called, or number of calls |
+| `G` | Show one group of entries, then the next, then all |
 | `Q` | Quick connect to an address |
 | `I` / `X` | Import / export a directory file |
 | letter or digit | Jump to the next entry starting with it |
