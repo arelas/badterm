@@ -86,7 +86,7 @@
           <h3>Scrollback and clipboard</h3>
           <dl>
             <dt><kbd>Alt-B</kbd></dt><dd>Scrollback (or <kbd>Shift-PgUp</kbd>)</dd>
-            <dt>Drag</dt><dd>Copy text; hold <kbd>Shift</kbd> as you let go to copy it as ANSI</dd>
+            <dt>Drag</dt><dd>Copy text; hold <kbd>Shift</kbd> as you let go to copy it as ANSI. With a BBS that takes the mouse, hold <kbd>Shift</kbd> while you drag.</dd>
             <dt><kbd>Alt-V</kbd></dt><dd>Paste (or <kbd>Shift-Ins</kbd>)</dd>
           </dl>
         </section>
@@ -180,7 +180,7 @@
       <ul>
         <li><b>Phosphor mode</b> (<kbd>Alt-P</kbd>) draws a CRT: glowing text, scanlines and curved glass, in color or as a green or amber monitor. Settings, Display, sets how much the text glows, how strong the scanlines are and how curved the glass is, each from off to strong.</li>
         <li><kbd>Alt-W</kbd> switches between 8- and 9-dot characters (a VGA's 9th column joins up the line drawing). <kbd>Alt-A</kbd> picks the shape: square pixels, or 4:3 as on a CRT, or 16:10 or 16:9.</li>
-        <li>Settings, <b>Scaling</b>: whole-number steps for exact pixels, fit (keeping the shape: the window itself snaps back to the picture's shape when you resize it), or stretch to fill. <kbd>Alt-Enter</kbd> is full screen.</li>
+        <li>Settings, <b>Scaling</b>: fit, the default, keeps the picture's shape, and the window settles into that shape when you resize it, so there are no borders; or whole-number steps for exact pixels, or stretch to fill. <kbd>Alt-Enter</kbd> is full screen. BadTerm opens at the size and place you left it.</li>
         <li>Settings, <b>Monitor bezel</b>: draw a monitor around the screen. There are four built in; more are in the <a href="extras.html#bezels">extras</a>, and you can use a photo of your own (a PNG whose screen is see-through), put in the <code>bezels</code> folder.</li>
         <li>Settings, Colors: twelve <b>color schemes</b> for BadTerm's own screens, or color each part yourself. More are in the <a href="extras.html#themes">extras</a>. "Import a theme" brings one in; "Save as a theme" writes yours to a file to share.</li>
         <li>Settings, General, <b>Bell</b>: beep, flash the screen, both, or nothing. A directory entry can have its own.</li>
@@ -204,7 +204,7 @@
         <dt>macOS</dt><dd><code>~/Library/Application Support/dev.Bad-Cluster.BadTerm</code></dd>
         <dt>Windows</dt><dd><code>%APPDATA%\Bad Cluster\BadTerm\config</code></dd>
       </dl>
-      <p>The directory is <code>dialer.toml</code> and the settings <code>settings.toml</code>, plain text you can edit or back up. Themes go in the <code>themes</code> folder and bezels in <code>bezels</code>. If you used BadTerm when it was called Phosphor, your old folders and passwords moved over by themselves the first time it started.</p>
+      <p>The directory is <code>dialer.toml</code> and the settings <code>settings.toml</code>, plain text you can edit or back up. Themes go in the <code>themes</code> folder and bezels in <code>bezels</code>. Files BBSes keep on your computer (SyncTERM's cache) are in BadTerm's cache folder, a folder for each BBS; <code>badterm --paths</code> shows where.</p>
 
       <h2 id="cli">The command line</h2>
 <pre><code>badterm                          start, not connected
@@ -222,10 +222,11 @@ badterm --render art.ans out.png draw ANSI art to an image
 
       <h2 id="problems">When something's wrong</h2>
       <dl class="fields">
-        <dt>The BBS looks garbled</dt><dd>It may speak another emulation: try UTF-8 (<kbd>Alt-E</kbd>), or set the entry's emulation to PETSCII, ATASCII, Avatar or RIPscrip, as the BBS's listing says.</dd>
+        <dt>The BBS looks garbled</dt><dd>It may speak another emulation: try UTF-8 (<kbd>Alt-E</kbd>), or set the entry's emulation to the one the BBS's listing gives: Avatar, RIPscrip, PETSCII, ATASCII, Viewdata, IGS or SkyPix.</dd>
         <dt>Blinking text where colors should be</dt><dd>Press <kbd>Alt-I</kbd> for iCE colors, or set iCE colors to On in the entry.</dd>
         <dt>Passwords aren't remembered on Linux</dt><dd>BadTerm uses the Secret Service (GNOME Keyring or KWallet). Without one, passwords stay in <code>dialer.toml</code>.</dd>
         <dt>The modem doesn't answer</dt><dd>Check the serial port and speed in Settings, Modem; try flow control "none" for a cable without RTS/CTS; and make sure nothing else has the port open.</dd>
+        <dt>A BBS's mouse menus don't respond</dt><dd>Make sure <kbd>Shift</kbd> isn't held: with it, the mouse selects text instead of going to the BBS.</dd>
         <dt>Something else</dt><dd>Call <a href="telnet://vortexbbs.com">The Vortex BBS</a> and ask, or <a href="https://git.badcluster.dev/arelas/badterm/issues">report a problem</a>.</dd>
       </dl>
     </article>

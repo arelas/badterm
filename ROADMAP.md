@@ -9,7 +9,8 @@ The next things to do, in order.
 
 - [ ] Try the newer features against the real thing: a modem (or tcpser or
       a WiFi modem), a RIPscrip BBS, an Avatar BBS, a Kermit download from a
-      live board
+      live board, Synchronet's graphical doors (SyncDoom: pictures, sound
+      and the mouse), an IGS board, a SkyPix board
 - [ ] Try each release on a real desktop on all three OSes. Done on
       0.1.4: calling Vortex, Alt-D while connected, Alt-Enter. Still to try:
       Cmd-D on macOS, the SSH login dialog and keychain, a ZMODEM download,
@@ -18,11 +19,12 @@ The next things to do, in order.
 - [ ] winget and Homebrew, updated from CI on each release
 - [ ] Retake the website's phosphor-mode screenshots (`vortex-*.jpg`,
       `bezels.jpg`): they predate 0.1.23, whose glow no longer washes out
-      the colors (steps in site/README.md)
+      the colors (steps in site/README.md); add ones of Viewdata, IGS and
+      sixel
 
 ## Done (0.1)
 
-- [x] Native window with pixel-exact CP437 VGA 8x16 font and integer scaling
+- [x] Native window with pixel-exact CP437 VGA 8x16 font
 - [x] ANSI-BBS emulation: CUP/CUU/CUD/CUF/CUB, CNL/CPL, CHA/HPA/VPA, ED/EL/ECH,
       ICH/DCH/IL/DL, SU/SD, DECSTBM, SCP/RCP, DECSC/DECRC, IND/RI/NEL, RIS,
       DSR/CPR, DECAWM, DECTCEM, OSC title, delayed last-column wrap
@@ -43,14 +45,14 @@ The next things to do, in order.
 - [x] Login dialog for passwords, passphrases and keyboard-interactive
       questions not stored in the entry, with retry on a wrong answer
 - [x] Passwords stored in the OS keychain, falling back to the directory file
-- [x] Device Attributes (`CSI c`) reply, as a VT100
+- [x] Device Attributes (`CSI c`) reply
 - [x] Fullscreen (`Alt-Enter`) fills the screen with sharp fractional
-      scaling; normal windows keep exact integer scaling
+      scaling
 - [x] Mouse selection and copy, as text or ANSI
 - [x] Directory search and sorting (name, last called, calls)
 - [x] Save scrollback to `.ans`/`.txt`; save the screen as PNG
 - [x] Application icon (window, Windows .exe, macOS bundle, Linux desktop file)
-- [x] Packages: macOS `.app` in a `.dmg` (signed ad hoc), Linux AppImage
+- [x] Packages: macOS `.app` in a `.dmg`, Linux AppImage
 - [x] Phosphor mode: CRT glow, scanlines, curvature and vignette; color,
       green or amber
 - [x] 9-dot VGA cells, 4:3 aspect correction, 80x50 per entry (8x8 font)
@@ -87,6 +89,20 @@ The next things to do, in order.
 - [x] Phosphor mode keeps colors true: the glow only spreads light onto
       darker neighbours
 
+## Done (0.2 and 0.3)
+
+- [x] Sixel graphics, as pixel tiles on the screen's cells
+- [x] SyncTERM's extensions, identifying as CTerm 1.332: the file cache,
+      PPM and JPEG XL pictures, pixel copy and paste, the audio channels
+      (WAV, AIFF, VOC, FLAC, Ogg Opus and Vorbis), loadable fonts
+- [x] xterm mouse reporting for BBSes and doors (9, 1000, 1002, 1003,
+      1006, 1016)
+- [x] Viewdata (Prestel), IGS (Atari ST) and SkyPix (Amiga)
+- [x] The window keeps the picture's shape as it's resized, and opens at
+      the size and place it was left
+- [x] A new splash screen and application icon, as ANSI art
+- [x] CI keeps compiled dependencies between runs, and builds a release
+      once
 ## Connections
 
 - [x] Serial port / modem dialing (`serialport` crate), AT command init strings
@@ -96,8 +112,8 @@ The next things to do, in order.
 - [x] CTerm's loadable fonts, and xterm mouse reporting (9, 1000, 1002,
       1003, 1006, 1016)
 - [ ] More CTerm: the other built-in font IDs (code pages), bracketed paste
-- [ ] Loadable fonts: CP437 8x14, Commodore, Atari, other code pages (850,
-      866, ...), custom `.fnt`/`.psf`; Amiga fonts in 8-line modes
+- [ ] More built-in fonts: CP437 8x14, other code pages (850, 866, ...),
+      custom `.fnt`/`.psf` from disk; Amiga fonts in 8-line modes
 - [x] Device Attributes identify as CTerm (1.332), for SyncTERM's extensions
 - [ ] More screen modes: 40-column, resizable
 - [x] Avatar/0+ emulation
@@ -107,7 +123,7 @@ The next things to do, in order.
 - [x] Amiga SkyPix graphics (not yet: samples, brushes sent by XMODEM, Amiga disk fonts)
 - [x] Sixel graphics
 - [x] SyncTERM's pictures: the file cache, PPM and JPEG XL drawing, pixel
-      copy and paste (not yet: fonts from the cache, `SetFont`)
+      copy and paste, fonts from the cache (`SetFont`)
 - [x] SyncTERM's audio APCs (WAV, AIFF, VOC, FLAC, Ogg Opus and Vorbis;
       not yet: MP3, or music played in the foreground, `MF`)
 - [x] RIPscrip graphics (not yet: icon and scene files, RIP file transfers)

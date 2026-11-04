@@ -52,13 +52,21 @@ The BBS screenshots come from a real session, drawn by BadTerm itself:
 The text-mode screenshots (`dialer.png`, `find.png`, `login.png`) come from
 the renderer's snapshot test, `badcluster.png` from its theme snapshot,
 `rip.png` from its RIP snapshot, and `c64.png` and `atari.png` from its
-retro snapshot:
+retro snapshot, and `viewdata.png`, `igs.png` and `skypix.png` from the
+snapshots below, of the sample screens in [`samples/`](samples/README.md):
 
 ```sh
 BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm snapshot -- --ignored
 ```
 
 They are saved as palette PNGs (a few kilobytes each).
+
+The other emulations have snapshots of their own, which take a file of what
+a BBS sends (or, for Viewdata, draw a sample page):
+`viewdata_snapshot` (`BADTERM_VIEWDATA`), `igs_snapshot` (`BADTERM_IGS`),
+`skypix_snapshot` (`BADTERM_SKYPIX`) and `sixel_snapshot` (`BADTERM_SIXEL`,
+which also takes SyncTERM's picture commands); see their notes in
+`crates/badterm/src/render.rs`.
 
 CRT screenshots are saved as JPEG (they are soft gradients), text-mode
 ones as PNG.

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>BadTerm — the badass terminal</title>
-  <meta name="description" content="BadTerm is a free BBS client for Windows, macOS and Linux: telnet, SSH and real modems, ZMODEM and Kermit, RIPscrip, PETSCII and ATASCII, pixel-exact VGA fonts and the glow of a real CRT.">
+  <meta name="description" content="BadTerm is a free BBS client for Windows, macOS and Linux: telnet, SSH and real modems, ZMODEM and Kermit, SyncTERM's pictures, sound and fonts, RIPscrip, PETSCII, ATASCII, Viewdata, IGS and SkyPix, pixel-exact VGA fonts and the glow of a real CRT.">
   <meta name="theme-color" content="#0E1015">
   <link rel="icon" type="image/png" href="img/favicon.png">
   <link rel="preload" href="fonts/ibm-plex-mono-600.woff2" as="font" type="font/woff2" crossorigin>
@@ -36,7 +36,7 @@
             <a class="button primary" href="#download">Download</a>
             <a class="button" href="telnet://vortexbbs.com">Call The Vortex BBS</a>
           </div>
-          <p class="meta"><span>v<span data-version>0.1</span></span><span>GPL-3.0</span><span>Written in Rust</span><span>No telemetry</span></p>
+          <p class="meta"><span>v<span data-version>0.3</span></span><span>GPL-3.0</span><span>Written in Rust</span><span>No telemetry</span></p>
         </div>
         <figure class="hero-shot">
           <img src="img/vortex-color.jpg" width="960" height="720" alt="The Vortex BBS welcome screen in BadTerm, with the CRT glow and scanlines of phosphor mode">
@@ -64,7 +64,7 @@
       <div class="features">
         <article>
           <h3><span class="glyph" aria-hidden="true">█</span>Pixel-exact ANSI</h3>
-          <p>BadTerm draws its own screen in the IBM VGA fonts, 8 or 9 dots wide, from 80x25 to 132x52. iCE colors, blinking, 256 and 24-bit color, and SyncTERM's palette and font changes.</p>
+          <p>BadTerm draws its own screen in the IBM VGA fonts, 8 or 9 dots wide, from 80x25 to 132x52. iCE colors, blinking, 256 and 24-bit color, sixel pictures, and SyncTERM's palettes and the fonts BBSes send.</p>
         </article>
         <article>
           <h3><span class="glyph" aria-hidden="true">▓</span>Phosphor mode</h3>
@@ -91,8 +91,8 @@
           <p>10,000 lines of scrollback, even of screens the BBS cleared. Capture every call as ANSI or as a text log, save the screen as .ans or .png, and view art with its SAUCE credits.</p>
         </article>
         <article>
-          <h3><span class="glyph" aria-hidden="true">♫</span>Music and the bell</h3>
-          <p>ANSI music plays as a PC speaker would play it. The bell beeps, flashes the screen, both, or keeps quiet, for each BBS as you like.</p>
+          <h3><span class="glyph" aria-hidden="true">♫</span>Doors with pictures and sound</h3>
+          <p>Synchronet's graphical doors draw their pictures, play their sound and music, and take the mouse, just as in SyncTERM. ANSI music plays as a PC speaker would, and the bell beeps, flashes or keeps quiet.</p>
         </article>
         <article>
           <h3><span class="glyph" aria-hidden="true">☼</span>Your colors</h3>
@@ -109,8 +109,11 @@
         <figure><img class="pixels" src="img/rip.png" width="640" height="344" alt="A RIPscrip scene: sky, sun and hills, a title box and two buttons, with ANSI text over the graphics" loading="lazy"><figcaption><b>RIPscrip</b> vector scenes, with buttons you click</figcaption></figure>
         <figure><img class="pixels" src="img/c64.png" width="1280" height="800" alt="A Commodore 64 BBS menu in PETSCII, with its colors and line graphics" loading="lazy"><figcaption><b>Commodore 64</b> PETSCII, 40 columns</figcaption></figure>
         <figure><img class="pixels" src="img/atari.png" width="1280" height="768" alt="An Atari 8-bit BBS menu in ATASCII, light blue on blue with inverse video" loading="lazy"><figcaption><b>Atari 8-bit</b> ATASCII, inverse video and all</figcaption></figure>
+        <figure><img class="pixels" src="img/viewdata.png" width="640" height="768" alt="A Viewdata page: a double-height title, block graphics in red, yellow and cyan, and a numbered menu" loading="lazy"><figcaption><b>Viewdata</b> Prestel pages, block graphics and double height</figcaption></figure>
+        <figure><img class="pixels" src="img/igs.png" width="640" height="400" alt="An Atari ST IGS scene: a sunset sky in bands, a sun behind dark mountains, BADTERM in large letters and a rounded menu box" loading="lazy"><figcaption><b>Atari ST</b> IGS drawings, fills and fonts</figcaption></figure>
+        <figure><img class="pixels" src="img/skypix.png" width="640" height="400" alt="An Amiga SkyPix menu: color bands, BadTerm in large letters, a menu in Topaz and filled ellipses" loading="lazy"><figcaption><b>Amiga</b> SkyPix, in Topaz and 16 colors</figcaption></figure>
       </div>
-      <p class="also">Also <b>AVATAR</b> (AVT/0+) for Opus and Maximus boards, the Amiga's <b>Topaz</b> and <b>MicroKnight</b> fonts, and <b>UTF-8</b>.</p>
+      <p class="also">Also <b>sixel</b> pictures, <b>AVATAR</b> (AVT/0+) for Opus and Maximus boards, the Amiga's <b>Topaz</b> and <b>MicroKnight</b> fonts, and <b>UTF-8</b>.</p>
     </section>
 
     <section class="wrap section" id="screens">
@@ -137,7 +140,7 @@
     <section class="wrap section" id="download">
       <p class="eyebrow">04 · Download</p>
       <h2>Get BadTerm</h2>
-      <p class="section-lede">Version <span data-version>0.1</span>. Free, with no account needed.</p>
+      <p class="section-lede">Version <span data-version>0.3</span>. Free, with no account needed.</p>
       <div class="downloads">
         <article>
           <h3>Windows</h3>
@@ -185,7 +188,7 @@
     <div class="wrap footer-inner">
       <div>
         <p class="wordmark small"><img src="img/icon.png" width="20" height="20" alt="">BADTERM</p>
-        <p>Free software under the GNU General Public License, version 3 or later. The VGA fonts come from DOSBox (GPL-2.0-or-later); IBM Plex is under the SIL Open Font License.</p>
+        <p>Free software under the GNU General Public License, version 3 or later. The VGA fonts come from DOSBox (GPL-2.0-or-later), the Amiga fonts from TrueSchool's collection (GPL with the font exception); IBM Plex is under the SIL Open Font License.</p>
       </div>
       <ul class="links">
         <li><a href="help.html">Help</a></li>

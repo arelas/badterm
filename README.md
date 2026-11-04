@@ -11,11 +11,12 @@ BadTerm draws its own text-mode screen using real CP437 bitmap fonts, so ANSI
 art renders pixel-for-pixel as it did on a VGA card. It doesn't depend on the
 fonts and colors of a host terminal.
 
-> **Status:** early development (0.1), in daily use. Telnet, telnet over
-> TLS, SSH, RLogin, raw TCP and modem connections; ZMODEM, YMODEM, XMODEM
-> and Kermit transfers; ANSI-BBS, Avatar, RIPscrip, PETSCII and ATASCII;
-> and the dialing directory with import and export all work. See
-> [ROADMAP.md](ROADMAP.md) for what's planned.
+> **Status:** 0.3, in daily use. Telnet, telnet over TLS, SSH, RLogin, raw
+> TCP and modem connections; ZMODEM, YMODEM, XMODEM and Kermit transfers;
+> ANSI-BBS (as SyncTERM's CTerm, with its fonts, sixel, pictures, sound and
+> the mouse), Avatar, RIPscrip, PETSCII, ATASCII, Viewdata, IGS (Atari ST)
+> and SkyPix (Amiga); and the dialing directory with import and export all
+> work. See [ROADMAP.md](ROADMAP.md) for what's planned.
 
 ## Features
 
@@ -174,9 +175,12 @@ fonts and colors of a host terminal.
 - **Baud rate emulation**, per entry (300 to 115200 bps): text arrives at
   the speed it was drawn for, so ANSI animations play as intended.
   ZMODEM transfers still run at full speed.
-- Clipboard paste. A normal window scales by whole numbers so every pixel
-  is exact; fullscreen (`Alt-Enter`) and maximized windows fill the screen,
-  keeping the shape and keeping the pixels sharp.
+- **The window**: the screen fills it, keeping its shape, and when you
+  resize the window it settles into that shape too, so there are no
+  borders (Settings, Scaling, also offers whole-number steps for exact
+  pixels, or stretching). Fullscreen (`Alt-Enter`) and maximized windows
+  fill the screen. BadTerm opens at the size and place you left it.
+- Clipboard paste (`Alt-V`, `Shift-Ins`)
 
 ## Installing
 
@@ -231,7 +235,9 @@ badterm --import syncterm.lst   add entries from a SyncTERM, NetRunner (.phn),
                                  directory, a CSV list (ours, or the Telnet BBS
                                  Guide's bbslist.csv), JSON or TOML
 badterm --export bbses.csv      write the directory (format from extension)
-badterm --paths                 show where data is stored
+badterm --paths                 show where data is stored (settings,
+                                 directory, captures, downloads, themes,
+                                 bezels, known hosts, the BBS file cache)
 badterm --render art.ans out.png
                                  draw an ANSI file to a PNG (add --screen for
                                  just the last 80x25 screen, --crt color|green|
@@ -450,7 +456,9 @@ directory is saved. Exported directories don't include them.
 
 Keys are sent the way ANSI-BBS software expects: arrows as `ESC [ A..D`,
 `Home`/`End` as `ESC [ H` / `ESC [ K`, `PgUp`/`PgDn` as `ESC [ V` / `ESC [ U`,
-`Ins` as `ESC [ @` and `Del` as DEL.
+`Ins` as `ESC [ @` and `Del` as DEL. The other emulations send their own
+machine's keys: the C64's and Atari's codes, a Prestel keyboard's (`Enter`
+is `#`), and the Atari ST's VT-52 arrows (`ESC A..D`).
 
 ## Website
 
@@ -462,9 +470,13 @@ page of themes and bezels (built from `extras/`); see
 
 ```
 crates/badterm-core   front-end independent library: CP437, screen model,
-                       ANSI parser, telnet, dialing directory, sessions
-crates/badterm        the windowed client (winit + softbuffer), renderer,
-                       text-mode dialer UI
+                       ANSI parser and the other emulations (RIPscrip,
+                       Avatar, PETSCII, ATASCII, Viewdata, IGS, SkyPix),
+                       sixel and SyncTERM's pictures and sound, telnet, SSH
+                       and modems, transfers, dialing directory, sessions
+crates/badterm        the windowed client (winit + softbuffer): renderer,
+                       phosphor mode, the sound mixer, text-mode dialer and
+                       settings
 extras/               themes and bezels offered for download
 site/                 the website
 packaging/            installers and packages (Windows, macOS, Linux)
@@ -504,7 +516,11 @@ BadTerm is free software, licensed under the GNU General Public License,
 version 3 or (at your option) any later version. See [LICENSE](LICENSE).
 
 The bundled VGA fonts come from DOSBox (GPL-2.0-or-later), and the Amiga
-fonts from TrueSchool's collection (GPL with the font exception). See
-[crates/badterm/assets/fonts/README.md](crates/badterm/assets/fonts/README.md).
+fonts from TrueSchool's collection (GPL with the font exception); the C64,
+Atari and 6x6 fonts are BadTerm's own. See
+[crates/badterm/assets/fonts/README.md](crates/badterm/assets/fonts/README.md)
+and [crates/badterm-core/assets/README.md](crates/badterm-core/assets/README.md).
+IGS's fill patterns, line styles and markers are the GEM VDI's, as EmuTOS
+(GPL-2.0-or-later) defines them.
 The website uses IBM Plex, under the SIL Open Font License
 ([site/fonts/OFL.txt](site/fonts/OFL.txt)).

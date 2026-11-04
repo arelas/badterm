@@ -450,13 +450,6 @@ impl Skypix {
             }
             prev = w;
         }
-        if !filled {
-            // The flat top and bottom.
-            for x in -half(-b + 1).max(0)..=half(-b + 1) {
-                self.set(cx + x, cy - b, pen);
-                self.set(cx + x, cy + b, pen);
-            }
-        }
     }
 
     /// Flood fill in pen A: mode 0 up to pixels in pen A (the outline),

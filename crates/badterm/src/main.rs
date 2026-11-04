@@ -176,11 +176,13 @@ fn main() -> ExitCode {
     let result = match cmd {
         Command::Paths => {
             println!("Dialing directory: {}", paths.directory.display());
+            println!("Settings:          {}", paths.settings.display());
             println!("Captures:          {}", paths.captures.display());
             println!("Downloads:         {}", paths.downloads.display());
             println!("Color themes:      {}", paths.themes.display());
             println!("Monitor bezels:    {}", paths.bezels.display());
             println!("SSH known hosts:   {}", paths.known_hosts.display());
+            println!("BBS file cache:    {}", paths.bbs_cache.display());
             Ok(())
         }
         Command::Import(file) => app::import_into_directory(&paths, &file).map(|(added, total)| {
