@@ -13,8 +13,9 @@
 //! Everything, text included, is drawn into a bitmap of color registers,
 //! which the front end shows like RIPscrip's graphics. Fill patterns, hatches,
 //! line styles and marker shapes are the VDI's, as EmuTOS (GPL 2 or later)
-//! defines them. Sound (the sound chip's effects, chip music and MIDI) is
-//! read past and not played.
+//! defines them. Sound (see [`crate::igs_sound`]): the built-in effects
+//! (`b`), chip music (`n`), and the sound chip's own data and MIDI (`N`),
+//! played on the audio channels; MIDI notes as plain tones.
 
 use std::time::{Duration, Instant};
 
@@ -439,7 +440,24 @@ pub struct Igs {
     /// What the BBS should get (replies, zones clicked).
     pub replies: Vec<u8>,
     pub bells: usize,
+    /// The effects, as `b 20` may have altered them, and how many times
+    /// the first five repeat.
+    effects: Box<[[i16; 56]; 20]>,
+    effect_loops: u32,
+    /// `N`'s buffers: MIDI, and the sound chip's.
+    midi: Vec<u8>,
+    chip: Vec<u8>,
+    /// The channel the next MIDI note goes on.
+    next_midi: usize,
+    /// Sound to play.
+    pub audio: Vec<crate::audio::AudioOp>,
 }
+
+/// The audio channels IGS's sound uses.
+const EFFECT_CHANNEL: usize = 2;
+const VOICE_CHANNELS: usize = 3;
+const CHIP_CHANNEL: usize = 6;
+const MIDI_CHANNELS: std::ops::Range<usize> = 7..13;
 
 impl Default for Igs {
     fn default() -> Igs {
@@ -481,6 +499,12 @@ impl Default for Igs {
             awaiting_zone: None,
             replies: Vec::new(),
             bells: 0,
+            effects: Box::new(crate::igs_sound::EFFECTS),
+            effect_loops: 5,
+            midi: Vec::new(),
+            chip: Vec::new(),
+            next_midi: 0,
+            audio: Vec::new(),
         };
         igs.set_res(Res::Medium);
         igs.desktop_palette();
@@ -1477,8 +1501,20 @@ impl Igs {
             }
             b'N' => self.noise(r)?,
             b'n' => {
-                for _ in 0..6 {
-                    self.val(r, 0)?;
+                let (effect, voice, volume) = (self.val(r, 0)?, self.val(r, 0)?, self.val(r, 0)?);
+                let (pitch, timing, stop) = (self.val(r, 0)?, self.val(r, 0)?, self.val(r, 0)?);
+                let channel = VOICE_CHANNELS + voice.clamp(0, 2) as usize;
+                if pitch > 0 {
+                    let words = self.effects[effect.clamp(0, 19) as usize];
+                    let ticks = (timing > 0 && stop != 0).then_some(timing as u32);
+                    let (volume, pitch) = (volume.clamp(0, 15) as u8, pitch.clamp(0, 127) as u8);
+                    self.play(channel, 400, move || crate::igs_sound::note(&words, volume, pitch, ticks));
+                } else if stop != 0 {
+                    self.silence(if stop >= 3 { VOICE_CHANNELS..VOICE_CHANNELS + 3 } else { channel..channel + 1 });
+                }
+                // The BBS's text waits while the note plays.
+                if timing > 0 {
+                    self.hold = Some(Instant::now() + Duration::from_millis(timing.min(6000) as u64 * 5));
                 }
             }
             b'O' => {
@@ -1606,14 +1642,23 @@ impl Igs {
                 }
             }
             b'b' => match self.val(r, 0)? {
+                n @ 0..=19 => self.effect(n as usize),
                 20 => {
-                    for _ in 0..6 {
-                        self.val(r, 0)?;
+                    let (play, snd, elem) = (self.val(r, 0)?, self.val(r, 0)?, self.val(r, 0)?);
+                    let (neg, thousands, hundreds) = (self.val(r, 0)?, self.val(r, 0)?, self.val(r, 0)?);
+                    let snd = snd.clamp(0, 19) as usize;
+                    let value = thousands.clamp(0, 32) * 1000 + hundreds.clamp(0, 999);
+                    self.effects[snd][elem.clamp(0, 55) as usize] = if neg != 0 { -value } else { value } as i16;
+                    if play != 0 {
+                        self.effect(snd);
                     }
                 }
-                22 | 23 => {
-                    self.val(r, 0)?;
+                21 => self.silence(EFFECT_CHANNEL..MIDI_CHANNELS.end),
+                22 => {
+                    let snd = self.val(r, 0)?.clamp(0, 19) as usize;
+                    self.effects[snd] = crate::igs_sound::EFFECTS[snd];
                 }
+                23 => self.effect_loops = self.val(r, 0)?.clamp(0, 50) as u32,
                 _ => {}
             },
             b'<' => {
@@ -1730,15 +1775,59 @@ impl Igs {
         Ok(())
     }
 
-    /// `N`: MIDI and sound chip data, read past.
+    /// Render a sound on a thread and play it on `channel`, cutting off
+    /// what was playing there. `ms`: about how long it is.
+    fn play(&mut self, channel: usize, ms: usize, render: impl FnOnce() -> crate::audio::Pcm + Send + 'static) {
+        use crate::audio::{AudioOp, RATE, Sound};
+        let sound = Sound::decoded_later(ms * RATE as usize / 1000, move || Some(render().to_vec()));
+        self.audio.push(AudioOp::Flush { channel, fade_out: 0 });
+        self.audio.push(AudioOp::Queue {
+            channel,
+            sound,
+            fade_in: 0,
+            fade_out: 0,
+            crossfade: false,
+            looped: false,
+            volume: (0.0, 0.0),
+        });
+    }
+
+    fn silence(&mut self, channels: std::ops::Range<usize>) {
+        for channel in channels {
+            self.audio.push(crate::audio::AudioOp::Flush { channel, fade_out: 256 });
+        }
+    }
+
+    /// `b`: a built-in effect; the first five repeat.
+    fn effect(&mut self, n: usize) {
+        let words = self.effects[n];
+        let times = if n <= 4 { self.effect_loops.max(1) } else { 1 };
+        self.play(EFFECT_CHANNEL, 1000, move || crate::igs_sound::effect(&words, times));
+    }
+
+    /// `N`: MIDI (0 load, 1 load and play, 2 play) and the sound chip's
+    /// `Dosound` data (3, 4, 5 likewise).
     fn noise(&mut self, r: &mut Reader) -> Res2<()> {
         match self.val(r, 0)? {
-            0 | 1 | 3 | 4 => {
+            op @ (0 | 1 | 3 | 4) => {
                 let n = self.val(r, 0)?.clamp(0, 10_001) as usize;
+                let mut data = Vec::with_capacity(n);
                 for _ in 0..n {
-                    r.next()?;
+                    data.push(r.next()?);
+                }
+                if op < 3 {
+                    self.midi = data;
+                } else {
+                    self.chip = data;
+                }
+                match op {
+                    1 => self.play_midi(),
+                    4 => self.play_chip(),
+                    _ => {}
                 }
             }
+            2 => self.play_midi(),
+            5 => self.play_chip(),
             6 => {
                 self.val(r, 0)?;
                 self.val(r, 0)?;
@@ -1746,6 +1835,19 @@ impl Igs {
             _ => {}
         }
         Ok(())
+    }
+
+    fn play_midi(&mut self) {
+        for (note, velocity) in crate::igs_sound::midi_notes(&self.midi) {
+            let channel = MIDI_CHANNELS.start + self.next_midi % MIDI_CHANNELS.len();
+            self.next_midi += 1;
+            self.play(channel, 600, move || crate::igs_sound::pluck(note, velocity));
+        }
+    }
+
+    fn play_chip(&mut self) {
+        let data = self.chip.clone();
+        self.play(CHIP_CHANNEL, 1000, move || crate::igs_sound::dosound(&data));
     }
 
     fn extended(&mut self, r: &mut Reader) -> Res2<()> {
@@ -1896,6 +1998,38 @@ mod tests {
 
     fn at(g: &Igs, x: usize, y: usize) -> u8 {
         g.pixels[y * g.width() + x]
+    }
+
+    #[test]
+    fn sound_effects_chip_music_and_midi() {
+        use crate::audio::AudioOp;
+        let queued = |g: &Igs| -> Vec<usize> {
+            g.audio
+                .iter()
+                .filter_map(|op| if let AudioOp::Queue { channel, .. } = op { Some(*channel) } else { None })
+                .collect()
+        };
+        // An effect, on its channel.
+        let g = igs(b"G#b>2:");
+        assert_eq!(queued(&g), [EFFECT_CHANNEL]);
+        // Altered, then played; restored.
+        let mut g = igs(b"G#b>20,1,2,0,0,0,50:");
+        assert_eq!(g.effects[2][0], 50);
+        assert_eq!(queued(&g), [EFFECT_CHANNEL]);
+        g.feed(b"G#b>22,2:");
+        assert_eq!(g.effects[2], crate::igs_sound::EFFECTS[2]);
+        // A note on voice 1 that holds the text for 100 ticks.
+        let g = igs(b"G#n>8,1,15,60,100,1:");
+        assert_eq!(queued(&g), [VOICE_CHANNELS + 1]);
+        assert!(g.hold.is_some());
+        // MIDI: two notes, on two channels; chip data.
+        let g = igs(b"G#N>1,6,\x90<d@Z\x80:");
+        assert_eq!(queued(&g), [MIDI_CHANNELS.start, MIDI_CHANNELS.start + 1]);
+        let g = igs(b"G#N>4,4,\x08\x0f\x82\x00:");
+        assert_eq!(queued(&g), [CHIP_CHANNEL]);
+        // Stop everything.
+        let g = igs(b"G#b>21:");
+        assert!(g.audio.iter().all(|op| matches!(op, AudioOp::Flush { .. })) && !g.audio.is_empty());
     }
 
     #[test]

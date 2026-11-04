@@ -14,6 +14,7 @@ pub mod dialer;
 pub mod export;
 pub mod fontfile;
 pub mod igs;
+pub mod igs_sound;
 pub mod kermit;
 pub mod modem;
 pub mod mouse;

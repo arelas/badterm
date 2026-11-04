@@ -16,6 +16,8 @@ rust-version = "1.89"
 [workspace.dependencies]
 badterm-core = { path = "crates/badterm-core", version = "0.3.4" }
 rhai = "1.27"
+ym2149 = { version = "0.9.1", default-features = false, features = ["emulator"] }
+ym2149-gist-replayer = "0.9.1"
 chrono = { version = "0.4.40", default-features = false, features = ["clock", "std"] }
 anyhow = "1.0"
 log = "0.4"

@@ -48,7 +48,7 @@ impl Sound {
 
     /// A sound `frames` long, decoded by `decode` on another thread (to
     /// nothing, if that fails).
-    fn decoded_later(frames: usize, decode: impl FnOnce() -> Option<Vec<i16>> + Send + 'static) -> Sound {
+    pub(crate) fn decoded_later(frames: usize, decode: impl FnOnce() -> Option<Vec<i16>> + Send + 'static) -> Sound {
         let sound = Sound(Arc::new(SoundData { frames, pcm: std::sync::OnceLock::new() }));
         let fill = sound.0.clone();
         let spawned = std::thread::Builder::new().name("decode".into()).spawn(move || {

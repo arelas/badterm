@@ -503,6 +503,8 @@ dependencies = [
  "tokio-rustls",
  "toml",
  "webpki-roots",
+ "ym2149",
+ "ym2149-gist-replayer",
  "zmodem2",
 ]
 
@@ -5262,6 +5264,32 @@ checksum = "b5f6765e852b9b4dc8e2a76843e4d64d1cea8e79bcde0b6901aea8e7c7f08282"
 dependencies = [
  "bit-vec",
  "time",
+]
+
+[[package]]
+name = "ym2149"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd2271de7272f422fe8f1d9c7c3ecd7ae8f684cb8ca3f79703008b8a68f73a61"
+dependencies = [
+ "thiserror 1.0.69",
+ "ym2149-common",
+]
+
+[[package]]
+name = "ym2149-common"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28dd3a5849ef612e3df0b869ab7df6ac50270018f6f366d07d66a719be41222b"
+
+[[package]]
+name = "ym2149-gist-replayer"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7ac45bf016531d393a3870f3197a21e18c9ce324369e4503bce042612c54e17"
+dependencies = [
+ "ym2149",
+ "ym2149-common",
 ]
 
 [[package]]

@@ -329,6 +329,11 @@ impl Terminal {
         for _ in 0..std::mem::take(&mut igs.bells) {
             self.events.push(TermEvent::Bell);
         }
+        for op in igs.audio.drain(..) {
+            if self.music_enabled {
+                self.events.push(TermEvent::Audio(op));
+            }
+        }
         let (x, y) = igs.cursor();
         self.screen.move_to(x, y);
         self.screen.cursor_visible = igs.cursor_on;

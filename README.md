@@ -130,7 +130,9 @@ fonts and colors of a host terminal.
   and effects, markers, blits, palettes, loops and clickable mouse zones.
   The ST's smallest text is in a 6x6 font of BadTerm's own. Color cycling
   (`X 8`) animates as on the ST, and a key cuts it, or a pause, short.
-  Not yet: the sound chip's effects and music, and MIDI.
+  Its sound plays too: the twenty built-in effects, chip music, and the
+  sound chip's own data, on an emulated YM2149; MIDI notes as plain tones,
+  as BadTerm has no synthesizer.
 - **SkyPix**, the graphics of Amiga BBSes (SkyLine's, then C-Net's): ANSI
   text in Topaz on the Amiga's 640x200 screen in 16 colors, with SkyPix's
   drawing commands: pixels, lines, filled rectangles, ellipses, flood fills,
@@ -589,6 +591,8 @@ Atari and 6x6 fonts are BadTerm's own. See
 [crates/badterm/assets/fonts/README.md](crates/badterm/assets/fonts/README.md)
 and [crates/badterm-core/assets/README.md](crates/badterm-core/assets/README.md).
 IGS's fill patterns, line styles and markers are the GEM VDI's, as EmuTOS
-(GPL-2.0-or-later) defines them.
+(GPL-2.0-or-later) defines them. Its sound effects' data is from IcyTerm
+(Apache-2.0), played with the `ym2149` and `ym2149-gist-replayer` crates
+(MIT).
 The website uses IBM Plex, under the SIL Open Font License
 ([site/fonts/OFL.txt](site/fonts/OFL.txt)).
