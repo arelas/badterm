@@ -224,7 +224,11 @@ Downloads are on the [website](https://badterm.com/) and the
   alone without administrator rights (or for everyone, if you choose), adds
   BadTerm to the Start menu and opens `telnet://`, `telnets://` and
   `rlogin://` links with it. Or unzip `badterm-…-windows-x64.zip` and run
-  `badterm.exe` from anywhere.
+  `badterm.exe` from anywhere. For installing on many PCs (Intune, Group
+  Policy, SCCM), `badterm-…-windows-x64.msi` installs for everyone with
+  no questions: `msiexec /i badterm-…-windows-x64.msi /qn`, adding
+  `ADDLOCAL=Main` to leave the link handlers out. A newer MSI replaces an
+  older one.
 - **macOS**: open `badterm-…-macos-arm64.dmg` and drag BadTerm to
   Applications. It is signed with an Apple Developer ID and notarized by
   Apple, so it opens like any other app. It opens `telnet://` links once it

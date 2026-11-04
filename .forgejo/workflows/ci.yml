@@ -191,6 +191,13 @@ jobs:
           EnsureWinget "Rustlang.Rustup" $null
           # Builds the installer (free for non-commercial use, as here).
           EnsureWinget "JRSoftware.InnoSetup" $null
+          # Builds the MSI. Version 5: from 6 on, WiX asks its users to
+          # accept the Open Source Maintenance Fee's terms.
+          winget list --id WiXToolset.WiXCLI -e --source winget | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            winget install --id WiXToolset.WiXCLI -e --source winget --version 5.0.2.0 --silent --accept-package-agreements --accept-source-agreements
+            if ($LASTEXITCODE -ne 0) { Write-Host "::error::winget install failed for WiXToolset.WiXCLI (exit $LASTEXITCODE)"; exit 1 }
+          }
 
           $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
           $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
@@ -308,6 +315,17 @@ jobs:
           & $iscc /Qp "/DAppVersion=$version" "/DOutputName=$name-setup" packaging\windows\badterm.iss
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+          # The MSI, for managed deployments.
+          $wix = @(
+            (Get-Command wix.exe -ErrorAction SilentlyContinue).Source,
+            "$env:ProgramFiles\WiX Toolset v5.0\bin\wix.exe",
+            "${env:ProgramFiles(x86)}\WiX Toolset v5.0\bin\wix.exe"
+          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if (-not $wix) { Write-Host "::error::wix.exe not found"; exit 1 }
+          & $wix build -arch x64 -d "Version=$version" -o "dist\$name.msi" packaging\windows\badterm.wxs
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Remove-Item dist\*.wixpdb -ErrorAction SilentlyContinue
+
       # Before the install test below, so that tests the file that ships.
       # (Its uninstaller, which Inno Setup builds inside it, stays unsigned.)
       - name: Sign the installer
@@ -328,7 +346,7 @@ jobs:
             Write-Host "::warning::Azure Artifact Signing secrets not set - the installer ships UNSIGNED"
             exit 0
           }
-          powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\sign.ps1 (Get-ChildItem dist\*-setup.exe | Select-Object -First 1).FullName
+          powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\sign.ps1 (Get-ChildItem dist\*-setup.exe | Select-Object -First 1).FullName (Get-ChildItem dist\*.msi | Select-Object -First 1).FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       # Install for this user into a scratch folder, check the program,
@@ -360,6 +378,23 @@ jobs:
           if (Test-Path "$dir\badterm.exe") { Write-Host "::error::badterm.exe left behind"; exit 1 }
           if (Test-Path 'HKCU:\Software\Classes\telnet\shell\open\command') { Write-Host "::error::handler left behind"; exit 1 }
 
+      # The MSI: an administrative install unpacks it to a folder without
+      # changing the machine; the program must be in it, whole.
+      - name: Test the MSI
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem dist\*.msi | Select-Object -First 1
+          $dir = Join-Path $env:RUNNER_TEMP "badterm-msi-test"
+          if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+          $log = Join-Path $env:RUNNER_TEMP "badterm-msi.log"
+          $p = Start-Process -Wait -PassThru msiexec.exe -ArgumentList '/a', "`"$($msi.FullName)`"", '/qn', "TARGETDIR=`"$dir`"", '/l*v', "`"$log`""
+          if ($p.ExitCode -ne 0) { Get-Content $log -Tail 40; Write-Host "::error::msiexec /a exited with $($p.ExitCode)"; exit 1 }
+          $exe = Get-ChildItem -Recurse -Path $dir -Filter badterm.exe | Select-Object -First 1
+          if (-not $exe) { Write-Host "::error::badterm.exe not in the MSI"; exit 1 }
+          if ($exe.Length -ne (Get-Item target\release\badterm.exe).Length) { Write-Host "::error::the MSI's badterm.exe differs"; exit 1 }
+          Write-Host "ok: $($exe.FullName)"
+
       - name: Upload package
         uses: https://git.badcluster.dev/actions/upload-artifact@v3
         with:
@@ -367,6 +402,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*-setup.exe
+            dist/*.msi
           if-no-files-found: error
 
   macos:
@@ -560,7 +596,7 @@ jobs:
           ls -la dist/release
           fail=0
           for pattern in "*-linux-x64.tar.gz" "*-linux-x64.AppImage" "*-linux-x64.deb" "*-linux-x64.rpm" \
-                         "*-windows-x64.zip" "*-windows-x64-setup.exe" "*-macos-*.dmg"; do
+                         "*-windows-x64.zip" "*-windows-x64-setup.exe" "*-windows-x64.msi" "*-macos-*.dmg"; do
             n=$(ls dist/release/$pattern 2>/dev/null | wc -l)
             if [ "$n" -eq 0 ]; then echo "MISSING ASSET: $pattern"; fail=1;
             else echo "ok: $pattern -> $(ls dist/release/$pattern)"; fi

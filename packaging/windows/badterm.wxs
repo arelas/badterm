@@ -1,0 +1,94 @@
+<!--
+  WiX (v5) source for BadTerm's MSI, for managed Windows deployments
+  (Intune, Group Policy, SCCM); the Inno Setup installer (badterm.iss) is
+  the one for people.
+
+    wix build -arch x64 -d Version=0.3.5 -o dist\badterm-v0.3.5-windows-x64.msi packaging\windows\badterm.wxs
+
+  Installs for all users, into Program Files\BadTerm, with a Start menu
+  shortcut. The "Links" feature registers badterm.exe for telnet://,
+  telnets:// and rlogin:// links; leave it out with ADDLOCAL=Main.
+  A newer MSI replaces an older one; the UpgradeCode must never change.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="BadTerm"
+           Manufacturer="Bad Cluster"
+           Version="$(Version)"
+           UpgradeCode="6AA4110A-0967-4EC5-85AD-4C20C8C47F70"
+           Scope="perMachine"
+           Compressed="yes">
+    <SummaryInformation Description="BadTerm, an ANSI-BBS client" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of BadTerm is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="badterm.ico" SourceFile="..\..\crates\badterm\assets\icon\badterm.ico" />
+    <Property Id="ARPPRODUCTICON" Value="badterm.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://badterm.com/" />
+    <Property Id="ARPHELPLINK" Value="https://git.badcluster.dev/arelas/badterm/issues" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="BadTerm" />
+    </StandardDirectory>
+
+    <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
+      <Component Id="Exe">
+        <File Id="BadTermExe" Source="..\..\target\release\badterm.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="Readme">
+        <File Source="..\..\README.md" />
+      </Component>
+      <Component Id="License">
+        <File Source="..\..\LICENSE" Name="LICENSE.txt" />
+      </Component>
+    </ComponentGroup>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenu">
+        <Shortcut Id="BadTermShortcut" Name="BadTerm" Description="ANSI-BBS client"
+                  Target="[#BadTermExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\BadTerm" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <!-- As the Inno Setup installer registers them: a ProgID that "Default
+         apps" can offer, and the schemes for systems where nothing else
+         claims them. -->
+    <Component Id="Links" Directory="INSTALLFOLDER" Guid="9C7E2F51-3B0A-4D8E-A1F6-5E2D8B4C7A90">
+      <RegistryKey Root="HKLM" Key="Software\Classes\BadTerm.URL" ForceDeleteOnUninstall="yes">
+        <RegistryValue Type="string" Value="BBS link" KeyPath="yes" />
+        <RegistryValue Name="URL Protocol" Type="string" Value="" />
+        <RegistryValue Key="DefaultIcon" Type="string" Value="&quot;[#BadTermExe]&quot;,0" />
+        <RegistryValue Key="shell\open\command" Type="string" Value="&quot;[#BadTermExe]&quot; &quot;%1&quot;" />
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\BadTerm\Capabilities" ForceDeleteOnUninstall="yes">
+        <RegistryValue Name="ApplicationName" Type="string" Value="BadTerm" />
+        <RegistryValue Name="ApplicationDescription" Type="string" Value="ANSI-BBS client for telnet, SSH and RLogin" />
+        <RegistryValue Key="URLAssociations" Name="telnet" Type="string" Value="BadTerm.URL" />
+        <RegistryValue Key="URLAssociations" Name="telnets" Type="string" Value="BadTerm.URL" />
+        <RegistryValue Key="URLAssociations" Name="rlogin" Type="string" Value="BadTerm.URL" />
+      </RegistryKey>
+      <RegistryValue Root="HKLM" Key="Software\RegisteredApplications" Name="BadTerm" Type="string"
+                     Value="Software\BadTerm\Capabilities" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\telnet" Type="string" Value="URL:Telnet Protocol" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\telnet" Name="URL Protocol" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\telnet\shell\open\command" Type="string"
+                     Value="&quot;[#BadTermExe]&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\telnets" Type="string" Value="URL:Telnet over TLS Protocol" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\telnets" Name="URL Protocol" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\telnets\shell\open\command" Type="string"
+                     Value="&quot;[#BadTermExe]&quot; &quot;%1&quot;" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\rlogin" Type="string" Value="URL:RLogin Protocol" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\rlogin" Name="URL Protocol" Type="string" Value="" />
+      <RegistryValue Root="HKLM" Key="Software\Classes\rlogin\shell\open\command" Type="string"
+                     Value="&quot;[#BadTermExe]&quot; &quot;%1&quot;" />
+    </Component>
+
+    <Feature Id="Main" Title="BadTerm" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="Program" />
+      <ComponentRef Id="StartMenu" />
+    </Feature>
+    <Feature Id="Links" Title="Open telnet://, telnets:// and rlogin:// links" Level="1">
+      <ComponentRef Id="Links" />
+    </Feature>
+  </Package>
+</Wix>
