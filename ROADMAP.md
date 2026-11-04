@@ -104,7 +104,7 @@ The next things to do, in order.
 - [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
 - [x] Viewdata (Prestel) (not yet: BBC Micro Mode 7, revealing concealed text)
 - [x] Atari ST IGS graphics (not yet: its sound, MIDI, color cycling)
-- [ ] Amiga SkyPix graphics
+- [x] Amiga SkyPix graphics (not yet: samples, brushes sent by XMODEM, Amiga disk fonts)
 - [x] Sixel graphics
 - [x] SyncTERM's pictures: the file cache, PPM and JPEG XL drawing, pixel
       copy and paste (not yet: fonts from the cache, `SetFont`)

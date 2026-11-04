@@ -22,6 +22,7 @@ pub mod sauce;
 pub mod screen;
 pub mod session;
 pub mod sixel;
+pub mod skypix;
 pub mod syncterm;
 pub mod telnet;
 pub mod tls;

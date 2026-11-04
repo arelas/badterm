@@ -19,3 +19,13 @@ under the terms of GPL version 3 or later.
 BadTerm's own 6x6 font, for IGS's 8-point text (the size the Atari ST's
 smallest system font draws): ASCII only, made by `make_font6.py` (run it to
 change the font), 256 glyphs x 6 bytes.
+
+## topaz_8x8.bin
+
+The Amiga's Topaz 8 (Kickstart 2.x), which SkyPix draws its text in (see
+`src/skypix.rs`): `crates/badterm/assets/fonts/amiga/topaz_a1200.bin` with
+its doubled rows undone, 256 glyphs x 8 bytes in ISO-8859-1 order. From
+TrueSchool's "Multi Platform Amiga Fonts" v1.02 by dMG of TrueSchool and
+Divine Stylers (<https://github.com/rewtnull/amigafonts>), released under the
+GPL with the font exception; Topaz © Amiga Inc., this version © dMG/t!s^dS!
+(see `crates/badterm/assets/fonts/README.md`).

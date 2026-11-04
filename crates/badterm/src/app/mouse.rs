@@ -77,6 +77,14 @@ impl App {
         let y = my.saturating_sub(oy) * self.renderer.native_height() / h.max(1);
         let Some(session) = self.session.as_mut().filter(|s| s.state == State::Connected) else { return false };
         let rows = session.term.screen.rows();
+        // SkyPix reports every click.
+        if let Some(sky) = session.term.skypix() {
+            let (sw, sh) = (badterm_core::skypix::WIDTH, badterm_core::skypix::HEIGHT);
+            let Some((gx, gy)) = self.renderer.graphics_point(x, y, rows, sw, sh) else { return false };
+            let text = sky.click(gx as i32, gy as i32);
+            session.send(&text);
+            return true;
+        }
         let Some(igs) = session.term.igs_mut() else { return false };
         let (iw, ih) = (igs.width(), igs.height());
         let Some((gx, gy)) = self.renderer.graphics_point(x, y, rows, iw, ih) else { return false };

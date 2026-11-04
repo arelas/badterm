@@ -794,6 +794,32 @@ mod tests {
         std::fs::write(dir.join(name), crate::png::encode(r.pixels(), r.native_width(), r.native_height())).unwrap();
     }
 
+    /// A SkyPix (Amiga) file as BadTerm draws it, as a PNG:
+    /// `BADTERM_SKYPIX=a.ans BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm skypix_snapshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn skypix_snapshot() {
+        use badterm_core::{Encoding, skypix};
+        let dir = std::path::PathBuf::from(std::env::var("BADTERM_SNAPSHOT_DIR").expect("set BADTERM_SNAPSHOT_DIR"));
+        let file = std::path::PathBuf::from(std::env::var("BADTERM_SKYPIX").expect("set BADTERM_SKYPIX"));
+        let mut t = Terminal::new(skypix::COLS, skypix::ROWS, 0);
+        t.encoding = Encoding::Skypix;
+        t.start_emulation();
+        t.feed(&std::fs::read(&file).unwrap());
+        while let Some(at) = t.next_poll() {
+            t.poll(at);
+        }
+        let g = t.skypix().unwrap();
+        let rows = skypix::ROWS;
+        let lines: Vec<&[Cell]> = (0..rows).map(|y| t.screen.row(y)).collect();
+        let graphics =
+            Some(Graphics { pixels: g.pixels(), width: skypix::WIDTH, height: skypix::HEIGHT, palette: g.palette() });
+        let mut r = Renderer::new(Font::vga_8x16(), skypix::COLS, rows);
+        r.draw(&Frame { look_rows: rows, graphics, ..Frame::plain(lines, None, true) }, true, false);
+        let name = format!("{}.png", file.file_stem().unwrap().to_string_lossy());
+        std::fs::write(dir.join(name), crate::png::encode(r.pixels(), r.native_width(), r.native_height())).unwrap();
+    }
+
     /// The C64 and Atari screens shown on the website, as PNGs at 4x:
     /// `BADTERM_SNAPSHOT_DIR=/tmp/shots cargo test -p badterm retro_site_snapshot -- --ignored`
     #[test]

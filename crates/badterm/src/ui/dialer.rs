@@ -726,6 +726,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                     Encoding::Atascii => "(Atari 8-bit: 40x24, its font)",
                     Encoding::Viewdata => "(Prestel: 40x24, teletext graphics)",
                     Encoding::Igs => "(Atari ST: VT-52 with IGS graphics)",
+                    Encoding::Skypix => "(Amiga: ANSI with SkyPix graphics)",
                     Encoding::Avatar => "(AVT/0+ codes as well as ANSI)",
                     Encoding::Rip => "(graphics; 80x43 text over them)",
                     _ => "",

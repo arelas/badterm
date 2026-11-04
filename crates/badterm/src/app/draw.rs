@@ -364,7 +364,7 @@ impl App {
     }
 }
 
-/// A RIP or IGS system's graphics, to draw under its screen.
+/// A RIP, IGS or SkyPix system's graphics, to draw under its screen.
 fn bbs_graphics(session: &Session) -> Option<crate::render::Graphics<'_>> {
     if let Some(igs) = session.term.igs() {
         return Some(crate::render::Graphics {
@@ -372,6 +372,14 @@ fn bbs_graphics(session: &Session) -> Option<crate::render::Graphics<'_>> {
             width: igs.width(),
             height: igs.height(),
             palette: igs.palette(),
+        });
+    }
+    if let Some(sky) = session.term.skypix() {
+        return Some(crate::render::Graphics {
+            pixels: sky.pixels(),
+            width: badterm_core::skypix::WIDTH,
+            height: badterm_core::skypix::HEIGHT,
+            palette: sky.palette(),
         });
     }
     let rip = session.term.rip()?;

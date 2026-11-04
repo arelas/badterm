@@ -31,16 +31,19 @@ pub enum Encoding {
     Viewdata,
     /// Atari ST: VT-52 with IGS graphics (see [`crate::igs`]).
     Igs,
+    /// Amiga: ANSI with SkyPix graphics (see [`crate::skypix`]).
+    Skypix,
 }
 
 impl Encoding {
-    pub const ALL: [Encoding; 8] = [
+    pub const ALL: [Encoding; 9] = [
         Encoding::Cp437,
         Encoding::Utf8,
         Encoding::Petscii,
         Encoding::Atascii,
         Encoding::Viewdata,
         Encoding::Igs,
+        Encoding::Skypix,
         Encoding::Avatar,
         Encoding::Rip,
     ];
@@ -55,6 +58,7 @@ impl Encoding {
             Encoding::Rip => "RIPscrip",
             Encoding::Viewdata => "Viewdata",
             Encoding::Igs => "IGS",
+            Encoding::Skypix => "SkyPix",
         }
     }
 
@@ -71,6 +75,7 @@ impl Encoding {
             Encoding::Rip => Some((crate::rip::COLS, crate::rip::ROWS)),
             Encoding::Viewdata => Some((crate::viewdata::COLS, crate::viewdata::ROWS)),
             Encoding::Igs => Some((crate::igs::COLS, crate::igs::ROWS)),
+            Encoding::Skypix => Some((crate::skypix::COLS, crate::skypix::ROWS)),
             _ => None,
         }
     }
@@ -80,6 +85,8 @@ impl Encoding {
     pub fn encode_text(self, text: &str) -> Vec<u8> {
         match self {
             Encoding::Cp437 | Encoding::Avatar | Encoding::Rip | Encoding::Igs => cp437::encode(text),
+            // The Amiga's character set is ISO-8859-1.
+            Encoding::Skypix => text.chars().map(|c| if (c as u32) < 256 { c as u8 } else { b'?' }).collect(),
             Encoding::Utf8 => text.as_bytes().to_vec(),
             Encoding::Petscii => text
                 .chars()
@@ -170,6 +177,8 @@ pub struct Terminal {
     rip: Option<Box<crate::rip::Rip>>,
     /// The Atari ST screen, when the encoding is IGS.
     igs: Option<Box<crate::igs::Igs>>,
+    /// The Amiga screen, when the encoding is SkyPix.
+    skypix: Option<Box<crate::skypix::Skypix>>,
     /// Nothing has been printed on this line yet (where a RIP line can
     /// start).
     line_start: bool,
@@ -205,6 +214,7 @@ impl Terminal {
             viewdata: Default::default(),
             rip: None,
             igs: None,
+            skypix: None,
             line_start: true,
             held: Vec::new(),
         }
@@ -219,6 +229,7 @@ impl Terminal {
             Encoding::Rip => self.rip = Some(Box::default()),
             Encoding::Viewdata => self.viewdata.start(&mut self.screen),
             Encoding::Igs => self.igs = Some(Box::default()),
+            Encoding::Skypix => self.skypix = Some(Box::default()),
             _ => {}
         }
     }
@@ -239,6 +250,23 @@ impl Terminal {
 
     pub fn igs_mut(&mut self) -> Option<&mut crate::igs::Igs> {
         self.igs.as_deref_mut()
+    }
+
+    /// The Amiga screen, for a SkyPix system.
+    pub fn skypix(&self) -> Option<&crate::skypix::Skypix> {
+        self.skypix.as_deref()
+    }
+
+    /// After SkyPix has drawn: its replies, bells and cursor.
+    fn skypix_done(&mut self) {
+        let Some(sky) = self.skypix.as_deref_mut() else { return };
+        self.replies.append(&mut sky.replies);
+        for _ in 0..std::mem::take(&mut sky.bells) {
+            self.events.push(TermEvent::Bell);
+        }
+        let (x, y) = sky.cursor();
+        self.screen.move_to(x, y);
+        self.screen.cursor_visible = sky.cursor_on;
     }
 
     /// After IGS has drawn: its replies, bells and cursor.
@@ -281,6 +309,12 @@ impl Terminal {
                 }
                 self.igs_done();
             }
+            Encoding::Skypix => {
+                if let Some(sky) = self.skypix.as_deref_mut() {
+                    sky.feed(data);
+                }
+                self.skypix_done();
+            }
             _ => {
                 if self.syncterm.hold.is_some() {
                     self.held.extend_from_slice(data);
@@ -305,6 +339,10 @@ impl Terminal {
             igs.poll(now);
             self.igs_done();
         }
+        if let Some(sky) = self.skypix.as_deref_mut().filter(|s| s.hold.is_some()) {
+            sky.poll(now);
+            self.skypix_done();
+        }
         if self.syncterm.hold.is_some_and(|t| now >= t) {
             self.syncterm.hold = None;
             let held = std::mem::take(&mut self.held);
@@ -315,7 +353,8 @@ impl Terminal {
     /// When [`Terminal::poll`] has something to do.
     pub fn next_poll(&self) -> Option<std::time::Instant> {
         let igs = self.igs.as_ref().and_then(|g| g.hold);
-        [self.syncterm.hold, self.syncterm.audio.next_due(), igs].into_iter().flatten().min()
+        let sky = self.skypix.as_ref().and_then(|s| s.hold);
+        [self.syncterm.hold, self.syncterm.audio.next_due(), igs, sky].into_iter().flatten().min()
     }
 
     fn byte(&mut self, b: u8) {
@@ -448,7 +487,8 @@ impl Terminal {
                 | Encoding::Avatar
                 | Encoding::Rip
                 | Encoding::Viewdata
-                | Encoding::Igs => {
+                | Encoding::Igs
+                | Encoding::Skypix => {
                     if self.avatar.insert {
                         self.screen.insert_chars(1);
                     }
