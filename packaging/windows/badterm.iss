@@ -50,13 +50,6 @@ CloseApplications=yes
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "links"; Description: "Open telnet://, telnets:// and rlogin:// links with BadTerm"
 
-[InstallDelete]
-; BadTerm was called Phosphor up to 0.1.16: an upgrade removes its program
-; and shortcuts.
-Type: files; Name: "{app}\phosphor.exe"
-Type: files; Name: "{autoprograms}\Phosphor.lnk"
-Type: files; Name: "{autodesktop}\Phosphor.lnk"
-
 [Files]
 Source: "{#Root}\target\release\badterm.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Root}\README.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -67,10 +60,6 @@ Name: "{autoprograms}\BadTerm"; Filename: "{app}\badterm.exe"
 Name: "{autodesktop}\BadTerm"; Filename: "{app}\badterm.exe"; Tasks: desktopicon
 
 [Registry]
-; Phosphor's link registration, from before the rename.
-Root: HKA; Subkey: "Software\Classes\Phosphor.URL"; Flags: deletekey dontcreatekey
-Root: HKA; Subkey: "Software\Phosphor"; Flags: deletekey dontcreatekey
-Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: none; ValueName: "Phosphor"; Flags: deletevalue dontcreatekey
 ; The link handler, as a ProgID that "Default apps" can offer.
 Root: HKA; Subkey: "Software\Classes\BadTerm.URL"; ValueType: string; ValueName: ""; ValueData: "BBS link"; Flags: uninsdeletekey; Tasks: links
 Root: HKA; Subkey: "Software\Classes\BadTerm.URL"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Tasks: links

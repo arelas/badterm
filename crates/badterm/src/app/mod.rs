@@ -113,11 +113,6 @@ impl Paths {
             Some(p) => (p.config_dir().to_path_buf(), p.data_dir().to_path_buf(), p.cache_dir().to_path_buf()),
             None => (PathBuf::from("."), PathBuf::from("."), PathBuf::from(".")),
         };
-        // BadTerm was called Phosphor up to 0.1.16: bring its folders along.
-        if let Some(old) = directories::ProjectDirs::from("org", "Phosphor", "Phosphor") {
-            move_old_folder(old.config_dir(), &config);
-            move_old_folder(old.data_dir(), &data);
-        }
         let files = directories::UserDirs::new()
             .map(|u| u.download_dir().unwrap_or(u.home_dir()).to_path_buf())
             .unwrap_or_else(|| PathBuf::from("."));
@@ -133,21 +128,6 @@ impl Paths {
             files,
             ssh_keys: directories::BaseDirs::new().map(|b| b.home_dir().join(".ssh")),
         }
-    }
-}
-
-/// Move a folder from where an older version kept it, unless the new one
-/// already exists (on macOS the config and data folders are one).
-fn move_old_folder(old: &std::path::Path, new: &std::path::Path) {
-    if !old.is_dir() || new.exists() {
-        return;
-    }
-    if let Some(parent) = new.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    match std::fs::rename(old, new) {
-        Ok(()) => log::info!("moved {} to {}", old.display(), new.display()),
-        Err(e) => log::warn!("moving {} to {}: {e}", old.display(), new.display()),
     }
 }
 

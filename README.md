@@ -11,10 +11,6 @@ BadTerm draws its own text-mode screen using real CP437 bitmap fonts, so ANSI
 art renders pixel-for-pixel as it did on a VGA card. It doesn't depend on the
 fonts and colors of a host terminal.
 
-BadTerm was called Phosphor up to version 0.1.16. Its dialing directory,
-settings, themes, bezels and saved passwords move over the first time
-BadTerm starts.
-
 > **Status:** early development (0.1), in daily use. Telnet, telnet over
 > TLS, SSH, RLogin, raw TCP and modem connections; ZMODEM, YMODEM, XMODEM
 > and Kermit transfers; ANSI-BBS, Avatar, RIPscrip, PETSCII and ATASCII;
@@ -488,8 +484,8 @@ they are installed (`apt install lrzsz`, `brew install lrzsz`), and the
 Kermit ones against C-Kermit (`apt install ckermit`); they are skipped
 otherwise. CI sets `BADTERM_REQUIRE_LRZSZ=1` and `BADTERM_REQUIRE_KERMIT=1`
 so they can't be skipped there. On Linux, a fake modem on a
-pseudo-terminal tests dialing. In CI on Windows and macOS, the move from
-Phosphor's folders and passwords is tested too.
+pseudo-terminal tests dialing. In CI on Windows and macOS, saving passwords in the
+OS keychain is tested too.
 
 To render sample frames to images for visual inspection:
 

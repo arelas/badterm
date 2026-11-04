@@ -11,11 +11,6 @@ maintainer: Bad Cluster <noreply@badcluster.dev>
 vendor: Bad Cluster
 homepage: https://badterm.com/
 license: GPL-3.0-or-later
-# BadTerm was called Phosphor up to 0.1.16; this package takes its place.
-replaces:
-  - phosphor
-conflicts:
-  - phosphor
 description: |-
   ANSI-BBS client for telnet, SSH and RLogin
   BadTerm connects to bulletin board systems over telnet, telnet over TLS,

@@ -130,9 +130,6 @@ jobs:
           mkdir -p target/x86_64-unknown-linux-gnu/release
           cp "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/badterm" target/x86_64-unknown-linux-gnu/release/
 
-      - name: Test the move from Phosphor's folders
-        run: packaging/test-folder-upgrade.sh target/x86_64-unknown-linux-gnu/release/badterm
-
       # Named after the ref: the version tag for releases, the branch otherwise.
       # A tarball (with the desktop file and icon, for installing by hand), an
       # AppImage, and .deb and .rpm packages. The scripts pin and checksum the
@@ -256,40 +253,12 @@ jobs:
           New-Item -ItemType Directory -Force target\release | Out-Null
           Copy-Item (Join-Path $env:CARGO_TARGET_DIR 'release\badterm.exe') target\release\
 
-      # Passwords saved by Phosphor (up to 0.1.16) move to BadTerm's name in
-      # the Credential Manager.
-      - name: Test the move from Phosphor's passwords
+      # Saving, reading and deleting a password in the Credential Manager.
+      - name: Test the OS keychain
         shell: powershell
         run: |
           cargo test --locked -p badterm keychain -- --ignored
           if ($LASTEXITCODE -ne 0) { exit 1 }
-
-      # Phosphor's folders under %APPDATA% move to BadTerm's on first start.
-      # These are the runner's real folders: only ones holding this test's
-      # marker are touched.
-      - name: Test the move from Phosphor's folders
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $marker = 'ci-upgrade-marker'
-          $old = Join-Path $env:APPDATA 'Phosphor\Phosphor'
-          $new = Join-Path $env:APPDATA 'Bad Cluster\BadTerm'
-          foreach ($d in $old, $new) {
-            if (Test-Path $d) {
-              if (Test-Path "$d\config\$marker") { Remove-Item -Recurse -Force $d }
-              else { Write-Host "::warning::$d exists and is not this test's; skipping"; exit 0 }
-            }
-          }
-          New-Item -ItemType Directory -Force "$old\config", "$old\data\captures" | Out-Null
-          Set-Content "$old\config\$marker" 'from Phosphor'
-          $p = Start-Process -Wait -PassThru -NoNewWindow target\release\badterm.exe -ArgumentList '--paths'
-          $fail = $p.ExitCode -ne 0
-          if (-not (Test-Path "$new\config\$marker")) { Write-Host "::error::settings were not moved to $new\config"; $fail = $true }
-          if (-not (Test-Path "$new\data\captures")) { Write-Host "::error::captures were not moved to $new\data"; $fail = $true }
-          if (Test-Path "$old\config") { Write-Host "::error::$old\config is still there"; $fail = $true }
-          Remove-Item -Recurse -Force $new, (Join-Path $env:APPDATA 'Phosphor') -ErrorAction SilentlyContinue
-          if ($fail) { exit 1 }
-          Write-Host "Phosphor's folders moved to BadTerm's"
 
       # Azure Artifact Signing (Authenticode), as ZephyrFTP does: see
       # packaging/windows/sign.ps1, and the AZURE_* secrets on the arelas
@@ -362,10 +331,9 @@ jobs:
           powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\sign.ps1 (Get-ChildItem dist\*-setup.exe | Select-Object -First 1).FullName
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      # Install Phosphor 0.1.16 (from before the rename) for this user into a
-      # scratch folder, upgrade it with this installer, and check that
-      # Phosphor's program, shortcuts and link registration are replaced by
-      # BadTerm's. Then uninstall and check BadTerm is gone.
+      # Install for this user into a scratch folder, check the program,
+      # shortcut and link registration are there, then uninstall and check
+      # they're gone.
       - name: Test the installer
         shell: powershell
         run: |
@@ -374,29 +342,11 @@ jobs:
           $dir = Join-Path $env:RUNNER_TEMP "badterm-install-test"
           $quiet = '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$dir"
           $programs = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'
-          $desktop = [Environment]::GetFolderPath('Desktop')
-
-          $phosphor = Join-Path $env:RUNNER_TEMP 'phosphor-v0.1.16-windows-x64-setup.exe'
-          if (-not (Test-Path $phosphor)) {
-            Invoke-WebRequest -UseBasicParsing -UserAgent 'badterm-ci' -OutFile $phosphor `
-              -Uri 'https://git.badcluster.dev/arelas/badterm/releases/download/v0.1.16/phosphor-v0.1.16-windows-x64-setup.exe'
-          }
-          $p = Start-Process -Wait -PassThru $phosphor -ArgumentList ($quiet + '/TASKS=links,desktopicon')
-          if ($p.ExitCode -ne 0) { Write-Host "::error::Phosphor's setup exited with $($p.ExitCode)"; exit 1 }
-          if (-not (Test-Path "$dir\phosphor.exe")) { Write-Host "::error::Phosphor 0.1.16 not installed"; exit 1 }
-          if (-not (Test-Path 'HKCU:\Software\Classes\Phosphor.URL')) { Write-Host "::error::Phosphor's links not registered"; exit 1 }
 
           $p = Start-Process -Wait -PassThru $setup.FullName -ArgumentList ($quiet + '/TASKS=links')
           if ($p.ExitCode -ne 0) { Write-Host "::error::setup exited with $($p.ExitCode)"; exit 1 }
           if (-not (Test-Path "$dir\badterm.exe")) { Write-Host "::error::badterm.exe not installed"; exit 1 }
           $fail = $false
-          foreach ($left in "$dir\phosphor.exe", "$programs\Phosphor.lnk", "$desktop\Phosphor.lnk",
-                            'HKCU:\Software\Classes\Phosphor.URL', 'HKCU:\Software\Phosphor') {
-            if (Test-Path $left) { Write-Host "::error::left over from Phosphor: $left"; $fail = $true }
-          }
-          if ((Get-ItemProperty 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue).Phosphor) {
-            Write-Host "::error::Phosphor still in RegisteredApplications"; $fail = $true
-          }
           if (-not (Test-Path "$programs\BadTerm.lnk")) { Write-Host "::error::no BadTerm shortcut"; $fail = $true }
           if (-not (Test-Path 'HKCU:\Software\Classes\BadTerm.URL')) { Write-Host "::error::BadTerm's links not registered"; $fail = $true }
           if ($fail) { exit 1 }
@@ -470,13 +420,9 @@ jobs:
           mkdir -p target/release
           cp "$CARGO_TARGET_DIR/release/badterm" target/release/
 
-      # Passwords saved by Phosphor (up to 0.1.16) move to BadTerm's name in
-      # the login keychain.
-      - name: Test the move from Phosphor's passwords
+      # Saving, reading and deleting a password in the login keychain.
+      - name: Test the OS keychain
         run: cargo test --locked -p badterm keychain -- --ignored
-
-      - name: Test the move from Phosphor's folders
-        run: packaging/test-folder-upgrade.sh target/release/badterm
 
       # Developer ID signing, the same way as ZephyrFTP and with the same
       # account-level secrets: the certificate only ever lives in a keychain

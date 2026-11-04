@@ -5,8 +5,6 @@
 use badterm_core::{Directory, Entry};
 
 const SERVICE: &str = "BadTerm BBS client";
-/// Where passwords were kept when BadTerm was called Phosphor (to 0.1.16).
-const OLD_SERVICE: &str = "Phosphor BBS client";
 
 /// Somewhere to keep passwords; [`Keychain`] in the app, an in-memory map in
 /// tests.
@@ -28,19 +26,7 @@ impl Keychain {
 impl Store for Keychain {
     fn get(&self, account: &str) -> Result<Option<String>, String> {
         match Self::entry(account)?.get_password() {
-            Ok(p) => return Ok(Some(p)),
-            Err(keyring::Error::NoEntry) => {}
-            Err(e) => return Err(e.to_string()),
-        }
-        // Not found: it may still be under the old name; move it over.
-        let old = keyring::Entry::new(OLD_SERVICE, account).map_err(|e| e.to_string())?;
-        match old.get_password() {
-            Ok(p) => {
-                if self.set(account, &p).is_ok() {
-                    let _ = old.delete_credential();
-                }
-                Ok(Some(p))
-            }
+            Ok(p) => Ok(Some(p)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(e) => Err(e.to_string()),
         }
@@ -51,9 +37,6 @@ impl Store for Keychain {
     }
 
     fn delete(&self, account: &str) -> Result<(), String> {
-        if let Ok(old) = keyring::Entry::new(OLD_SERVICE, account) {
-            let _ = old.delete_credential();
-        }
         match Self::entry(account)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(e) => Err(e.to_string()),
@@ -160,16 +143,13 @@ pub mod tests {
     /// on Windows and macOS (`cargo test -p badterm keychain -- --ignored`).
     #[test]
     #[ignore]
-    fn keychain_passwords_move_from_phosphor() {
-        let account = format!("ci-{}@telnet://upgrade.test:23", std::process::id());
-        let old = keyring::Entry::new(OLD_SERVICE, &account)
-            .unwrap_or_else(|e| panic!("no credential store ({e}): {:?}", keyring::Entry::store_status()));
-        old.set_password("from-phosphor").expect("the OS credential store");
+    fn keychain_round_trip() {
+        let account = format!("ci-{}@telnet://keychain.test:23", std::process::id());
         let store = Keychain;
-        assert_eq!(store.get(&account).unwrap().as_deref(), Some("from-phosphor"));
-        // Moved: under the new name now, and gone from the old one.
-        assert!(matches!(old.get_password(), Err(keyring::Error::NoEntry)));
-        assert_eq!(Keychain::entry(&account).unwrap().get_password().unwrap(), "from-phosphor");
+        store
+            .set(&account, "secret")
+            .unwrap_or_else(|e| panic!("no credential store ({e}): {:?}", keyring::Entry::store_status()));
+        assert_eq!(store.get(&account).unwrap().as_deref(), Some("secret"));
         store.delete(&account).unwrap();
         assert_eq!(store.get(&account).unwrap(), None);
     }

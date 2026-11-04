@@ -63,8 +63,7 @@ The next things to do, in order.
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
 - [x] Website at badterm.com (site/deploy.py), published by CI on release
-- [x] CI tests the upgrade from Phosphor: folders (all three OSes),
-      passwords (Windows, macOS) and the Windows installer
+- [x] CI tests the OS keychain (Windows, macOS) and the Windows installer
 - [x] Linux .deb and .rpm (nfpm), Windows installer (Inno Setup)
 - [x] telnet://, telnets:// and rlogin:// links on Windows, macOS and Linux
 - [x] RLogin, telnet over TLS (pinned like SSH host keys)
@@ -80,8 +79,7 @@ The next things to do, in order.
 - [x] NetRunner phone book import
 - [x] ZMODEM crash recovery: interrupted downloads resume
 - [x] PETSCII (Commodore 64) and ATASCII (Atari 8-bit) emulation with their own fonts
-- [x] Renamed from Phosphor to BadTerm, moving folders and passwords over;
-      published on crates.io
+- [x] Named BadTerm; published on crates.io
 - [x] Color schemes with their own palettes (Bad Cluster), and ones without
       fills (Dark blue, Dark cyan)
 - [x] Website: help page, and an extras page of themes and bezels from
