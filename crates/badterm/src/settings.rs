@@ -214,6 +214,20 @@ pub struct Settings {
     pub check_updates: bool,
     /// The modem, for directory entries that dial out with one.
     pub modem: ModemConfig,
+    /// The window as it was last left, to open it the same way.
+    pub window: WindowState,
+}
+
+/// The window's size (in logical pixels, so it's the same on a screen of
+/// another scale) and whether it was maximized.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WindowState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    pub maximized: bool,
 }
 
 impl Default for Settings {
@@ -238,6 +252,7 @@ impl Default for Settings {
             splash: true,
             check_updates: false,
             modem: ModemConfig::default(),
+            window: WindowState::default(),
         }
     }
 }
@@ -289,6 +304,7 @@ mod tests {
             splash: false,
             check_updates: true,
             modem: ModemConfig { device: "/dev/ttyUSB0".into(), init: "AT&F".into(), ..ModemConfig::default() },
+            window: WindowState { width: Some(1280), height: Some(800), maximized: true },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);

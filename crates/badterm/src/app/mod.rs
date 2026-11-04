@@ -363,6 +363,7 @@ impl App {
         let attrs = Window::default_attributes()
             .with_title("BadTerm")
             .with_inner_size(PhysicalSize::new(nw * 2, nh * 2))
+            .with_maximized(self.settings.window.maximized)
             .with_min_inner_size(PhysicalSize::new(nw, nh))
             .with_window_icon(window_icon());
         // The Wayland app ID and X11 class, which desktops match to
@@ -372,6 +373,14 @@ impl App {
             use winit::platform::{wayland::WindowAttributesExtWayland, x11::WindowAttributesExtX11};
             let attrs = WindowAttributesExtWayland::with_name(attrs, "badterm", "badterm");
             WindowAttributesExtX11::with_name(attrs, "badterm", "badterm")
+        };
+        // The size it was last left at (which it can't be smaller than
+        // its minimum).
+        let attrs = match (self.settings.window.width, self.settings.window.height) {
+            (Some(w), Some(h)) if w >= 100 && h >= 100 => {
+                attrs.with_inner_size(winit::dpi::LogicalSize::new(w.min(16384), h.min(16384)))
+            }
+            _ => attrs,
         };
         let window = Rc::new(event_loop.create_window(attrs)?);
         self.shape.min = (nw, nh);
@@ -418,7 +427,40 @@ impl App {
     }
 }
 
+impl App {
+    /// Remember the window's size (unless it's maximized or full screen,
+    /// when the size to come back to is the one before) and whether it's
+    /// maximized, to save at exit.
+    fn note_window_size(&mut self) {
+        let Some(g) = &self.gfx else { return };
+        let w = &mut self.settings.window;
+        if g.window.fullscreen().is_some() {
+            return;
+        }
+        w.maximized = g.window.is_maximized();
+        if !w.maximized && g.window.is_minimized() != Some(true) {
+            let size = g.window.inner_size().to_logical::<f64>(g.window.scale_factor());
+            if size.width >= 100.0 && size.height >= 100.0 {
+                (w.width, w.height) = (Some(size.width.round() as u32), Some(size.height.round() as u32));
+            }
+        }
+    }
+}
+
 impl ApplicationHandler<UserEvent> for App {
+    /// Save the window's size for next time.
+    fn exiting(&mut self, _: &ActiveEventLoop) {
+        self.note_window_size();
+        let saved = Settings::load(&self.paths.settings);
+        if saved.window != self.settings.window {
+            let mut s = saved;
+            s.window = self.settings.window;
+            if let Err(e) = s.save(&self.paths.settings) {
+                log::warn!("saving the window's size: {e:#}");
+            }
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.gfx.is_some() {
             return;
@@ -483,6 +525,7 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::Resized(size) => {
                 self.shape.resized(size);
+                self.note_window_size();
                 self.request_redraw();
             }
             WindowEvent::RedrawRequested => self.redraw(),
