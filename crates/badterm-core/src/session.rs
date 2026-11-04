@@ -87,6 +87,8 @@ pub struct Session {
     transfer: Option<Transfer>,
     /// The transfer is a RIP one whose RIP files are shown as they come.
     rip_shows: bool,
+    /// The transfer is SkyPix's, of a brush or sample of this mode.
+    skypix_load: Option<u32>,
     /// Bytes received since the BBS asked for an upload, held until the user
     /// picks files (they include the ZRINIT the sender needs to see).
     upload_wait: Option<Vec<u8>>,
@@ -134,6 +136,7 @@ impl Session {
             capture: None,
             transfer: None,
             rip_shows: false,
+            skypix_load: None,
             upload_wait: None,
             auth_prompt: None,
             login,
@@ -394,6 +397,25 @@ impl Session {
             self.start_rip_block(&block);
             self.process(rest);
         }
+        if let Some((t, rest)) = self.term.take_skypix_transfer() {
+            // To the BBS's folder in the cache (BRU:, on the Amiga).
+            let dir = match &self.term.syncterm.cache_dir {
+                Some(c) => c.join("SkyPix"),
+                None => self.config.download_dir.clone(),
+            };
+            let name = transfer::sanitize_file_name(t.name.as_bytes());
+            let started = std::fs::create_dir_all(&dir)
+                .map_err(anyhow::Error::from)
+                .and_then(|()| self.start_xy_download_to(XyProtocol::XmodemCrc, dir, Some(name)));
+            match started {
+                Ok(()) => self.skypix_load = Some(t.mode),
+                Err(e) => {
+                    self.send(transfer::CANCEL);
+                    self.events.push(SessionEvent::Notice(format!("SkyPix transfer: {e:#}")));
+                }
+            }
+            self.process(rest);
+        }
     }
 
     /// A file transfer RIPscrip started: files go to (or come from) the
@@ -470,6 +492,13 @@ impl Session {
             _ => Vec::new(),
         };
         self.rip_shows = false;
+        // A SkyPix brush or sample, for it to use.
+        if let (Some(mode), Outcome::Completed(files)) = (self.skypix_load.take(), &outcome)
+            && let Some(data) = files.first().and_then(|f| std::fs::read(f).ok())
+            && let Some(sky) = self.term.skypix_mut()
+        {
+            sky.load(mode, &data);
+        }
         self.events.push(SessionEvent::TransferFinished(outcome));
         self.scan_tail.clear();
         self.trailer = Some(TrailerFilter::new());

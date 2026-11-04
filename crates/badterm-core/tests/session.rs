@@ -207,6 +207,47 @@ fn rip_block_transfer_shows_the_scene() {
 }
 
 #[test]
+fn skypix_brush_by_xmodem() {
+    use badterm_core::transfer::{XyProtocol, XySend};
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let src = temp_dir("skybrush-src");
+    // A 2x1 brush in pens 2 and 3.
+    let mut iff = b"FORM\0\0\0\0ILBM".to_vec();
+    let bmhd = [0, 2, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 10, 11, 0, 2, 0, 1];
+    for (id, d) in [(b"BMHD", &bmhd[..]), (b"BODY", &[0x40, 0, 0xC0, 0][..])] {
+        iff.extend(id);
+        iff.extend((d.len() as u32).to_be_bytes());
+        iff.extend(d);
+    }
+    let brush = src.join("brush.iff");
+    std::fs::write(&brush, &iff).unwrap();
+    let server = thread::spawn(move || {
+        let (mut sock, _) = listener.accept().unwrap();
+        sock.write_all(b"\x1b[16;1;2;1!brush.iff!").unwrap();
+        let send = XySend::new(XyProtocol::XmodemCrc, vec![brush]).unwrap();
+        let outcome = bbs_transfer(&mut sock, Transfer::XyUpload(send));
+        sock.write_all(b"\x1b[7;0;0;10;10;2;1;192;255!").unwrap();
+        thread::sleep(Duration::from_millis(500));
+        outcome
+    });
+    let cfg = config("skybrush");
+    let cache = cfg.download_dir.with_file_name("cache");
+    let mut entry = telnet_entry(port);
+    entry.encoding = badterm_core::Encoding::Skypix;
+    let (mut session, rx) = dial(entry, cfg);
+    session.term.syncterm.cache_dir = Some(cache.clone());
+    let mut events = Vec::new();
+    pump_until(&mut session, &rx, &mut events, |s, _| {
+        s.term.skypix().is_some_and(|k| k.pixels()[10 * badterm_core::skypix::WIDTH + 11] == 3)
+    });
+    assert!(matches!(server.join().unwrap(), Outcome::Completed(_)));
+    assert!(cache.join("SkyPix/brush.iff").is_file());
+    let px = session.term.skypix().unwrap().pixels();
+    assert_eq!((px[10 * badterm_core::skypix::WIDTH + 10], px[10 * badterm_core::skypix::WIDTH + 11]), (2, 3));
+}
+
+#[test]
 fn zmodem_upload_requested_by_bbs() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();

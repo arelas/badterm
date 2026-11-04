@@ -6,12 +6,14 @@
 //! bitmap of pens, which the front end shows like RIPscrip's graphics.
 //! Text is in Topaz 8, at a pixel position: ANSI moves it a cell (8x8) at a
 //! time, `ESC [ 19 ; x ; y !` anywhere. Amiga disk fonts (`ESC [ 10`) are
-//! drawn as Topaz scaled to about their size, without a background, as the
-//! Amiga draws fonts other than the console's.
+//! the user's own, from the fonts folder (see [`crate::amigafont`]), or
+//! else Topaz scaled to about their size; either is drawn without a
+//! background, as the Amiga draws fonts other than the console's.
 //!
 //! ANSI colors pick the pens that look like them in SkyPix's palette.
-//! Samples and XMODEM transfers of brushes aren't supported: a transfer is
-//! cancelled.
+//! Brushes (IFF ILBM) and samples (IFF 8SVX, or raw) come by XMODEM
+//! (`ESC [ 16`, run by the session; see [`Skypix::load`]), and samples
+//! play with `ESC [ 9`.
 
 use std::time::{Duration, Instant};
 
@@ -21,6 +23,11 @@ static TOPAZ: &[u8; 2048] = include_bytes!("../assets/topaz_8x8.bin");
 
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 200;
+/// The audio channel samples play on.
+const SAMPLE_CHANNEL: usize = 2;
+/// The rate of a sample with no header to say.
+const SAMPLE_RATE: u32 = 8363;
+
 pub const COLS: usize = 80;
 pub const ROWS: usize = 25;
 
@@ -38,6 +45,14 @@ enum State {
     Csi,
     /// A string after a command's `!`, up to the next `!`.
     Text,
+}
+
+/// `ESC [ 16`: a file the BBS sends by XMODEM-CRC.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Transfer {
+    /// 1 an IFF brush, 2 an IFF sample, 3 a FutureSound sample, 20 any.
+    pub mode: u32,
+    pub name: String,
 }
 
 /// A brush: a piece of the screen, by pen.
@@ -64,6 +79,17 @@ pub struct Skypix {
     pen: (i32, i32),
     /// A disk font's scale; None for Topaz (drawn with its background).
     font: Option<i32>,
+    /// The disk font itself, when the user has it.
+    disk: Option<crate::amigafont::AmigaFont>,
+    /// Where disk fonts are looked for.
+    pub fonts_dir: Option<std::path::PathBuf>,
+    /// The sample sent last, for `ESC [ 9`.
+    sample: Option<crate::audio::Sound>,
+    /// Sound to play.
+    pub audio: Vec<crate::audio::AudioOp>,
+    /// An XMODEM transfer the BBS started, and what came after it.
+    pub transfer: Option<(Transfer, Vec<u8>)>,
+    starting: Option<Transfer>,
     brush: Option<Brush>,
     gadgets: Vec<(i32, i32, i32, i32)>,
     pub cursor_on: bool,
@@ -95,6 +121,12 @@ impl Default for Skypix {
             reverse: false,
             pen: (0, 0),
             font: None,
+            disk: None,
+            fonts_dir: None,
+            sample: None,
+            audio: Vec::new(),
+            transfer: None,
+            starting: None,
             brush: None,
             gadgets: Vec::new(),
             cursor_on: true,
@@ -144,6 +176,33 @@ impl Skypix {
                 self.held.extend_from_slice(&data[i + 1..]);
                 return;
             }
+            // A transfer: the rest is the protocol's.
+            if let Some(t) = self.starting.take() {
+                self.transfer = Some((t, data[i + 1..].to_vec()));
+                return;
+            }
+        }
+    }
+
+    /// A file an `ESC [ 16` transfer brought: a brush, or a sample.
+    pub fn load(&mut self, mode: u32, data: &[u8]) {
+        match mode {
+            1 => match crate::iff::ilbm(data) {
+                Some((w, h, pixels)) => self.brush = Some(Brush { w, h, pixels }),
+                None => log::warn!("SkyPix: the brush isn't an IFF picture"),
+            },
+            2 | 3 => {
+                self.sample = Some(crate::audio::decode(data).unwrap_or_else(|| crate::audio::raw8(data, SAMPLE_RATE)))
+            }
+            _ => {}
+        }
+    }
+
+    /// How far the text cursor moves after `c`.
+    fn advance(&self, c: u8) -> i32 {
+        match &self.disk {
+            Some(f) => f.advance(c),
+            None => self.cell().0,
         }
     }
 
@@ -261,7 +320,7 @@ impl Skypix {
                     self.line_feed();
                 }
                 self.glyph(b);
-                self.x += cw;
+                self.x += self.advance(b);
             }
         }
         let _ = ch;
@@ -269,6 +328,9 @@ impl Skypix {
 
     /// The character cell: Topaz's 8x8, or a disk font's scaled one.
     fn cell(&self) -> (i32, i32) {
+        if let Some(f) = &self.disk {
+            return (f.advance(b'n').max(1), f.height as i32);
+        }
         let s = self.font.unwrap_or(1);
         (8 * s, 8 * s)
     }
@@ -310,6 +372,14 @@ impl Skypix {
     /// A character at the cursor: with its background in Topaz, without
     /// in a disk font.
     fn glyph(&mut self, c: u8) {
+        if let Some(f) = self.disk.take() {
+            let fg = if self.reverse { self.pen_b } else { self.pen_a };
+            for (x, y) in f.pixels(c) {
+                self.set(self.x + x, self.y + y, fg);
+            }
+            self.disk = Some(f);
+            return;
+        }
         let s = self.font.unwrap_or(1);
         let (fg, bg) = if self.reverse { (self.pen_b, self.pen_a) } else { (self.pen_a, self.pen_b) };
         for gy in 0..8 * s {
@@ -519,10 +589,16 @@ impl Skypix {
                     Some(((size + 4) / 8).max(1))
                 };
                 // Back to Topaz, the text stays on the same baseline.
-                if let (Some(s), None) = (self.font, font) {
-                    self.y = (self.y + 8 * s - 8).min(HEIGHT as i32 - 8);
+                let was = self.cell().1;
+                if font.is_none() && self.font.is_some() {
+                    self.y = (self.y + was - 8).min(HEIGHT as i32 - 8);
                 }
                 self.font = font;
+                // The font itself, if the user has it.
+                self.disk = match (&self.fonts_dir, font) {
+                    (Some(dir), Some(_)) => crate::amigafont::AmigaFont::find(dir, &name, size.max(1) as usize),
+                    _ => None,
+                };
             }
             11 => {
                 for i in 0..16 {
@@ -535,8 +611,34 @@ impl Skypix {
             // With no number, the default pen.
             15 if !self.given(1) => self.pen_a = 2,
             15 => self.pen_a = p(1) as u8 & 15,
-            // An XMODEM transfer of a brush or sample: refused.
-            16 => self.replies.extend_from_slice(&[0x18, 0x18, 0x18]),
+            9 => {
+                let loops = p(4).clamp(1, 20);
+                if let Some(sound) = self.sample.clone() {
+                    use crate::audio::AudioOp;
+                    self.audio.push(AudioOp::Flush { channel: SAMPLE_CHANNEL, fade_out: 0 });
+                    for _ in 0..loops {
+                        self.audio.push(AudioOp::Queue {
+                            channel: SAMPLE_CHANNEL,
+                            sound: sound.clone(),
+                            fade_in: 0,
+                            fade_out: 0,
+                            crossfade: false,
+                            looped: false,
+                            volume: (0.0, 0.0),
+                        });
+                    }
+                }
+            }
+            // A file by XMODEM-CRC, to a name the session makes safe.
+            16 => {
+                let name = String::from_utf8_lossy(text).trim().to_string();
+                let mode = p(1).max(0) as u32;
+                if matches!(mode, 1 | 2 | 3 | 20) && !name.is_empty() {
+                    self.starting = Some(Transfer { mode, name });
+                } else {
+                    self.replies.extend_from_slice(&[0x18, 0x18, 0x18]);
+                }
+            }
             17 => {
                 self.colors = if p(1) == 2 { 16 } else { 8 };
                 self.palette = PALETTE;
@@ -605,6 +707,43 @@ mod tests {
 
     fn at(s: &Skypix, x: usize, y: usize) -> u8 {
         s.pixels[y * WIDTH + x]
+    }
+
+    #[test]
+    fn disk_fonts_brushes_and_samples() {
+        // A disk font from the fonts folder: proportional, no background.
+        let dir = std::env::temp_dir().join(format!("badterm-skyfont-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("tiny")).unwrap();
+        std::fs::write(dir.join("tiny/4"), crate::amigafont::tests::sample_font()).unwrap();
+        let mut s = Skypix { fonts_dir: Some(dir.clone()), ..Skypix::default() };
+        s.feed(b"\x1b[18;1!\x1b[10;4!tiny.font!\x1b[19;100;50!AIA");
+        // 'A' 3 wide then advance 4, 'I' at 104 advancing 2, 'A' at 106.
+        assert_eq!(
+            (at(&s, 100, 50), at(&s, 103, 50), at(&s, 104, 50), at(&s, 105, 50), at(&s, 106, 53)),
+            (2, 0, 2, 0, 2)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        // A transfer stops reading; the protocol's bytes are kept.
+        let mut s = sky(b"\x1b[16;1;4;2!brush.iff!PROTOCOL");
+        let (t, rest) = s.transfer.take().unwrap();
+        assert_eq!((t.mode, t.name.as_str(), rest.as_slice()), (1, "brush.iff", &b"PROTOCOL"[..]));
+        // The brush it brings is blitted.
+        let mut f = b"FORM\0\0\0\0ILBM".to_vec();
+        let bmhd = [0, 2, 0, 1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 10, 11, 0, 2, 0, 1];
+        for (id, d) in [(b"BMHD", &bmhd[..]), (b"BODY", &[0x40, 0, 0xC0, 0][..])] {
+            f.extend(id);
+            f.extend((d.len() as u32).to_be_bytes());
+            f.extend(d);
+        }
+        s.load(1, &f);
+        s.feed(b"\x1b[7;0;0;10;10;2;1;192;255!");
+        assert_eq!((at(&s, 10, 10), at(&s, 11, 10)), (2, 3));
+        // A sample plays, looped as asked.
+        s.load(2, &[0, 64, 127, 64, 0, 192, 128, 192]);
+        s.feed(b"\x1b[9;0;0;0;3!");
+        assert_eq!(s.audio.len(), 4);
+        // A bad mode is refused.
+        assert_eq!(sky(b"\x1b[16;9;0;0!x!").replies, [0x18; 3]);
     }
 
     #[test]

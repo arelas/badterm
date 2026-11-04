@@ -32,6 +32,7 @@ impl App {
         session.term.music_enabled = self.settings.music != Music::Off;
         session.term.syncterm.cache_dir = Some(self.paths.bbs_cache.join(cache_folder(&session.entry)));
         session.term.download_dir = Some(downloads);
+        session.term.fonts_dir = Some(self.paths.fonts.clone());
         self.load_entry_font(&mut session);
         self.dialer_open = false;
         self.session_id += 1;

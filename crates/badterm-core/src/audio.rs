@@ -477,6 +477,8 @@ pub fn decode(data: &[u8]) -> Option<Sound> {
         decode_aiff(data)?
     } else if data.starts_with(b"Creative Voice File\x1a") {
         decode_voc(data)?
+    } else if data.starts_with(b"FORM") && data.get(8..12) == Some(b"8SVX") {
+        decode_8svx(data)?
     } else if data.starts_with(b"OggS") || data.starts_with(b"fLaC") || nanomp3::detect(data) {
         let (frames, decode) = later(data)?;
         let frames = frames.min(MAX_FRAMES);
@@ -488,6 +490,26 @@ pub fn decode(data: &[u8]) -> Option<Sound> {
         return None;
     };
     Some(Sound::ready(to_stereo(rate, channels, &samples).into()))
+}
+
+/// The Amiga's IFF 8SVX: signed 8-bit samples, the one-shot part and the
+/// part meant to repeat, both played once.
+fn decode_8svx(data: &[u8]) -> Option<Decoded> {
+    let chunks = crate::iff::chunks(data, b"8SVX")?;
+    let vhdr = chunks.iter().find(|(id, _)| *id == b"VHDR")?.1;
+    let body = chunks.iter().find(|(id, _)| *id == b"BODY")?.1;
+    let rate = u16::from_be_bytes(vhdr.get(12..14)?.try_into().ok()?) as u32;
+    // Fibonacci-delta compressed ones aren't.
+    if vhdr.get(15).is_some_and(|&c| c != 0) {
+        return None;
+    }
+    Some((rate.max(1000), 1, body.iter().map(|&b| b as i8 as f32 / 128.0).collect()))
+}
+
+/// Raw signed 8-bit mono at `rate`: an Amiga sample with no header.
+pub fn raw8(data: &[u8], rate: u32) -> Sound {
+    let samples: Vec<f32> = data.iter().map(|&b| b as i8 as f32 / 128.0).collect();
+    Sound::ready(to_stereo(rate, 1, &samples).into())
 }
 
 /// What a decoder makes: (rate, channels, interleaved samples in -1..1).

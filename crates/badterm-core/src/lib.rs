@@ -3,6 +3,7 @@
 //! connection sessions
 //! (telnet, raw TCP, SSH, RLogin and modems) with file transfers.
 
+pub mod amigafont;
 pub mod ansi;
 pub mod atascii;
 pub mod audio;
@@ -13,6 +14,7 @@ pub mod cp437;
 pub mod dialer;
 pub mod export;
 pub mod fontfile;
+pub mod iff;
 pub mod igs;
 pub mod igs_sound;
 pub mod kermit;

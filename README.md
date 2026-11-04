@@ -137,8 +137,11 @@ fonts and colors of a host terminal.
   text in Topaz on the Amiga's 640x200 screen in 16 colors, with SkyPix's
   drawing commands: pixels, lines, filled rectangles, ellipses, flood fills,
   brushes blitted with the Amiga's minterms, palettes, text placed at any
-  pixel, delays and mouse clicks. Amiga disk fonts are drawn as Topaz at
-  about their size. Not yet: samples, and brushes sent by XMODEM (refused).
+  pixel, delays and mouse clicks. Brushes (IFF pictures) and samples (IFF
+  8SVX) the BBS sends by XMODEM are used and played. Amiga disk fonts are
+  your own: copy a font's `name.font` and `name/` folder from a Workbench
+  disk into the `fonts` folder (`badterm --paths`); without it, the text
+  is Topaz at about the font's size.
 - **Scrollback** of 10,000 lines. Screens cleared by the BBS are kept, so you can
   scroll back through menus you've already left.
 - **Session capture** to `.ans` files (`Alt-C`), or for an entry from the

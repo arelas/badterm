@@ -203,6 +203,8 @@ pub struct Terminal {
     rip: Option<Box<crate::rip::Rip>>,
     /// Where downloads go: RIP looks there for icons and scenes too.
     pub download_dir: Option<std::path::PathBuf>,
+    /// The user's fonts: SkyPix finds Amiga disk fonts there.
+    pub fonts_dir: Option<std::path::PathBuf>,
     /// A RIP file transfer just started, and what came after it (the
     /// protocol's first bytes), for the session.
     rip_block: Option<(crate::rip::BlockTransfer, Vec<u8>)>,
@@ -250,6 +252,7 @@ impl Terminal {
             viewdata: Default::default(),
             rip: None,
             download_dir: None,
+            fonts_dir: None,
             rip_block: None,
             igs: None,
             skypix: None,
@@ -306,6 +309,15 @@ impl Terminal {
     }
 
     /// The Amiga screen, for a SkyPix system.
+    pub fn skypix_mut(&mut self) -> Option<&mut crate::skypix::Skypix> {
+        self.skypix.as_deref_mut()
+    }
+
+    /// A file transfer SkyPix started, and the bytes after it.
+    pub fn take_skypix_transfer(&mut self) -> Option<(crate::skypix::Transfer, Vec<u8>)> {
+        self.skypix.as_deref_mut()?.transfer.take()
+    }
+
     pub fn skypix(&self) -> Option<&crate::skypix::Skypix> {
         self.skypix.as_deref()
     }
@@ -316,6 +328,11 @@ impl Terminal {
         self.replies.append(&mut sky.replies);
         for _ in 0..std::mem::take(&mut sky.bells) {
             self.events.push(TermEvent::Bell);
+        }
+        for op in sky.audio.drain(..) {
+            if self.music_enabled {
+                self.events.push(TermEvent::Audio(op));
+            }
         }
         let (x, y) = sky.cursor();
         self.screen.move_to(x, y);
@@ -410,6 +427,9 @@ impl Terminal {
             }
             Encoding::Skypix => {
                 if let Some(sky) = self.skypix.as_deref_mut() {
+                    if sky.fonts_dir.is_none() {
+                        sky.fonts_dir.clone_from(&self.fonts_dir);
+                    }
                     sky.feed(data);
                 }
                 self.skypix_done();
