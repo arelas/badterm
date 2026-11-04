@@ -66,7 +66,8 @@ def stamp(page, release):
     page = re.sub(r'<span data-needs="([^"]+)">(.*?)<span data-else>(.*?)</span></span>', needs, page, flags=re.S)
     # Drop the whitespace left where a button was.
     page = re.sub(r"\n[ \t]+(?=\n)", "", page)
-    return page.replace("<span data-version>0.1</span>", f"<span data-version>{html.escape(version)}</span>")
+    # Whatever version the page was written with.
+    return re.sub(r"<span data-version>[^<]*</span>", f"<span data-version>{html.escape(version)}</span>", page)
 
 
 def fingerprint(text, base):
