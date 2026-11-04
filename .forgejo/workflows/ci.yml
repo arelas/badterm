@@ -91,6 +91,9 @@ jobs:
       # on Ubuntu 24.04 or Debian 13.
       - name: Release build
         run: |
+          # zig's linker opens every object file at once, and there are
+          # more than the default 1024 now.
+          ulimit -n "$(ulimit -Hn)" || ulimit -n 65536 || true
           cargo clean --release --target x86_64-unknown-linux-gnu -p badterm -p badterm-core
           packaging/linux/build-release.sh
 
