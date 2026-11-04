@@ -1,5 +1,6 @@
 <!--
   WiX (v5) source for BadTerm's MSI, for managed Windows deployments
+  (paths are from the repository root, where it is built)
   (Intune, Group Policy, SCCM); the Inno Setup installer (badterm.iss) is
   the one for people.
 
@@ -21,7 +22,7 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of BadTerm is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="badterm.ico" SourceFile="..\..\crates\badterm\assets\icon\badterm.ico" />
+    <Icon Id="badterm.ico" SourceFile="crates\badterm\assets\icon\badterm.ico" />
     <Property Id="ARPPRODUCTICON" Value="badterm.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://badterm.com/" />
     <Property Id="ARPHELPLINK" Value="https://git.badcluster.dev/arelas/badterm/issues" />
@@ -32,13 +33,13 @@
 
     <ComponentGroup Id="Program" Directory="INSTALLFOLDER">
       <Component Id="Exe">
-        <File Id="BadTermExe" Source="..\..\target\release\badterm.exe" KeyPath="yes" />
+        <File Id="BadTermExe" Source="target\release\badterm.exe" KeyPath="yes" />
       </Component>
       <Component Id="Readme">
-        <File Source="..\..\README.md" />
+        <File Source="README.md" />
       </Component>
       <Component Id="License">
-        <File Source="..\..\LICENSE" Name="LICENSE.txt" />
+        <File Source="LICENSE" Name="LICENSE.txt" />
       </Component>
     </ComponentGroup>
 
