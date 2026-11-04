@@ -515,7 +515,14 @@ impl Renderer {
         };
         let ox = ax + (aw - dw) / 2;
         let oy = ay + (ah - dh) / 2;
-        out.fill(0);
+        // Black around the picture; the picture covers the rest.
+        out[..oy * width].fill(0);
+        out[(oy + dh) * width..].fill(0);
+        for y in oy..oy + dh {
+            let row = &mut out[y * width..(y + 1) * width];
+            row[..ox].fill(0);
+            row[ox + dw..].fill(0);
+        }
         if display.crt == CrtMode::Off {
             scale_into(&self.native, nw, nh, out, width, (ox, oy, dw, dh));
         } else {
@@ -548,34 +555,88 @@ pub fn scale_into(
     rect: (usize, usize, usize, usize),
 ) {
     let (ox, oy, dw, dh) = rect;
+    if dw == 0 || dh == 0 || nw == 0 || nh == 0 {
+        return;
+    }
+    let region = &mut out[oy * stride..(oy + dh - 1) * stride + ox + dw];
     if dw >= nw && dh >= nh {
         let xs = taps(nw, dw);
         let ys = taps(nh, dh);
-        for (dy, &(sy, wy)) in ys.iter().enumerate() {
-            let row0 = &src[sy * nw..][..nw];
-            let row1 = &src[(sy + 1).min(nh - 1) * nw..][..nw];
-            let dst = &mut out[(oy + dy) * stride + ox..][..dw];
-            for (d, &(sx, wx)) in dst.iter_mut().zip(&xs) {
-                let x1 = (sx + 1).min(nw - 1);
-                *d = if wy == 256 {
-                    if wx == 256 { row0[sx] } else { mix(row0[sx], row0[x1], wx) }
-                } else {
-                    let top = if wx == 256 { row0[sx] } else { mix(row0[sx], row0[x1], wx) };
-                    let bottom = if wx == 256 { row1[sx] } else { mix(row1[sx], row1[x1], wx) };
-                    mix(top, bottom, wy)
-                };
+        par_rows(region, stride, dh, dw, |first, band, rows| {
+            // A row lying wholly within the same frame row as the one
+            // before it is a copy of it.
+            let mut prev: Option<(usize, usize)> = None;
+            for r in 0..rows {
+                let (sy, wy) = ys[first + r];
+                let at = r * stride + ox;
+                if wy == 256
+                    && let Some((psy, pat)) = prev
+                    && psy == sy
+                {
+                    band.copy_within(pat..pat + dw, at);
+                    continue;
+                }
+                let row0 = &src[sy * nw..][..nw];
+                let row1 = &src[(sy + 1).min(nh - 1) * nw..][..nw];
+                let dst = &mut band[at..at + dw];
+                for (d, &(sx, wx)) in dst.iter_mut().zip(&xs) {
+                    let x1 = (sx + 1).min(nw - 1);
+                    *d = if wy == 256 {
+                        if wx == 256 { row0[sx] } else { mix(row0[sx], row0[x1], wx) }
+                    } else {
+                        let top = if wx == 256 { row0[sx] } else { mix(row0[sx], row0[x1], wx) };
+                        let bottom = if wx == 256 { row1[sx] } else { mix(row1[sx], row1[x1], wx) };
+                        mix(top, bottom, wy)
+                    };
+                }
+                prev = (wy == 256).then_some((sy, at));
             }
-        }
+        });
         return;
     }
     let xmap: Vec<usize> = (0..dw).map(|dx| dx * nw / dw).collect();
-    for dy in 0..dh {
-        let row = &src[(dy * nh / dh) * nw..][..nw];
-        let dst = &mut out[(oy + dy) * stride + ox..][..dw];
-        for (d, &sx) in dst.iter_mut().zip(&xmap) {
-            *d = row[sx];
+    par_rows(region, stride, dh, dw, |first, band, rows| {
+        for r in 0..rows {
+            let row = &src[((first + r) * nh / dh) * nw..][..nw];
+            let dst = &mut band[r * stride + ox..][..dw];
+            for (d, &sx) in dst.iter_mut().zip(&xmap) {
+                *d = row[sx];
+            }
         }
+    });
+}
+
+/// Run `f` over bands of the `rows` rows of `region` (`stride` apart), on
+/// as many threads as there are cores when there is enough to do. `f` gets
+/// the band's first row, the band (its rows `stride` apart), and how many
+/// rows it has.
+pub fn par_rows(
+    region: &mut [u32],
+    stride: usize,
+    rows: usize,
+    width: usize,
+    f: impl Fn(usize, &mut [u32], usize) + Sync,
+) {
+    static CORES: std::sync::LazyLock<usize> =
+        std::sync::LazyLock::new(|| std::thread::available_parallelism().map_or(1, |n| n.get()).min(8));
+    // Below a quarter of a megapixel, threads cost more than they save.
+    let bands = if rows * width < 250_000 { 1 } else { (*CORES).min(rows) };
+    if bands <= 1 {
+        return f(0, region, rows);
     }
+    let per = rows.div_ceil(bands);
+    std::thread::scope(|scope| {
+        let f = &f;
+        let mut chunks = region.chunks_mut(per * stride).enumerate();
+        let first = chunks.next();
+        for (i, band) in chunks {
+            let n = per.min(rows - i * per);
+            scope.spawn(move || f(i * per, band, n));
+        }
+        if let Some((_, band)) = first {
+            f(0, band, per.min(rows));
+        }
+    });
 }
 
 /// For each of `dst` output pixels covering `src` frame pixels (`dst` >=
@@ -848,6 +909,81 @@ mod tests {
             assert_eq!(Font::cterm(34, base).height, 8);
             // The teletext font follows the mode too.
             assert_eq!(Font::cterm(badterm_core::viewdata::FONT, base).height, base.height);
+        }
+    }
+
+    /// How fast a recorded session is shown: the terminal's parsing, the
+    /// frame, and its scaling to a 1920x1080 window, each frame being what
+    /// arrived in a 60th of a second:
+    /// `BADTERM_REC=vortex.rec cargo test --release -p badterm display_bench -- --ignored --nocapture`
+    /// (a .rec file is chunks of: u32 ms, u32 length, then the bytes).
+    #[test]
+    #[ignore]
+    fn display_bench() {
+        use std::time::{Duration, Instant};
+        let data = std::fs::read(std::env::var("BADTERM_REC").expect("set BADTERM_REC")).unwrap();
+        let mut chunks = Vec::new();
+        let mut at = 0;
+        while at + 8 <= data.len() {
+            let ms = u32::from_le_bytes(data[at..at + 4].try_into().unwrap());
+            let n = u32::from_le_bytes(data[at + 4..at + 8].try_into().unwrap()) as usize;
+            chunks.push((ms, &data[at + 8..at + 8 + n]));
+            at += 8 + n;
+        }
+        let total: usize = chunks.iter().map(|c| c.1.len()).sum();
+        // Parsing alone.
+        let mut t = Terminal::new(80, 25, 10_000);
+        let start = Instant::now();
+        for (_, c) in &chunks {
+            t.feed(c);
+        }
+        let parse = start.elapsed();
+        println!("parse: {total} bytes in {parse:?} ({:.1} MB/s)", total as f64 / parse.as_secs_f64() / 1e6);
+        use crate::crt::{CrtMode, Glow};
+        for (label, crt, glow) in [
+            ("crt off", CrtMode::Off, Glow::Light),
+            ("crt color, no glow", CrtMode::Color, Glow::Off),
+            ("crt color", CrtMode::Color, Glow::Light),
+        ] {
+            let mut t = Terminal::new(80, 25, 10_000);
+            let mut r = Renderer::new(Font::vga_8x16(), 80, 26);
+            let (w, h) = (1920, 1080);
+            let mut out = vec![0u32; w * h];
+            let display = Display { scaling: Scaling::Fill, crt, glow, ..Display::default() };
+            let (mut feed, mut draw, mut blit, mut frames) = (Duration::ZERO, Duration::ZERO, Duration::ZERO, 0);
+            let mut worst = Duration::ZERO;
+            let mut i = 0;
+            let mut frame_ms = 0u32;
+            while i < chunks.len() {
+                frame_ms += 16;
+                let t0 = Instant::now();
+                while i < chunks.len() && chunks[i].0 <= frame_ms {
+                    t.feed(chunks[i].1);
+                    i += 1;
+                }
+                let t1 = Instant::now();
+                let status = vec![Cell::default(); 80];
+                let mut rows: Vec<&[Cell]> = (0..25).map(|y| t.screen.row(y)).collect();
+                rows.push(&status);
+                r.draw(&Frame { look: &t.screen.look, look_rows: 25, ..Frame::plain(rows, None, true) }, true, true);
+                let t2 = Instant::now();
+                r.blit(&mut out, w, h, &display);
+                let t3 = Instant::now();
+                feed += t1 - t0;
+                draw += t2 - t1;
+                blit += t3 - t2;
+                if frames > 0 {
+                    worst = worst.max(t3 - t0);
+                }
+                frames += 1;
+            }
+            let per = |d: Duration| d / frames;
+            println!(
+                "{label}: {frames} frames; per frame: feed {:?}, draw {:?}, blit {:?}; worst {worst:?}",
+                per(feed),
+                per(draw),
+                per(blit)
+            );
         }
     }
 

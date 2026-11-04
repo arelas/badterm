@@ -182,13 +182,21 @@ impl Crt {
             self.build(nh, dw, dh, scanlines.depth(), curvature.amount());
             self.key = key;
         }
-        for y in 0..dh {
-            let row = &mut out[(oy + y) * stride + ox..][..dw];
-            let (map, shade) = (&self.map[y * dw..][..dw], &self.shade[y * dw..][..dw]);
-            for ((d, &m), &s) in row.iter_mut().zip(map).zip(shade) {
-                *d = if m == u32::MAX { 0 } else { brighten(self.flat[m as usize], s as u32) };
-            }
+        if dw == 0 || dh == 0 {
+            return;
         }
+        let (map, shade, flat) = (&self.map, &self.shade, &self.flat);
+        let region = &mut out[oy * stride..(oy + dh - 1) * stride + ox + dw];
+        crate::render::par_rows(region, stride, dh, dw, |first, band, rows| {
+            for r in 0..rows {
+                let y = first + r;
+                let row = &mut band[r * stride + ox..][..dw];
+                let (map, shade) = (&map[y * dw..][..dw], &shade[y * dw..][..dw]);
+                for ((d, &m), &s) in row.iter_mut().zip(map).zip(shade) {
+                    *d = if m == u32::MAX { 0 } else { brighten(flat[m as usize], s as u32) };
+                }
+            }
+        });
     }
 
     /// Add the glow: what a blurred copy of `lit` has beyond `lit` itself.
@@ -197,8 +205,8 @@ impl Crt {
         self.tmp.resize(w * h, 0);
         // Two box blurs approximate a Gaussian.
         for _ in 0..2 {
-            box_blur(&self.blur, &mut self.tmp, w, h, 2, true);
-            box_blur(&self.tmp, &mut self.blur, w, h, 2, false);
+            blur5(&self.blur, &mut self.tmp, w, h, true);
+            blur5(&self.tmp, &mut self.blur, w, h, false);
         }
         for (px, &b) in self.lit.iter_mut().zip(&self.blur) {
             let ch = |s: u32| {
@@ -256,7 +264,9 @@ impl Crt {
 fn monochrome(px: u32, (r, g, b): (u32, u32, u32)) -> u32 {
     let luma = (((px >> 16) & 0xFF) * 77 + ((px >> 8) & 0xFF) * 150 + (px & 0xFF) * 29) >> 8;
     // A little gamma lift, so dark-gray text stays readable.
-    let l = ((luma as f64 / 255.0).powf(0.8) * 255.0) as u32;
+    static LIFT: std::sync::LazyLock<[u32; 256]> =
+        std::sync::LazyLock::new(|| std::array::from_fn(|i| ((i as f64 / 255.0).powf(0.8) * 255.0) as u32));
+    let l = LIFT[luma.min(255) as usize];
     ((r * l / 255) << 16) | ((g * l / 255) << 8) | (b * l / 255)
 }
 
@@ -266,7 +276,42 @@ fn brighten(px: u32, s: u32) -> u32 {
     ch(16) | ch(8) | ch(0)
 }
 
-/// One pass of a box blur of radius `r`, horizontal or vertical.
+/// One pass of a box blur of radius 2, horizontal or vertical, edges
+/// repeating the end pixels: a row at a time, the rows shared among the
+/// cores.
+fn blur5(src: &[u32], dst: &mut [u32], w: usize, h: usize, horizontal: bool) {
+    if w == 0 || h == 0 {
+        return;
+    }
+    crate::render::par_rows(dst, w, h, w, |first, band, rows| {
+        for r in 0..rows {
+            let y = first + r;
+            let out = &mut band[r * w..][..w];
+            let row = |dy: isize| &src[(y as isize + dy).clamp(0, h as isize - 1) as usize * w..][..w];
+            for x in 0..w {
+                let taps: [u32; 5] = if horizontal {
+                    let row = &src[y * w..][..w];
+                    std::array::from_fn(|i| row[(x as isize + i as isize - 2).clamp(0, w as isize - 1) as usize])
+                } else {
+                    std::array::from_fn(|i| row(i as isize - 2)[x])
+                };
+                let (mut rb, mut g) = (0u32, 0u32);
+                for t in taps {
+                    rb += t & 0xFF00FF;
+                    g += t & 0x00FF00;
+                }
+                // Each lane holds at most 5 x 255: no carries between them.
+                let r = ((rb >> 16) & 0xFFFF) / 5;
+                let b = (rb & 0xFFFF) / 5;
+                out[x] = (r << 16) | (((g >> 8) / 5) << 8) | b;
+            }
+        }
+    });
+}
+
+/// One pass of a box blur of radius `r`, horizontal or vertical: the
+/// plain way, which [`blur5`] must match.
+#[cfg(test)]
 fn box_blur(src: &[u32], dst: &mut [u32], w: usize, h: usize, r: usize, horizontal: bool) {
     let (len, lines) = if horizontal { (w, h) } else { (h, w) };
     let at = |line: usize, i: usize| if horizontal { line * w + i } else { i * w + line };
@@ -295,6 +340,19 @@ fn box_blur(src: &[u32], dst: &mut [u32], w: usize, h: usize, r: usize, horizont
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fast_blur_matches_the_plain_one() {
+        // Big enough to be shared among threads.
+        let (w, h) = (640, 416);
+        let src: Vec<u32> = (0..w * h).map(|i| (i as u32).wrapping_mul(2_654_435_761) & 0xFFFFFF).collect();
+        for horizontal in [true, false] {
+            let (mut a, mut b) = (vec![0; w * h], vec![0; w * h]);
+            box_blur(&src, &mut a, w, h, 2, horizontal);
+            blur5(&src, &mut b, w, h, horizontal);
+            assert!(a == b, "horizontal: {horizontal}");
+        }
+    }
 
     #[test]
     fn modes_cycle() {

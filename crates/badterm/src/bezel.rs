@@ -406,21 +406,25 @@ fn hash(x: u32, y: u32) -> f64 {
 
 /// Blend the bezel over the frame in `out` (0RGB).
 pub fn composite(out: &mut [u32], bezel: &[u32]) {
-    for (o, &b) in out.iter_mut().zip(bezel) {
-        let a = b >> 24;
-        if a == 0 {
-            continue;
+    let n = out.len().min(bezel.len());
+    // Shared among the cores, a pixel to a "row".
+    crate::render::par_rows(&mut out[..n], 1, n, 1, |first, band, len| {
+        for (o, &b) in band[..len].iter_mut().zip(&bezel[first..]) {
+            let a = b >> 24;
+            if a == 0 {
+                continue;
+            }
+            if a == 255 {
+                *o = b & 0xFF_FFFF;
+                continue;
+            }
+            let mix = |shift: u32| {
+                let (f, s) = ((b >> shift) & 0xFF, (*o >> shift) & 0xFF);
+                ((f * a + s * (255 - a)) / 255) << shift
+            };
+            *o = mix(16) | mix(8) | mix(0);
         }
-        if a == 255 {
-            *o = b & 0xFF_FFFF;
-            continue;
-        }
-        let mix = |shift: u32| {
-            let (f, s) = ((b >> shift) & 0xFF, (*o >> shift) & 0xFF);
-            ((f * a + s * (255 - a)) / 255) << shift
-        };
-        *o = mix(16) | mix(8) | mix(0);
-    }
+    });
 }
 
 #[cfg(test)]
