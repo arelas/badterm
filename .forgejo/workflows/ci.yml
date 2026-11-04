@@ -21,10 +21,19 @@ name: CI
 # prerelease with every platform package (Linux tarball, AppImage, .deb and
 # .rpm; Windows installer and zip; macOS disk image), once every build passes.
 #
-# Persistent workspaces also mean target/ survives between runs. Cargo's
-# freshness check is mtime-based, so before the release build each job
-# cleans this workspace's own crates (not the dependencies) so a stale
-# object can never end up in an uploaded artifact.
+# The runner gives each job a new workspace folder (.cache/act/<id>/), so
+# target/ there never survives. CARGO_TARGET_DIR points every job at one
+# build folder per machine instead (~/.cache/badterm-target), where the
+# compiled dependencies stay between runs; before 0.3.2 every run built
+# all ~260 crates three times (clippy, tests, release). BadTerm's own two
+# crates rebuild each run anyway (the workspace path is part of their
+# fingerprint), so each job first clears their old builds by name, keeping
+# the folder from growing; a size guard wipes it should it pass 30 GB. The
+# release binaries are copied back into the workspace's target/, where the
+# packaging steps look for them.
+#
+# The release commit ("Release x.y.z" on main) isn't built on its own: the
+# tag pushed right after it runs everything on the same commit.
 
 on:
   push:
@@ -35,9 +44,13 @@ on:
 env:
   CARGO_TERM_COLOR: never
   RUST_BACKTRACE: '1'
+  # Line numbers for backtraces, without full debug info: smaller test
+  # binaries, linked faster (most of all on Windows).
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   linux:
+    if: github.ref_type == 'tag' || !startsWith(github.event.head_commit.message, 'Release ')
     runs-on: [self-hosted, Linux]
     steps:
       - name: Bootstrap Rust toolchain
@@ -49,6 +62,17 @@ jobs:
           "$HOME/.cargo/bin/rustup" toolchain install stable --profile minimal -c clippy -c rustfmt
           "$HOME/.cargo/bin/rustup" default stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Use the machine's build folder
+        run: |
+          set -e
+          dir="$HOME/.cache/badterm-target"
+          mkdir -p "$dir"
+          if [ "$(du -sk "$dir" | cut -f1)" -gt 31457280 ]; then
+            echo "Build folder over 30 GB: starting it afresh"
+            rm -rf "$dir" && mkdir -p "$dir"
+          fi
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
 
       # lrzsz's sz/rz are what most Unix BBSes run; the interop tests in
       # crates/badterm-core/tests/lrzsz.rs transfer files against them.
@@ -70,6 +94,13 @@ jobs:
           exit 1
 
       - uses: https://git.badcluster.dev/actions/checkout@v7
+
+      # Earlier runs' builds of BadTerm's own crates (by name; they're
+      # rebuilt each run): the dependencies stay.
+      - name: Clear old builds of BadTerm's crates
+        run: |
+          cargo clean -p badterm -p badterm-core
+          cargo clean --release -p badterm -p badterm-core
 
       - name: Format
         run: cargo fmt --check
@@ -96,6 +127,8 @@ jobs:
           ulimit -n "$(ulimit -Hn)" || ulimit -n 65536 || true
           cargo clean --release --target x86_64-unknown-linux-gnu -p badterm -p badterm-core
           packaging/linux/build-release.sh
+          mkdir -p target/x86_64-unknown-linux-gnu/release
+          cp "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/badterm" target/x86_64-unknown-linux-gnu/release/
 
       - name: Test the move from Phosphor's folders
         run: packaging/test-folder-upgrade.sh target/x86_64-unknown-linux-gnu/release/badterm
@@ -130,6 +163,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    if: github.ref_type == 'tag' || !startsWith(github.event.head_commit.message, 'Release ')
     runs-on: [self-hosted, Windows]
     steps:
       # Same approach as ipscanner's build-windows bootstrap: winget with
@@ -173,7 +207,34 @@ jobs:
 
           Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
 
+      # A build folder that outlives the job (see the notes at the top). A
+      # count of runs stands in for its size, which is slow to add up here.
+      - name: Use the machine's build folder
+        shell: powershell
+        run: |
+          $dir = Join-Path $env:USERPROFILE '.cache\badterm-target'
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          $count = Join-Path $dir 'runs.txt'
+          $runs = 0
+          if (Test-Path $count) { $runs = [int](Get-Content $count) }
+          if ($runs -ge 40) {
+            Write-Host "Build folder used 40 times: starting it afresh"
+            Remove-Item -Recurse -Force $dir
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            $runs = 0
+          }
+          Set-Content $count ($runs + 1)
+          Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_DIR=$dir"
+
       - uses: https://git.badcluster.dev/actions/checkout@v7
+
+      - name: Clear old builds of BadTerm's crates
+        shell: powershell
+        run: |
+          cargo clean -p badterm -p badterm-core
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          cargo clean --release -p badterm -p badterm-core
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Clippy
         shell: powershell
@@ -190,10 +251,10 @@ jobs:
       - name: Release build
         shell: powershell
         run: |
-          cargo clean --release -p badterm -p badterm-core
-          if ($LASTEXITCODE -ne 0) { exit 1 }
           cargo build --release --locked
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          New-Item -ItemType Directory -Force target\release | Out-Null
+          Copy-Item (Join-Path $env:CARGO_TARGET_DIR 'release\badterm.exe') target\release\
 
       # Passwords saved by Phosphor (up to 0.1.16) move to BadTerm's name in
       # the Credential Manager.
@@ -359,6 +420,7 @@ jobs:
           if-no-files-found: error
 
   macos:
+    if: github.ref_type == 'tag' || !startsWith(github.event.head_commit.message, 'Release ')
     runs-on: [self-hosted, macOS]
     steps:
       - name: Bootstrap Rust toolchain
@@ -371,12 +433,30 @@ jobs:
           "$HOME/.cargo/bin/rustup" default stable
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
+      - name: Use the machine's build folder
+        run: |
+          set -e
+          dir="$HOME/.cache/badterm-target"
+          mkdir -p "$dir"
+          if [ "$(du -sk "$dir" | cut -f1)" -gt 31457280 ]; then
+            echo "Build folder over 30 GB: starting it afresh"
+            rm -rf "$dir" && mkdir -p "$dir"
+          fi
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+
       # Optional here: the lrzsz interop tests run if Homebrew provides it
       # and skip otherwise; Linux is where they are required.
       - name: Install lrzsz (best effort)
         run: command -v sz >/dev/null || brew install lrzsz || echo "lrzsz unavailable; interop tests will skip"
 
       - uses: https://git.badcluster.dev/actions/checkout@v7
+
+      # Earlier runs' builds of BadTerm's own crates (by name; they're
+      # rebuilt each run): the dependencies stay.
+      - name: Clear old builds of BadTerm's crates
+        run: |
+          cargo clean -p badterm -p badterm-core
+          cargo clean --release -p badterm -p badterm-core
 
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
@@ -386,8 +466,9 @@ jobs:
 
       - name: Release build
         run: |
-          cargo clean --release -p badterm -p badterm-core
           cargo build --release --locked
+          mkdir -p target/release
+          cp "$CARGO_TARGET_DIR/release/badterm" target/release/
 
       # Passwords saved by Phosphor (up to 0.1.16) move to BadTerm's name in
       # the login keychain.

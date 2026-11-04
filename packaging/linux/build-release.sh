@@ -6,6 +6,8 @@
 #
 #   packaging/linux/build-release.sh    # -> target/x86_64-unknown-linux-gnu/release/badterm
 #
+# (or under $CARGO_TARGET_DIR, if that's set).
+#
 # Zig is downloaded once into a cache directory and checked against the
 # SHA-256 sum ziglang.org publishes for it; cargo-zigbuild is installed
 # there at a pinned version.
@@ -37,7 +39,7 @@ rustup target add "$TARGET" >/dev/null 2>&1 || true
 export PATH="$ZIG_DIR:$ZIGBUILD_ROOT/bin:$PATH"
 cargo zigbuild --release --locked --target "$TARGET.$GLIBC" -p badterm
 
-BIN=target/$TARGET/release/badterm
+BIN=${CARGO_TARGET_DIR:-target}/$TARGET/release/badterm
 NEWEST=$(objdump -T "$BIN" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
 echo "$BIN needs glibc $NEWEST"
 if [ "$(printf '%s\n%s\n' "$NEWEST" "$GLIBC" | sort -V | tail -1)" != "$GLIBC" ]; then
