@@ -16,6 +16,10 @@ pub enum Color {
     Xterm(u8),
     /// 24-bit color.
     Rgb(Rgb),
+    /// VGA index 0-15 in the front end's own colors: what its screens and
+    /// dialogs are drawn in, even over a BBS's screen (whose palette may
+    /// differ); see [`Cell::is_ui`].
+    Ui(u8),
 }
 
 pub mod flags {
@@ -55,6 +59,11 @@ impl Default for Cell {
 impl Cell {
     pub fn new(ch: u8, fg: Color, bg: Color) -> Self {
         Cell { ch, fg, bg, flags: 0, tile: 0 }
+    }
+
+    /// Drawn by the front end, not the BBS: in its own colors.
+    pub fn is_ui(&self) -> bool {
+        matches!(self.fg, Color::Ui(_)) || matches!(self.bg, Color::Ui(_))
     }
 
     pub fn is_blank(&self) -> bool {
@@ -173,7 +182,7 @@ impl Look {
     pub fn rgb(&self, c: Color) -> Rgb {
         match c {
             // VGA order to xterm order.
-            Color::Pc(i) => {
+            Color::Pc(i) | Color::Ui(i) => {
                 let i = i & 15;
                 let ansi = palette::ANSI_TO_VGA.iter().position(|&v| v == i & 7).unwrap_or(0) as u8;
                 self.palette[(ansi + (i & 8)) as usize]
@@ -209,7 +218,7 @@ fn intern(data: &[u8]) -> &'static [u8] {
 
 pub fn color_rgb(c: Color) -> Rgb {
     match c {
-        Color::Pc(i) => VGA[(i & 15) as usize],
+        Color::Pc(i) | Color::Ui(i) => VGA[(i & 15) as usize],
         Color::Xterm(i) => palette::xterm256(i),
         Color::Rgb(rgb) => rgb,
     }

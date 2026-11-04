@@ -371,7 +371,10 @@ impl Renderer {
             let row = frame.rows.get(y).copied().unwrap_or(&[]);
             for x in 0..self.cols {
                 let cell = row.get(x).unwrap_or(&blank);
-                let look = if y < frame.look_rows { frame.look } else { frame.ui_look };
+                // The BBS's rows in its look; BadTerm's own (its screens,
+                // and dialogs over the BBS's) in the scheme's.
+                let ui = y >= frame.look_rows || cell.is_ui();
+                let look = if ui { frame.ui_look } else { frame.look };
                 let (mut fg, mut bg, blinks) = cell.resolve_with(frame.ice, look);
                 let font = match look.font_for(cell) {
                     0 => self.font,
@@ -397,12 +400,9 @@ impl Renderer {
                 };
                 // Graphics show through a black background.
                 let graphics = frame.graphics.filter(|_| {
-                    y < frame.look_rows
-                        && cell.bg == Color::Pc(0)
-                        && cell.flags & flags::REVERSE == 0
-                        && bg == look.rgb(Color::Pc(0))
+                    !ui && cell.bg == Color::Pc(0) && cell.flags & flags::REVERSE == 0 && bg == look.rgb(Color::Pc(0))
                 });
-                let tile = frame.tiles.filter(|_| cell.tile != 0 && y < frame.look_rows).and_then(|t| t.get(cell.tile));
+                let tile = frame.tiles.filter(|_| cell.tile != 0 && !ui).and_then(|t| t.get(cell.tile));
                 for gy in 0..fh {
                     let mut bits = if hide { 0 } else { font.row(cell.ch, glyph_row(gy)) as u16 };
                     if cell.flags & flags::UNDERLINE != 0 && gy == fh - 1 && !hide {
@@ -893,6 +893,48 @@ mod tests {
         let fg = t.screen.look.rgb(badterm_core::screen::DEFAULT_FG);
         assert!((0..16).all(|y| px[y * nw] == fg));
         assert!((0..16).all(|y| px[y * nw + 1] != fg));
+    }
+
+    /// A dialog over a BBS's screen (the exit question, say) is in the
+    /// scheme's colors, not the BBS's palette.
+    #[test]
+    fn dialogs_over_the_bbs_are_in_the_schemes_colors() {
+        use crate::ui::theme;
+        let dracula = theme::SCHEMES.iter().find(|(n, _)| *n == "Dark Dracula").unwrap().1;
+        theme::set_current(dracula);
+        let ui_look = theme::ui_look();
+        // A BBS's screen, then the question over it, as the app draws them.
+        let mut t = Terminal::new(80, 25, 0);
+        t.feed(b"\x1b[44;31mBBS text in blue and red");
+        let mut s = badterm_core::Screen::new(80, 25, 0);
+        for y in 0..25 {
+            for (x, c) in t.screen.row(y).iter().enumerate() {
+                *s.cell_mut(x, y).unwrap() = *c;
+            }
+        }
+        crate::ui::confirm_box(&mut s, "Exit BadTerm?", "", &[("Y", "Exit"), ("N", "Stay")]);
+        let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
+        let mut r = Renderer::new(Font::vga_8x16(), 80, 25);
+        r.draw(
+            &Frame { look: &t.screen.look, look_rows: 25, ui_look: &ui_look, ..Frame::plain(rows, None, true) },
+            true,
+            true,
+        );
+        let px = r.pixels();
+        let nw = r.native_width();
+        // The middle of the screen is the dialog: Dracula's black panel,
+        // not the VGA's blue; the BBS's own text keeps its blue.
+        let mid = px[(12 * 16 + 8) * nw + 40 * 8 + 4];
+        assert_eq!(mid, 0x0A0A0A, "{mid:06x}");
+        assert_eq!(px[2], t.screen.look.rgb(Color::Pc(1)));
+        theme::set_current(theme::Theme::default());
+        if let Ok(dir) = std::env::var("BADTERM_SNAPSHOT_DIR") {
+            std::fs::write(
+                std::path::Path::new(&dir).join("exit-dracula.png"),
+                crate::png::encode(px, nw, r.native_height()),
+            )
+            .unwrap();
+        }
     }
 
     #[test]

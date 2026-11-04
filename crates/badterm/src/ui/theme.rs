@@ -86,12 +86,13 @@ impl Attr {
         Attr { fg, bg }
     }
 
+    /// In BadTerm's own colors (the scheme's palette), wherever drawn.
     pub fn fg(self) -> Color {
-        Color::Pc(self.fg & 15)
+        Color::Ui(self.fg & 15)
     }
 
     pub fn bg(self) -> Color {
-        Color::Pc(self.bg & 15)
+        Color::Ui(self.bg & 15)
     }
 }
 
@@ -233,8 +234,8 @@ const BAD_CLUSTER: Palette = Palette([
 
 /// Dark Dracula: the Dracula colors (draculatheme.com) on pure black, as
 /// "Dracula Dark" has them, in the VGA's 16 places: black surfaces and
-/// panels, Dracula's selection and comment colors, its purple for the
-/// accent (yellow and brown), and its foreground for white.
+/// panels, Dracula's selection and comment colors, its purple (a shade
+/// darker) for the accent (yellow and brown), and its foreground for white.
 const DRACULA: Palette = Palette([
     0x000000, // black: the surface
     0x0A0A0A, // blue: an inner panel
@@ -242,7 +243,7 @@ const DRACULA: Palette = Palette([
     0x6272A4, // cyan: muted (Dracula's comment)
     0xFF5555, // red: danger
     0x0D0D0D, // magenta: the page
-    0x9D73D9, // brown: the accent, dimmed
+    0x7A52BD, // brown: the accent, dimmed
     0xC6C6C0, // light gray: dim text
     0x282A36, // dark gray: a border
     0x343746, // light blue: a rule
@@ -250,7 +251,7 @@ const DRACULA: Palette = Palette([
     0x8BE9FD, // light cyan
     0xFF6E6E, // light red
     0xFF79C6, // light magenta: pink
-    0xBD93F9, // yellow: the accent, Dracula's purple
+    0x9A6FE0, // yellow: the accent, Dracula's purple a shade darker
     0xF8F8F2, // white: the foreground
 ]);
 

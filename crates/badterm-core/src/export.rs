@@ -128,14 +128,14 @@ fn sgr(c: &Cell, out: &mut Vec<u8>) {
     }
     match c.fg {
         DEFAULT_FG => {}
-        Color::Pc(i) => p.push(format!("{}", 30 + vga_to_ansi(i & 7))),
+        Color::Pc(i) | Color::Ui(i) => p.push(format!("{}", 30 + vga_to_ansi(i & 7))),
         Color::Xterm(i) => p.push(format!("38;5;{i}")),
         Color::Rgb(rgb) => p.push(format!("38;2;{};{};{}", rgb >> 16 & 0xFF, rgb >> 8 & 0xFF, rgb & 0xFF)),
     }
     match c.bg {
         DEFAULT_BG => {}
-        Color::Pc(i) if i >= 8 => p.push(format!("{}", 100 + vga_to_ansi(i & 7))),
-        Color::Pc(i) => p.push(format!("{}", 40 + vga_to_ansi(i))),
+        Color::Pc(i) | Color::Ui(i) if i >= 8 => p.push(format!("{}", 100 + vga_to_ansi(i & 7))),
+        Color::Pc(i) | Color::Ui(i) => p.push(format!("{}", 40 + vga_to_ansi(i & 7))),
         Color::Xterm(i) => p.push(format!("48;5;{i}")),
         Color::Rgb(rgb) => p.push(format!("48;2;{};{};{}", rgb >> 16 & 0xFF, rgb >> 8 & 0xFF, rgb & 0xFF)),
     }
