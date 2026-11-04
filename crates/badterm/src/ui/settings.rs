@@ -30,7 +30,7 @@ pub enum Action {
     Export(String),
 }
 
-const ITEMS: [&str; 28] = [
+const ITEMS: [&str; 31] = [
     "Phosphor mode",
     "Scanlines",
     "Character cells",
@@ -59,6 +59,9 @@ const ITEMS: [&str; 28] = [
     "Init string",
     "Dial command",
     "Glow",
+    "Hotkeys...",
+    "New entries' font",
+    "New entries' screen",
 ];
 const I_CRT: usize = 0;
 const I_SCANLINES: usize = 1;
@@ -85,15 +88,18 @@ const I_FLOW: usize = 24;
 const I_INIT: usize = 25;
 const I_DIAL: usize = 26;
 const I_GLOW: usize = 27;
+const I_HOTKEYS: usize = 28;
+const I_ENTRY_FONT: usize = 29;
+const I_ENTRY_SCREEN: usize = 30;
 /// Items typed in, like the folders: Enter opens a prompt.
 const TEXT_ITEMS: [usize; 3] = [I_PORT, I_INIT, I_DIAL];
 /// Items that open something rather than having a value.
-const ACTIONS: [usize; 4] = [I_MACROS, I_COLORS, I_IMPORT, I_EXPORT];
+const ACTIONS: [usize; 5] = [I_MACROS, I_HOTKEYS, I_COLORS, I_IMPORT, I_EXPORT];
 
 /// The tabs, and the items on each.
 const TABS: [(&str, &[usize]); 5] = [
     ("Display", &[I_CRT, I_GLOW, I_SCANLINES, I_CURVATURE, I_NINE_DOT, I_ASPECT, I_SCALING, I_BEZEL]),
-    ("General", &[I_SPLASH, I_MUSIC, I_BELL, I_REDIAL, I_UPDATES, I_MACROS]),
+    ("General", &[I_SPLASH, I_MUSIC, I_BELL, I_REDIAL, I_UPDATES, I_ENTRY_FONT, I_ENTRY_SCREEN, I_MACROS, I_HOTKEYS]),
     ("Folders", &[I_FOLDER, I_FOLDER + 1, I_FOLDER + 2, I_FOLDER + 3, I_FOLDER + 4]),
     ("Colors", &[I_SCHEME, I_COLORS, I_IMPORT, I_EXPORT]),
     ("Modem", &[I_PORT, I_SPEED, I_FLOW, I_INIT, I_DIAL]),
@@ -121,6 +127,9 @@ enum Mode {
     Prompt(usize, TextField),
     /// Editing the keyboard macros: which one, and its text.
     Macros(usize, TextField),
+    /// Moving the hotkeys: which action, and whether the next key is its
+    /// new one.
+    Hotkeys(usize, bool),
     Message(String),
 }
 
@@ -197,6 +206,40 @@ impl SettingsUi {
                 };
                 settings.macros.resize(n, String::new());
                 self.mode = Mode::Macros(next, TextField::new(&settings.macros[next], 200));
+                Action::None
+            }
+            Mode::Hotkeys(sel, waiting) => {
+                let n = crate::hotkeys::ALL.len();
+                let half = n.div_ceil(2);
+                let usual = crate::hotkeys::ALL[*sel].0;
+                if *waiting {
+                    *waiting = false;
+                    let to = match key {
+                        Key::Enter => Some("Enter".to_string()),
+                        Key::Char(c) if c.is_ascii_alphabetic() => Some(c.to_ascii_uppercase().to_string()),
+                        _ => None,
+                    };
+                    if let Some(to) = to {
+                        crate::hotkeys::assign(&mut settings.hotkeys, usual, &to);
+                        return Action::Changed;
+                    }
+                    return Action::None;
+                }
+                match key {
+                    Key::Escape => self.mode = Mode::Menu,
+                    Key::Up => *sel = (*sel + n - 1) % n,
+                    Key::Down => *sel = (*sel + 1) % n,
+                    Key::Left | Key::Right => *sel = (*sel + half) % (half * 2),
+                    Key::Enter | Key::Char(' ') => *waiting = true,
+                    Key::Delete | Key::Backspace => {
+                        crate::hotkeys::assign(&mut settings.hotkeys, usual, usual);
+                        return Action::Changed;
+                    }
+                    _ => {}
+                }
+                if let Mode::Hotkeys(sel, _) = &mut self.mode {
+                    *sel = (*sel).min(n - 1);
+                }
                 Action::None
             }
             Mode::Prompt(item, field) => match key {
@@ -357,6 +400,7 @@ impl SettingsUi {
                 let first = settings.macros.first().cloned().unwrap_or_default();
                 self.mode = Mode::Macros(0, TextField::new(&first, 200));
             }
+            Key::Enter if self.item == I_HOTKEYS => self.mode = Mode::Hotkeys(0, false),
             Key::Enter if self.item == I_IMPORT => self.mode = Mode::Prompt(I_IMPORT, TextField::new("", 400)),
             Key::Enter if self.item == I_EXPORT => {
                 let name = self.scheme_name(&settings.colors).unwrap_or("My colors").to_string();
@@ -434,6 +478,16 @@ impl SettingsUi {
                 let i = all.iter().position(|&f| f == s.modem.flow).unwrap_or(0);
                 s.modem.flow = all[step(i, all.len())];
             }
+            I_ENTRY_FONT => {
+                let all = crate::ui::dialer::fonts();
+                let i = all.iter().position(|&f| f == s.entry_font).unwrap_or(0);
+                s.entry_font = all[step(i, all.len())];
+            }
+            I_ENTRY_SCREEN => {
+                let all = badterm_core::dialer::SCREEN_MODES;
+                let i = all.iter().position(|&m| m == s.entry_screen).unwrap_or(0);
+                s.entry_screen = all[step(i, all.len())];
+            }
             I_REDIAL => s.redial = !s.redial,
             I_SPLASH => s.splash = !s.splash,
             I_UPDATES => s.check_updates = !s.check_updates,
@@ -486,6 +540,7 @@ impl SettingsUi {
                 cursor = Some(field.draw(s, x + 2, y + 3, w - 4, false, t.input.fg(), t.input.bg()));
             }
             Mode::Macros(line, field) => cursor = Some(self.draw_macros(s, settings, *line, field)),
+            Mode::Hotkeys(sel, waiting) => self.draw_hotkeys(s, *sel, *waiting),
             Mode::Message(msg) => {
                 self.draw_menu(s, settings, own_crt, update);
                 let lines = wrap(msg, 60);
@@ -503,10 +558,37 @@ impl SettingsUi {
             Mode::Grid { .. } => "\u{2190}\u{2192} Foreground   \u{2191}\u{2193} Background   Enter Keep   Esc Undo",
             Mode::Prompt(..) => "Enter OK   Esc Cancel",
             Mode::Macros(..) => "\u{2191}\u{2193} Choose   Type to change (saved as you go)   Esc Done",
+            Mode::Hotkeys(_, true) => "Press a letter, or Enter, for it   Any other key keeps it",
+            Mode::Hotkeys(..) => {
+                "\u{2191}\u{2193}\u{2190}\u{2192} Choose   Enter Change   Del Its usual key   Esc Done"
+            }
             Mode::Message(_) => "Press any key",
         };
         text(s, 1, 24, COLS - 2, help, t.help.fg(), t.help.bg());
         cursor
+    }
+
+    fn draw_hotkeys(&self, s: &mut Screen, sel: usize, waiting: bool) {
+        let t = theme::current();
+        let (x, y, w) = (3, 2, COLS - 6);
+        frame(s, x, y, w, 19, "Hotkeys", t.window.fg(), t.window.bg());
+        let half = crate::hotkeys::ALL.len().div_ceil(2);
+        for (i, (usual, what)) in crate::hotkeys::ALL.iter().enumerate() {
+            let (cx, yy) = (x + 2 + (i / half) * 37, y + 2 + i % half);
+            let focused = i == sel;
+            let key = if focused && waiting { "?".to_string() } else { crate::hotkeys::label(usual) };
+            let a = if focused { t.input } else { t.keys };
+            text(s, cx, yy, 10, &format!(" {key:<9}"), a.fg(), a.bg());
+            label(s, cx + 11, yy, what, t.window_text.fg(), t.window_text.bg());
+        }
+        let moved = crate::hotkeys::ALL.iter().filter(|(k, _)| crate::hotkeys::key(k) != *k).count();
+        let note = match moved {
+            0 => "Each is where it usually is.".to_string(),
+            1 => "One is moved from its usual key; Del puts it back.".to_string(),
+            n => format!("{n} are moved from their usual keys; Del puts one back."),
+        };
+        label(s, x + 2, y + 3 + half, &note, t.note.fg(), t.window.bg());
+        label(s, x + 2, y + 4 + half, "Macros stay on 1 to 0.", t.note.fg(), t.window.bg());
     }
 
     fn draw_macros(&self, s: &mut Screen, settings: &Settings, line: usize, field: &TextField) -> (usize, usize) {
@@ -585,6 +667,8 @@ impl SettingsUi {
         let note = match (self.item, own_crt, update) {
             (I_UPDATES, _, Some(v)) => format!("BadTerm {v} is out: {}", badterm_core::update::DOWNLOAD_PAGE),
             (I_UPDATES, _, None) => "When on, asks git.badcluster.dev for the newest version".to_string(),
+            (I_ENTRY_FONT | I_ENTRY_SCREEN, ..) => "For entries added from now on; each can change its own".to_string(),
+            (I_HOTKEYS, ..) => format!("Which {HOTKEY} key does what"),
             (I_BELL, ..) => "Ctrl-G from the BBS; an entry in the directory can have its own".to_string(),
             (I_PORT, ..) => "Enter to type it; \u{2190}\u{2192} step through the ports found".to_string(),
             (I_SPEED, ..) => "Between the computer and the modem, not the call's speed".to_string(),
@@ -640,6 +724,8 @@ impl SettingsUi {
             I_SPLASH => if s.splash { "On, 2 seconds" } else { "Off" }.into(),
             I_UPDATES => if s.check_updates { "On, at each start" } else { "Off" }.into(),
             I_SCHEME => self.scheme_name(&s.colors).unwrap_or("Custom").into(),
+            I_ENTRY_FONT => crate::ui::dialer::font_name(s.entry_font).into(),
+            I_ENTRY_SCREEN => format!("{}x{}", s.entry_screen.0, s.entry_screen.1),
             _ => String::new(),
         }
     }

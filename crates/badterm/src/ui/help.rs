@@ -91,8 +91,17 @@ pub fn draw(s: &mut Screen) {
     column(s, 2, &LEFT);
     column(s, 41, &RIGHT);
 
-    let footer = format!("{HOTKEY}-O Settings and colors   Any other key returns");
+    let footer = format!("{} Settings and colors   Any other key returns", crate::hotkeys::label("O"));
     label(s, 1, 24, &footer, t.help_key.fg(), t.help_key.bg());
+}
+
+/// A key as it is now: `@-D` is the directory's hotkey, wherever it was
+/// moved to.
+fn key_label(key: &str) -> String {
+    match key.strip_prefix("@-") {
+        Some(k) if crate::hotkeys::ALL.iter().any(|(usual, _)| *usual == k) => crate::hotkeys::label(k),
+        _ => key.replace('@', HOTKEY),
+    }
 }
 
 /// Draw groups down from the top of the frame, a blank line between them.
@@ -103,7 +112,7 @@ fn column(s: &mut Screen, x: usize, groups: &[Group]) {
         label(s, x, y, g.heading, t.window_title.fg(), t.window_title.bg());
         y += 1;
         for (key, what) in g.keys {
-            label(s, x + 1, y, &key.replace('@', HOTKEY), t.keys.fg(), t.keys.bg());
+            label(s, x + 1, y, &key_label(key), t.keys.fg(), t.keys.bg());
             label(s, x + 1 + KEY_W, y, what, t.window.fg(), t.window.bg());
             y += 1;
         }

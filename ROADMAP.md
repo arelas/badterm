@@ -142,7 +142,7 @@ The next things to do, in order.
 - [x] More per-entry settings: hide the status line
 - [x] Groups in the directory (`G`)
 - [x] Import more formats: qodem
-- [ ] More in the settings screen: default font and screen mode, key bindings
+- [x] More in the settings screen: default font and screen mode, hotkeys
 - [ ] Multiple simultaneous sessions (tabs)
 - [ ] Scripting (e.g. Lua or Rhai); per-entry macros
 - [ ] More themes and bezels in `extras/`, from others

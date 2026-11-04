@@ -59,7 +59,12 @@ impl App {
 
     /// Dial from the directory: straight away, or after confirming that the
     /// live call should be hung up.
-    pub(super) fn dial(&mut self, entry: Entry, index: Option<usize>) {
+    pub(super) fn dial(&mut self, mut entry: Entry, index: Option<usize>) {
+        // An address not in the directory gets the settings' font and
+        // screen mode, as a new entry would.
+        if index.is_none() {
+            self.new_entry_defaults(&mut entry);
+        }
         match &self.session {
             Some(s) if s.state != State::Closed => {
                 self.dialer.confirm_hang_up(&s.entry.name, &entry.name);
@@ -326,7 +331,10 @@ impl App {
         let text = self.settings.macros.get(i).cloned().unwrap_or_default();
         if text.is_empty() {
             let key = crate::macros::key_name(i);
-            return self.notify(format!("{HOTKEY}-{key} has no macro yet: set one in Settings ({HOTKEY}-O)"));
+            return self.notify(format!(
+                "{HOTKEY}-{key} has no macro yet: set one in Settings ({})",
+                crate::hotkeys::label("O")
+            ));
         }
         let e = &session.entry;
         self.macro_steps = crate::macros::expand(&text, &e.username, &e.password).into();

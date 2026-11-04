@@ -27,6 +27,17 @@ impl App {
         if own.is_empty() { self.folder(i) } else { ui::expand_home(own) }
     }
 
+    /// The font and screen mode the settings give new entries, on an entry
+    /// that has the usual ones.
+    pub(super) fn new_entry_defaults(&self, e: &mut Entry) {
+        if e.font == 0 {
+            e.font = self.settings.entry_font;
+        }
+        if (e.cols, e.rows) == (80, 25) {
+            (e.cols, e.rows) = self.settings.entry_screen;
+        }
+    }
+
     /// A folder: the one chosen in the settings, or the default.
     pub(super) fn folder(&self, i: usize) -> PathBuf {
         self.settings.folders.get(i).cloned().unwrap_or_else(|| self.default_folder(i))
@@ -98,6 +109,7 @@ impl App {
         self.art_dir = PathBuf::new();
         self.check_for_updates();
         self.load_bezel();
+        crate::hotkeys::set(&self.settings.hotkeys);
         ui::theme::set_current(self.settings.colors);
         self.idle_screen = idle_screen(self.update.as_deref());
         if self.settings.music == Music::Off {

@@ -269,6 +269,7 @@ impl App {
             load_error = Some(format!("Could not save the dialing directory: {e:#}"));
         }
         let settings = Settings::load(&paths.settings);
+        crate::hotkeys::set(&settings.hotkeys);
         ui::theme::set_current(settings.colors);
         let secrets: Rc<dyn Store> = Rc::new(Keychain);
         let mut dialer = DialerUi::new(paths.files.clone(), secrets.clone());
@@ -715,7 +716,16 @@ pub(crate) fn idle_screen(update: Option<&str>) -> Screen {
         ("Free software under the GNU GPL, version 3 or later; no warranty.".to_string(), t.help),
         (badterm_core::update::DOWNLOAD_PAGE.to_string(), t.help),
         (String::new(), t.help),
-        (format!("{HOTKEY}-D Dialing directory   {HOTKEY}-O Settings   {HOTKEY}-Z Help   {HOTKEY}-X Exit"), t.help_key),
+        (
+            format!(
+                "{} Dialing directory   {} Settings   {} Help   {} Exit",
+                crate::hotkeys::label("D"),
+                crate::hotkeys::label("O"),
+                crate::hotkeys::label("Z"),
+                crate::hotkeys::label("X")
+            ),
+            t.help_key,
+        ),
     ];
     for (i, (text, a)) in lines.iter().enumerate() {
         ui::label(&mut s, 0, i, text, a.fg(), a.bg());

@@ -64,6 +64,9 @@ impl App {
     }
 
     pub(super) fn dialer_key(&mut self, key: Key, mods: Mods) {
+        let mut template = Entry::default();
+        self.new_entry_defaults(&mut template);
+        self.dialer.new_entry = template;
         match self.dialer.handle_key(key, mods, &mut self.directory) {
             Action::None => {}
             Action::Connect(i) => {
@@ -88,6 +91,9 @@ impl App {
 
     /// Client hotkeys (Alt, or Cmd on macOS). Returns true if handled.
     pub(super) fn hotkey(&mut self, event_loop: &ActiveEventLoop, code: KeyCode) -> bool {
+        // Keys the user moved act as the ones they usually are; a letter
+        // no action is on goes to the BBS.
+        let Some(code) = crate::hotkeys::translate(code) else { return false };
         // While "Exit BadTerm?" shows, only Alt-X (yes) does anything.
         if self.confirm_exit && code != KeyCode::KeyX {
             return true;
@@ -231,7 +237,10 @@ impl App {
                 match session.term.toggle_reveal() {
                     Some(true) => self.notify("Concealed text shown"),
                     Some(false) => self.notify("Concealed text hidden"),
-                    None => self.notify("Alt-K reveals concealed text on Viewdata and Mode 7 pages"),
+                    None => self.notify(format!(
+                        "{} reveals concealed text on Viewdata and Mode 7 pages",
+                        crate::hotkeys::label("K")
+                    )),
                 }
                 self.request_redraw();
             }

@@ -355,6 +355,12 @@ and QModem: `^M` is Enter, `^[` Esc and `^A` to `^Z` the other control
 keys, `~` waits half a second, and `{user}` and `{password}` are the
 directory entry's. `{user}^M~{password}^M`, for example, logs in.
 
+"Hotkeys" moves any of the `Alt` (`Cmd`) keys to another letter: choose
+one, press `Enter`, then the new letter. One that had that letter takes the
+old one, and `Del` puts a key back. The screens and help follow the change.
+"New entries' font" and "New entries' screen" are what an entry you add
+(or an address you call that isn't in the directory) starts with.
+
 Color themes can be shared. "Save as a theme" writes the current colors to
 a file in the `themes` folder (`badterm --paths` shows where), and "Import
 a theme" copies someone else's file there and switches to it. Every theme

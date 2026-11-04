@@ -1,6 +1,7 @@
 //! Display preferences kept between runs, in `settings.toml` next to the
 //! dialing directory.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 pub use badterm_core::dialer::BellMode;
@@ -214,6 +215,13 @@ pub struct Settings {
     pub check_updates: bool,
     /// The modem, for directory entries that dial out with one.
     pub modem: ModemConfig,
+    /// The font and screen mode (columns, rows) a new directory entry
+    /// starts with.
+    pub entry_font: u8,
+    pub entry_screen: (u16, u16),
+    /// Hotkeys moved from their usual keys (see [`crate::hotkeys`]).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub hotkeys: BTreeMap<String, String>,
     /// The window as it was last left, to open it the same way.
     pub window: WindowState,
 }
@@ -258,6 +266,9 @@ impl Default for Settings {
             splash: true,
             check_updates: false,
             modem: ModemConfig::default(),
+            entry_font: 0,
+            entry_screen: (80, 25),
+            hotkeys: BTreeMap::new(),
             window: WindowState::default(),
         }
     }
@@ -310,6 +321,9 @@ mod tests {
             splash: false,
             check_updates: true,
             modem: ModemConfig { device: "/dev/ttyUSB0".into(), init: "AT&F".into(), ..ModemConfig::default() },
+            entry_font: 36,
+            entry_screen: (80, 50),
+            hotkeys: [("D".to_string(), "Y".to_string())].into(),
             window: WindowState { width: Some(1280), height: Some(800), x: Some(-1900), y: Some(40), maximized: true },
         };
         let text = toml::to_string_pretty(&s).unwrap();

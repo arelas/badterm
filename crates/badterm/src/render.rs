@@ -655,6 +655,21 @@ mod tests {
             shot(&mut r, &s, cursor, &format!("{prefix}-settings.png"));
             crate::ui::splash::draw(&mut s);
             shot(&mut r, &s, None, &format!("{prefix}-splash.png"));
+            // The hotkeys, one of them moved.
+            settings.hotkeys = [("D".to_string(), "Y".to_string())].into();
+            crate::hotkeys::set(&settings.hotkeys);
+            for k in [crate::input::Key::Tab, crate::input::Key::End, crate::input::Key::Enter] {
+                sui.handle_key(k, crate::input::Mods::default(), &mut settings);
+            }
+            let cursor = sui.draw(&mut s, &settings, None, None);
+            shot(&mut r, &s, cursor, &format!("{prefix}-hotkeys.png"));
+            sui.handle_key(crate::input::Key::Escape, crate::input::Mods::default(), &mut settings);
+            for _ in 0..3 {
+                sui.handle_key(crate::input::Key::Up, crate::input::Mods::default(), &mut settings);
+            }
+            let cursor = sui.draw(&mut s, &settings, None, None);
+            shot(&mut r, &s, cursor, &format!("{prefix}-general.png"));
+            crate::hotkeys::set(&Default::default());
         }
         theme::set_current(theme::Theme::default());
     }

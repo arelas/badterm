@@ -271,6 +271,8 @@ pub struct DialerUi {
     finding: bool,
     /// Only this group's entries are listed.
     group: Option<String>,
+    /// What an added entry starts as.
+    pub new_entry: Entry,
     mode: Mode,
     /// Default directory offered for import/export paths.
     pub files_dir: PathBuf,
@@ -285,6 +287,7 @@ impl DialerUi {
             filter: TextField::new("", 60),
             finding: false,
             group: None,
+            new_entry: Entry::default(),
             mode: Mode::List,
             files_dir,
             secrets,
@@ -334,7 +337,7 @@ impl DialerUi {
                 Key::End => self.selected = n.saturating_sub(1),
                 Key::Enter if any => return Action::Connect(i),
                 Key::Insert | Key::Char('a') | Key::Char('A') => {
-                    let (form, _) = Form::new(None, Entry::default(), &*self.secrets);
+                    let (form, _) = Form::new(None, self.new_entry.clone(), &*self.secrets);
                     self.mode = Mode::Edit(Box::new(form));
                 }
                 Key::Char('e') | Key::Char('E') | Key::F(2) if any => {
@@ -445,10 +448,7 @@ impl DialerUi {
                     form.mode = all[next];
                 }
                 Key::Char(' ') | Key::Left | Key::Right if form.focus == F_FONT => {
-                    let all: Vec<u8> = std::iter::once(0)
-                        .chain(EXTRA_FONTS.iter().map(|&(id, _)| id))
-                        .chain(CODEPAGE_FONTS.iter().map(|&(id, ..)| id))
-                        .collect();
+                    let all = fonts();
                     let i = all.iter().position(|&f| f == form.font).unwrap_or(0);
                     let next = if key == Key::Left { (i + all.len() - 1) % all.len() } else { (i + 1) % all.len() };
                     form.font = all[next];
@@ -832,7 +832,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 text(s, fx, yy, fw, &format!("\u{25C4} {v} \u{25BA}"), fg, bg);
                 let hint = match form.protocol {
                     Protocol::Ssh | Protocol::Rlogin => "(the protocol logs in)".to_string(),
-                    _ => format!("(answers Login/Password; or {HOTKEY}-L)"),
+                    _ => format!("(answers Login/Password; or {})", crate::hotkeys::label("L")),
                 };
                 label(s, fx + 8, yy, &hint, t.note.fg(), bg);
             }
@@ -853,7 +853,14 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
             F_CAPTURE => {
                 let v = if form.capture { "On " } else { "Off" };
                 text(s, fx, yy, fw, &format!("\u{25C4} {v} \u{25BA}"), fg, bg);
-                label(s, fx + 8, yy, &format!("(records each call; or {HOTKEY}-C)"), t.note.fg(), bg);
+                label(
+                    s,
+                    fx + 8,
+                    yy,
+                    &format!("(records each call; or {})", crate::hotkeys::label("C")),
+                    t.note.fg(),
+                    bg,
+                );
             }
             F_PORT if form.protocol == Protocol::Modem => {
                 text(s, fx, yy, fw, "", fg, bg);
@@ -863,7 +870,7 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
                 let name = form.crt.map_or("Default", CrtMode::name);
                 text(s, fx, yy, fw, &format!("\u{25C4} {name:<12} \u{25BA}"), fg, bg);
                 if form.crt.is_none() {
-                    label(s, fx + 17, yy, &format!("({HOTKEY}-P)"), t.note.fg(), bg);
+                    label(s, fx + 17, yy, &format!("({})", crate::hotkeys::label("P")), t.note.fg(), bg);
                 }
             }
             _ => {
@@ -898,7 +905,15 @@ fn draw_form(s: &mut Screen, form: &Form) -> (usize, usize) {
     cursor
 }
 
-fn font_name(id: u8) -> &'static str {
+/// The fonts an entry can have, in the order the form steps through.
+pub fn fonts() -> Vec<u8> {
+    std::iter::once(0)
+        .chain(EXTRA_FONTS.iter().map(|&(id, _)| id))
+        .chain(CODEPAGE_FONTS.iter().map(|&(id, ..)| id))
+        .collect()
+}
+
+pub fn font_name(id: u8) -> &'static str {
     EXTRA_FONTS
         .iter()
         .find(|&&(f, _)| f == id)

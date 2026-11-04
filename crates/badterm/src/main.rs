@@ -14,6 +14,7 @@ mod app;
 mod bezel;
 mod console;
 mod crt;
+mod hotkeys;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos_urls;

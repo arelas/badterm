@@ -1,6 +1,7 @@
 //! Drawing: the status bar, and each frame from whatever is on screen.
 
 use super::*;
+use crate::hotkeys::{key, label as hk};
 
 impl App {
     /// The font for a screen this many rows high: 8x8 for 50 lines.
@@ -60,7 +61,7 @@ impl App {
         }
         let Some(session) = &self.session else {
             let help =
-                notice.unwrap_or_else(|| format!("{HOTKEY}-D Dialing directory  {HOTKEY}-Z Help  {HOTKEY}-X Exit"));
+                notice.unwrap_or_else(|| format!("{} Dialing directory  {} Help  {} Exit", hk("D"), hk("Z"), hk("X")));
             return ui::text(s, 0, 0, cols, &format!(" Not connected \u{2502} {help}"), fg, bg);
         };
         let screen = &session.term.screen;
@@ -86,20 +87,27 @@ impl App {
             let why = if session.error.is_some() { "No connection" } else { "Busy" };
             let secs = r.at.saturating_duration_since(Instant::now()).as_secs() + 1;
             let line = format!(
-                " {why} \u{2502} Calling again in {secs}s (redial {} of {MAX_REDIALS}) \u{2502} Esc cancel  {HOTKEY}-R now",
-                r.attempt
+                " {why} \u{2502} Calling again in {secs}s (redial {} of {MAX_REDIALS}) \u{2502} Esc cancel  {} now",
+                r.attempt,
+                hk("R")
             );
             return ui::text(s, 0, 0, cols, &line, fg, bg);
         }
         let line = match session.state {
             State::Connecting if self.redials > 0 => {
-                format!(" Redialing {} (redial {} of {MAX_REDIALS})...  {HOTKEY}-H cancel", e.address(), self.redials)
+                format!(" Redialing {} (redial {} of {MAX_REDIALS})...  {} cancel", e.address(), self.redials, hk("H"))
             }
-            State::Connecting => format!(" Connecting to {}...  {HOTKEY}-H cancel", e.address()),
+            State::Connecting => format!(" Connecting to {}...  {} cancel", e.address(), hk("H")),
             State::Closed => match &session.error {
-                Some(err) => format!(" Connection failed: {err} \u{2502} {HOTKEY}-R Call again"),
+                Some(err) => format!(" Connection failed: {err} \u{2502} {} Call again", hk("R")),
                 None => {
-                    format!(" Disconnected \u{2502} {HOTKEY}: R Call again  D Directory  H Clear  B Back")
+                    format!(
+                        " Disconnected \u{2502} {HOTKEY}: {} Call again  {} Directory  {} Clear  {} Back",
+                        key("R"),
+                        key("D"),
+                        key("H"),
+                        key("B")
+                    )
                 }
             },
             State::Connected => {
@@ -114,7 +122,16 @@ impl App {
                 if e.baud > 0 {
                     flags.push_str(&format!(" {}bps", e.baud));
                 }
-                let right = notice.unwrap_or_else(|| format!("{HOTKEY}: D Dir H Hangup U Upload Z Help X Exit"));
+                let right = notice.unwrap_or_else(|| {
+                    format!(
+                        "{HOTKEY}: {} Dir {} Hangup {} Upload {} Help {} Exit",
+                        key("D"),
+                        key("H"),
+                        key("U"),
+                        key("Z"),
+                        key("X")
+                    )
+                });
                 format!(
                     " {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
                     truncate(&e.name, 16),
