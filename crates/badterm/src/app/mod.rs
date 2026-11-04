@@ -382,6 +382,18 @@ impl App {
             }
             _ => attrs,
         };
+        // Where it was, if that's still on a screen (one may be unplugged).
+        let attrs = match (self.settings.window.x, self.settings.window.y) {
+            (Some(x), Some(y))
+                if event_loop.available_monitors().any(|m| {
+                    let (p, s) = (m.position(), m.size());
+                    x >= p.x && y >= p.y && x < p.x + s.width as i32 - 40 && y < p.y + s.height as i32 - 40
+                }) =>
+            {
+                attrs.with_position(winit::dpi::PhysicalPosition::new(x, y))
+            }
+            _ => attrs,
+        };
         let window = Rc::new(event_loop.create_window(attrs)?);
         self.shape.min = (nw, nh);
         let context = softbuffer::Context::new(window.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -442,6 +454,10 @@ impl App {
             let size = g.window.inner_size().to_logical::<f64>(g.window.scale_factor());
             if size.width >= 100.0 && size.height >= 100.0 {
                 (w.width, w.height) = (Some(size.width.round() as u32), Some(size.height.round() as u32));
+            }
+            // Wayland doesn't say where a window is.
+            if let Ok(p) = g.window.outer_position() {
+                (w.x, w.y) = (Some(p.x), Some(p.y));
             }
         }
     }
@@ -523,6 +539,7 @@ impl ApplicationHandler<UserEvent> for App {
                     event_loop.exit();
                 }
             }
+            WindowEvent::Moved(_) => self.note_window_size(),
             WindowEvent::Resized(size) => {
                 self.shape.resized(size);
                 self.note_window_size();

@@ -291,8 +291,9 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-X` | Exit (asks first; `Y` or `Alt-X` again to confirm) |
 
 `Alt-P`, `Alt-A`, `Alt-W` and `Alt-M` work anywhere, including in the dialing
-directory, and are remembered in `settings.toml`, as is the window's size
-(and whether it was maximized) for the next start. An entry's "Screen mode"
+directory, and are remembered in `settings.toml`, as are the window's size,
+place (not on Wayland, which places windows itself) and whether it was
+maximized, for the next start. An entry's "Screen mode"
 can be 80x25, 80x43, 80x50, 132x25, 132x37 or 132x52 (43 lines or more in
 the 8x8 font), and its "Phosphor mode" can override `Alt-P` for that
 BBS. While connected to a BBS with its own phosphor mode, `Alt-P` changes

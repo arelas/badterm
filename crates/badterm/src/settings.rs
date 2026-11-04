@@ -219,7 +219,9 @@ pub struct Settings {
 }
 
 /// The window's size (in logical pixels, so it's the same on a screen of
-/// another scale) and whether it was maximized.
+/// another scale), where it was (its top left, in the desktop's pixels;
+/// not on Wayland, which places windows itself) and whether it was
+/// maximized.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WindowState {
@@ -227,6 +229,10 @@ pub struct WindowState {
     pub width: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
     pub maximized: bool,
 }
 
@@ -304,7 +310,7 @@ mod tests {
             splash: false,
             check_updates: true,
             modem: ModemConfig { device: "/dev/ttyUSB0".into(), init: "AT&F".into(), ..ModemConfig::default() },
-            window: WindowState { width: Some(1280), height: Some(800), maximized: true },
+            window: WindowState { width: Some(1280), height: Some(800), x: Some(-1900), y: Some(40), maximized: true },
         };
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(toml::from_str::<Settings>(&text).unwrap(), s);
