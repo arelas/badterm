@@ -45,6 +45,10 @@ keyring = "4.2"
 jxl-oxide = { version = "0.12.6", default-features = false }
 data-encoding = "2.11"
 md5 = "0.8"
+# SyncTERM's audio: Ogg Opus music (pure Rust; matches the RFC 8251
+# reference decoder to 5e-5 in our tests, and is quick).
+ogg = "0.9.2"
+rusty-opus = "1.0.2"
 
 [profile.release]
 lto = "thin"

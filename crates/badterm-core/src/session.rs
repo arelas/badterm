@@ -57,7 +57,7 @@ pub struct SessionConfig {
 }
 
 /// Things the front end should react to.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum SessionEvent {
     /// The connection is up (for SSH, the login succeeded).
     Connected,
@@ -488,6 +488,13 @@ impl Session {
     /// Call periodically (a few times a second) to drive transfer timeouts.
     pub fn tick(&mut self) {
         self.pump();
+        // Sound reports, and reading again after waiting for a sound.
+        self.term.poll(Instant::now());
+        let replies = self.term.take_replies();
+        if !replies.is_empty() {
+            self.send(&replies);
+        }
+        self.events.extend(self.term.take_events().into_iter().map(SessionEvent::Term));
         if let Some(t) = &mut self.transfer {
             let mut out = Vec::new();
             t.tick(Instant::now(), &mut out);
@@ -495,6 +502,11 @@ impl Session {
             self.end_transfer(None);
         }
         self.check_login_prompt();
+    }
+
+    /// When [`Session::tick`] next has something to do for the terminal.
+    pub fn next_tick(&self) -> Option<Instant> {
+        self.term.next_poll()
     }
 
     /// Send application data (keystrokes, paste, transfer data) to the remote.

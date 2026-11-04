@@ -59,7 +59,7 @@ const RIGHT: [Group; 2] = [
             ("@-Enter", "Full screen"),
             ("@-I", "iCE colors or blinking"),
             ("@-E", "CP437 or UTF-8"),
-            ("@-M", "ANSI music"),
+            ("@-M", "Sound and music"),
         ],
     },
     Group {

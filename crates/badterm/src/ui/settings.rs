@@ -36,7 +36,7 @@ const ITEMS: [&str; 28] = [
     "Character cells",
     "Aspect ratio",
     "Monitor bezel",
-    "ANSI music",
+    "Sound and music",
     "Redial busy BBSes",
     "Check for updates",
     "Keyboard macros...",

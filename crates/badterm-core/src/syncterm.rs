@@ -43,6 +43,12 @@ pub struct SyncTerm {
     buffers: [Option<Image>; 2],
     /// The mask buffer (`MBUF`).
     mask: Option<Mask>,
+    /// Sound slots and what the channels are playing.
+    pub audio: crate::audio::Audio,
+    /// Sound for the front end to play.
+    pub audio_ops: Vec<crate::audio::AudioOp>,
+    /// `A;Wait`: read nothing more from the BBS until then.
+    pub hold: Option<std::time::Instant>,
 }
 
 /// An APC's fields, after `SyncTERM:X;`.
@@ -66,13 +72,13 @@ impl<'a> Args<'a> {
     }
 }
 
-fn decode_b64(data: &str) -> Option<Vec<u8>> {
+pub(crate) fn decode_b64(data: &str) -> Option<Vec<u8>> {
     let data: String = data.chars().filter(|c| !c.is_whitespace()).collect();
     BASE64.decode(data.as_bytes()).or_else(|_| BASE64_NOPAD.decode(data.trim_end_matches('=').as_bytes())).ok()
 }
 
 /// A cache file name the BBS gave: a plain name, no folders.
-fn safe_name(name: &str) -> Option<&str> {
+pub(crate) fn safe_name(name: &str) -> Option<&str> {
     let ok = !name.is_empty()
         && name.len() <= 255
         && !name.starts_with('.')
@@ -252,11 +258,21 @@ impl SyncTerm {
             }
             // JPEG XL is always there.
             ("Q", "JXL") => replies.extend_from_slice(b"\x1b[=1;1-n"),
-            // No sound files (yet).
-            ("Q", "libsndfile") => replies.extend_from_slice(b"\x1b[=7;100;0n"),
+            ("A", _) => {
+                let mut all = vec![verb];
+                all.extend(&fields);
+                if let Some(until) = self.audio.apc(&all, self.cache_dir.as_ref(), &mut self.audio_ops) {
+                    // At most a minute, in case of a sound that never ends.
+                    self.hold = Some(until.min(std::time::Instant::now() + std::time::Duration::from_secs(60)));
+                }
+            }
+            // Sound files: some formats (see audio::format_supported).
+            ("Q", "libsndfile") => replies.extend_from_slice(b"\x1b[=7;100;1n"),
             ("Q", "libsndfileFormat") => {
-                let (pm, ps) = (fields.first().copied().unwrap_or("0"), fields.get(1).copied().unwrap_or("0"));
-                replies.extend_from_slice(format!("\x1b[=7;101;{pm};{ps};0n").as_bytes());
+                let id = |i: usize| crate::audio::parse_id(fields.get(i).copied().unwrap_or("0"));
+                let (pm, ps) = (id(0), id(1));
+                let ok = crate::audio::format_supported(pm, ps) as u8;
+                replies.extend_from_slice(format!("\x1b[=7;101;{pm};{ps};{ok}n").as_bytes());
             }
             _ => log::debug!("unhandled SyncTERM APC {kind};{verb}"),
         }

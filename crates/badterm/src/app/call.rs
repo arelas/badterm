@@ -139,6 +139,12 @@ impl App {
                         self.player.play(tones);
                     }
                 }
+                // SyncTERM's audio; Alt-M's "off" silences it too.
+                SessionEvent::Term(TermEvent::Audio(op)) => {
+                    if self.settings.music != Music::Off {
+                        self.player.audio(op);
+                    }
+                }
                 SessionEvent::Notice(msg) => self.notify(msg),
                 SessionEvent::Connected => {
                     // Got through after redialing: worth a look.

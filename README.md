@@ -127,6 +127,11 @@ BadTerm starts.
   `ESC [ |` up to Ctrl-N) play as PC-speaker square waves. `Alt-M` turns
   it off, or also on for `ESC [ M`, which many doors use but which
   otherwise means "delete a line"
+- **SyncTERM's sound**, for Synchronet's doors: sound effects and music the
+  BBS sends (WAV, AIFF, VOC and Ogg Opus, from the cache or inline) or
+  has BadTerm synthesize, on 16 channels mixed together with fades, loops,
+  crossfades and volume, as CTerm documents them. `Alt-M`'s "off"
+  silences these too
 - **Phosphor mode** (`Alt-P`): the look of a CRT, with glowing text,
   scanlines and curved glass, in color or as a green or amber monochrome
   monitor, for every BBS or chosen per directory entry. How much the text
@@ -180,7 +185,7 @@ cargo build --release
 ```
 
 No extra system libraries are required on Linux: X11 and Wayland are both
-supported, and they and ALSA (for ANSI music) are loaded at run time.
+supported, and they and ALSA (for sound) are loaded at run time.
 
 ## Usage
 
@@ -256,7 +261,7 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-P` | Phosphor mode: off, color CRT, green screen, amber screen |
 | `Alt-A` | Aspect ratio: square pixels, 4:3 as on a CRT, 16:10, 16:9 |
 | `Alt-W` | 9-dot or 8-dot character cells |
-| `Alt-M` | ANSI music: on, on including `ESC [ M`, off |
+| `Alt-M` | Sound and music (ANSI music and SyncTERM's sound): on, on including `ESC [ M`, off |
 | `Alt-O` | Settings, and the interface colors |
 | `Alt-F` | View ANSI art: a file picker, then the art with its SAUCE details |
 | `Alt-Z` | Help: every key on one page |
@@ -281,7 +286,7 @@ the dark around it), its scanlines (off, light, medium or strong) and the
 curve of its glass (off for a flat screen, slight, medium or strong), the aspect ratio,
 scaling (fit keeping the shape; auto, which is whole numbers in a window
 and fit in full screen; always whole numbers; or stretch to fill),
-character cells, ANSI music, the bell (a beep, a flash of the screen, both
+character cells, sound and music, the bell (a beep, a flash of the screen, both
 or neither; an entry can have its own), redialing, the modem (see "Dialing
 with a modem" below), and the colors of BadTerm's own screens. Pick one of the color schemes (Midnight, the
 default; Classic blue, Gray windows, Green phosphor, Amber, Monochrome,

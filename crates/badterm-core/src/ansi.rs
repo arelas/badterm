@@ -109,12 +109,14 @@ enum State {
 }
 
 /// Things the front end may want to react to.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TermEvent {
     Bell,
     Title(String),
     /// ANSI music to play.
     Music(Vec<Tone>),
+    /// Sound from SyncTERM's audio commands.
+    Audio(crate::audio::AudioOp),
 }
 
 pub struct Terminal {
@@ -151,6 +153,9 @@ pub struct Terminal {
     /// Nothing has been printed on this line yet (where a RIP line can
     /// start).
     line_start: bool,
+    /// Bytes not read yet because the BBS asked to wait for a sound
+    /// (`A;Wait`), until then.
+    held: Vec<u8>,
 }
 
 impl Terminal {
@@ -179,6 +184,7 @@ impl Terminal {
             avatar: Default::default(),
             rip: None,
             line_start: true,
+            held: Vec::new(),
         }
     }
 
@@ -224,11 +230,35 @@ impl Terminal {
                 }
             }
             _ => {
-                for &b in data {
+                if self.syncterm.hold.is_some() {
+                    self.held.extend_from_slice(data);
+                    return;
+                }
+                for (i, &b) in data.iter().enumerate() {
                     self.byte(b);
+                    if self.syncterm.hold.is_some() {
+                        self.held.extend_from_slice(&data[i + 1..]);
+                        break;
+                    }
                 }
             }
         }
+    }
+
+    /// Time passing: sound reports the BBS asked for, and reading again
+    /// after a wait for a sound.
+    pub fn poll(&mut self, now: std::time::Instant) {
+        self.syncterm.audio.poll(now, &mut self.replies);
+        if self.syncterm.hold.is_some_and(|t| now >= t) {
+            self.syncterm.hold = None;
+            let held = std::mem::take(&mut self.held);
+            self.feed(&held);
+        }
+    }
+
+    /// When [`Terminal::poll`] has something to do.
+    pub fn next_poll(&self) -> Option<std::time::Instant> {
+        [self.syncterm.hold, self.syncterm.audio.next_due()].into_iter().flatten().min()
     }
 
     fn byte(&mut self, b: u8) {
@@ -268,6 +298,8 @@ impl Terminal {
                     self.state = State::Ground;
                     let tones = music::parse(&self.osc);
                     if !tones.is_empty() {
+                        let ms: u64 = tones.iter().map(|t| t.ms as u64).sum();
+                        self.syncterm.audio.music(std::time::Duration::from_millis(ms));
                         self.events.push(TermEvent::Music(tones));
                     }
                 }
@@ -432,6 +464,7 @@ impl Terminal {
                 if !self.syncterm.apc(&apc, &mut self.screen, &mut self.replies) {
                     log::debug!("unhandled APC {:?}", String::from_utf8_lossy(&apc[..apc.len().min(32)]));
                 }
+                self.events.extend(self.syncterm.audio_ops.drain(..).map(TermEvent::Audio));
                 if apc.capacity() <= 1 << 20 {
                     self.dcs = apc;
                     self.dcs.clear();
@@ -693,11 +726,8 @@ impl Terminal {
             4 => "\x1b[=4;0n".to_string(),
             5 => "\x1b[=5;0n".to_string(),
             6 => "\x1b[=6;0n".to_string(),
-            // Audio: no channel running.
-            7 => match self.params.get(1) {
-                Some(c) => format!("\x1b[=7;{c};0n"),
-                None => "\x1b[=7n".to_string(),
-            },
+            // Audio: the channels playing.
+            7 => self.syncterm.audio.report(self.params.get(1).map(|&c| c as usize)),
             _ => return,
         };
         self.replies.extend_from_slice(reply.as_bytes());
@@ -1003,6 +1033,27 @@ mod tests {
         t.feed(b"\x1b[?80h\x1b[10;10H\x1bPq\"1;1;8;16\x1b\\");
         assert!(t.screen.row(0)[0].tile != 0);
         assert_eq!(t.screen.cursor(), (9, 9));
+    }
+
+    #[test]
+    fn waiting_for_a_sound_holds_the_text() {
+        let mut t = term();
+        // A 100 ms tone, then wait for it before showing "after".
+        t.feed(b"\x1b_SyncTERM:A;Synth;S=1;W=SIN;F=440;T=100\x1b\\\x1b_SyncTERM:A;Queue;C=2;S=1\x1b\\");
+        assert!(matches!(t.take_events()[..], [TermEvent::Audio(crate::audio::AudioOp::Queue { channel: 2, .. })]));
+        t.feed(b"before\x1b_SyncTERM:A;Wait;C=2\x1b\\after");
+        t.feed(b" more");
+        assert_eq!(line(&t, 0), "before");
+        let at = t.next_poll().expect("a time to read again");
+        t.poll(at);
+        assert_eq!(line(&t, 0), "beforeafter more");
+        // Its state is asked for and reported when it ends.
+        t.feed(b"\x1b[=7;2n\x1b_SyncTERM:A;Update;C=2\x1b\\");
+        t.poll(at + std::time::Duration::from_secs(1));
+        let replies = String::from_utf8(t.take_replies()).unwrap();
+        assert!(replies.ends_with("\x1b[=7;2;0n"), "{replies:?}");
+        t.feed(b"\x1b_SyncTERM:Q;libsndfileFormat;0x20;100\x1b\\");
+        assert_eq!(t.take_replies(), b"\x1b[=7;101;32;100;1n");
     }
 
     #[test]

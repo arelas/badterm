@@ -30,6 +30,8 @@ serialport.workspace = true
 jxl-oxide.workspace = true
 data-encoding.workspace = true
 md5.workspace = true
+ogg.workspace = true
+rusty-opus.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "net"] }

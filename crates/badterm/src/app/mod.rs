@@ -577,6 +577,18 @@ impl ApplicationHandler<UserEvent> for App {
                 wake = wake.min(self.macro_at);
             }
         }
+        // Sound reports and waits for sounds (SyncTERM's audio).
+        if let Some(at) = self.session.as_ref().and_then(|s| s.next_tick()) {
+            if now >= at {
+                if let Some(s) = self.session.as_mut() {
+                    s.tick();
+                }
+                self.session_events();
+                self.request_redraw();
+            } else {
+                wake = wake.min(at);
+            }
+        }
         if let Some(s) = self.session.as_mut().filter(|s| s.pacing()) {
             s.pump();
             self.session_events();

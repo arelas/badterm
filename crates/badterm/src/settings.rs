@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::crt::{CrtMode, Curvature, Glow, Scanlines};
 use crate::ui::theme::Theme;
 
-/// Which ANSI music to play (Alt-M).
+/// Which sound to play (Alt-M): ANSI music, and SyncTERM's audio.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Music {
@@ -33,9 +33,9 @@ impl Music {
 
     pub fn name(self) -> &'static str {
         match self {
-            Music::Off => "ANSI music off",
-            Music::On => "ANSI music on",
-            Music::All => "ANSI music on, including ESC[M",
+            Music::Off => "BBS sound and music off",
+            Music::On => "BBS sound and music on",
+            Music::All => "BBS sound and music on, including ESC[M",
         }
     }
 }

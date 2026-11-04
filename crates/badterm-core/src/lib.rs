@@ -5,6 +5,7 @@
 
 pub mod ansi;
 pub mod atascii;
+pub mod audio;
 pub mod autologin;
 pub mod avatar;
 pub mod cp437;
