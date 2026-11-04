@@ -350,6 +350,14 @@ impl Terminal {
         }
     }
 
+    /// A key was pressed: an IGS pause or color cycle stops for it.
+    pub fn interrupt(&mut self) {
+        if let Some(igs) = self.igs.as_deref_mut() {
+            igs.interrupt();
+            self.igs_done();
+        }
+    }
+
     /// When [`Terminal::poll`] has something to do.
     pub fn next_poll(&self) -> Option<std::time::Instant> {
         let igs = self.igs.as_ref().and_then(|g| g.hold);

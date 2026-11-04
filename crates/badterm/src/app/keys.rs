@@ -327,6 +327,7 @@ impl App {
             _ => {
                 let bytes = input::encode(key, mods, session.term.encoding);
                 if !bytes.is_empty() {
+                    session.term.interrupt();
                     session.send(&bytes);
                 }
             }

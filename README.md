@@ -114,8 +114,9 @@ BadTerm starts.
   and ends, boxes, circles, ellipses, arcs and pie slices, polygons and
   flood fills in the VDI's fill patterns and hatches, text in its sizes
   and effects, markers, blits, palettes, loops and clickable mouse zones.
-  The ST's smallest text is in a 6x6 font of BadTerm's own. Not yet: the
-  sound chip's effects and music, MIDI, and color-cycling animation.
+  The ST's smallest text is in a 6x6 font of BadTerm's own. Color cycling
+  (`X 8`) animates as on the ST, and a key cuts it, or a pause, short.
+  Not yet: the sound chip's effects and music, and MIDI.
 - **SkyPix**, the graphics of Amiga BBSes (SkyLine's, then C-Net's): ANSI
   text in Topaz on the Amiga's 640x200 screen in 16 colors, with SkyPix's
   drawing commands: pixels, lines, filled rectangles, ellipses, flood fills,

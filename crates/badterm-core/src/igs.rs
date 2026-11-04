@@ -359,6 +359,15 @@ impl Default for Attrs {
     }
 }
 
+/// A running `X 8` color rotation.
+#[derive(Clone, Copy, Debug)]
+struct Cycle {
+    from: u8,
+    to: u8,
+    steps: u32,
+    step: Duration,
+}
+
 /// A mouse zone: its rectangle (x0, y0, x1, y1) and what it sends.
 type Zone = (i32, i32, i32, i32, Vec<u8>);
 
@@ -417,6 +426,10 @@ pub struct Igs {
     run_stored: Option<Vec<u8>>,
     /// `t` and `q`: read nothing more until then.
     pub hold: Option<Instant>,
+    /// `X 8`: pens' colors rotating, a step each hold.
+    cycle: Option<Cycle>,
+    /// The palette `X 8,1,1,1,1` keeps.
+    kept_palette: [StColor; 16],
     looping: Option<Loop>,
     last_text: Vec<u8>,
     // The mouse.
@@ -460,6 +473,8 @@ impl Default for Igs {
             stored: Vec::new(),
             run_stored: None,
             hold: None,
+            cycle: None,
+            kept_palette: DESKTOP,
             looping: None,
             last_text: Vec::new(),
             zones: vec![None; 48],
@@ -576,11 +591,50 @@ impl Igs {
         self.buf = buf;
     }
 
-    /// Carry on after a pause (`t`, `q`), once its time has come.
+    /// Carry on after a pause (`t`, `q`, a color cycle's step), once its
+    /// time has come.
     pub fn poll(&mut self, now: Instant) {
         if self.hold.is_some_and(|t| now >= t) {
             self.hold = None;
+            if self.cycle.is_some() {
+                self.cycle_step();
+                if self.hold.is_some() {
+                    return;
+                }
+            }
             self.feed(&[]);
+        }
+    }
+
+    /// A key was pressed: as on the ST, it cuts a pause or a color cycle
+    /// short.
+    pub fn interrupt(&mut self) {
+        if self.hold.take().is_some() {
+            self.cycle = None;
+            self.feed(&[]);
+        }
+    }
+
+    /// One step of a color cycle: each pen from `from` to `to` takes the
+    /// next one's color (the last the first's), and the BBS waits.
+    fn cycle_step(&mut self) {
+        let Some(c) = self.cycle.as_mut() else { return };
+        let (lo, hi) = (c.from.min(c.to), c.from.max(c.to));
+        let regs: Vec<usize> = (lo..=hi).map(|pen| self.res.register(pen) as usize).collect();
+        let mut colors: Vec<StColor> = regs.iter().map(|&r| self.regs[r]).collect();
+        if c.from < c.to {
+            colors.rotate_right(1);
+        } else {
+            colors.rotate_left(1);
+        }
+        for (&r, &col) in regs.iter().zip(&colors) {
+            self.regs[r] = col;
+        }
+        c.steps -= 1;
+        if c.steps == 0 {
+            self.cycle = None;
+        } else {
+            self.hold = Some(Instant::now() + c.step);
         }
     }
 
@@ -1773,17 +1827,23 @@ impl Igs {
                 }
                 self.user_patterns[slot] = rows;
             }
-            // Rotating color registers: done at once (no animation yet).
+            // Rotating the pens' colors, a step at a time (see `cycle`);
+            // 1,1,1,1 keeps the palette, and 0 times puts it back.
             8 => {
-                let (a, b, times, _delay) = (self.val(r, 0)?, self.val(r, 0)?, self.val(r, 0)?, self.val(r, 0)?);
-                let (lo, hi) = (a.min(b).clamp(0, 15) as usize, a.max(b).clamp(0, 15) as usize);
-                if times > 0 && lo < hi {
-                    let n = times as usize % (hi - lo + 1);
-                    if a < b {
-                        self.regs[lo..=hi].rotate_right(n);
-                    } else {
-                        self.regs[lo..=hi].rotate_left(n);
-                    }
+                let (a, b, times, delay) = (self.val(r, 0)?, self.val(r, 0)?, self.val(r, 0)?, self.val(r, 0)?);
+                if (a, b, times, delay) == (1, 1, 1, 1) {
+                    self.kept_palette = self.regs;
+                }
+                let clamp = |v: i32| if (0..=15).contains(&v) { v as u8 } else { 15 };
+                let (a, b) = (clamp(a), clamp(b));
+                if times == 0 {
+                    self.regs = self.kept_palette;
+                } else if a != b {
+                    // Each step waits a screen refresh a pen, then the delay
+                    // (200ths of a second), as IG does.
+                    let step = Duration::from_millis(((a.abs_diff(b) as u64 + 2) * 1000 / 60) + delay.max(0) as u64 * 5);
+                    self.cycle = Some(Cycle { from: a, to: b, steps: times as u32 + 1, step });
+                    self.cycle_step();
                 }
             }
             // Store IG commands to run later.
@@ -1924,6 +1984,23 @@ mod tests {
         assert_eq!(g.click(50, 50), None, "only while waiting");
         g.feed(b"G#< 0,2,1:");
         assert_eq!(g.click(300, 150), Some(b"Q".to_vec()));
+    }
+
+    #[test]
+    fn color_cycling_steps_over_time() {
+        // Low resolution; keep the palette, then rotate pens 1-3 twice.
+        let mut g = igs(b"G#R>0,0:X>8,1,1,1,1:X>8,1,3,1,0:C>2,1:Z>0,0,9,9:");
+        let pens = |g: &Igs| [1u8, 2, 3].map(|p| g.regs[g.res.register(p) as usize]);
+        let start = [DESKTOP[15], DESKTOP[1], DESKTOP[2]];
+        // One step taken at once: each pen has the one before's color.
+        assert_eq!(pens(&g), [start[2], start[0], start[1]]);
+        assert_eq!(at(&g, 5, 5), 0, "the rest waits for the cycle");
+        g.poll(Instant::now() + Duration::from_secs(1));
+        assert_eq!(pens(&g), [start[1], start[2], start[0]]);
+        assert_eq!(at(&g, 5, 5), 15, "then carries on");
+        // 0 times puts the kept palette back.
+        g.feed(b"G#X>8,1,3,0,0:");
+        assert_eq!(pens(&g), start);
     }
 
     #[test]
