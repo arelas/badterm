@@ -29,6 +29,8 @@ pub enum Encoding {
     Rip,
     /// Prestel viewdata (see [`crate::viewdata`]).
     Viewdata,
+    /// The BBC Micro's teletext screen, Mode 7 (see [`crate::viewdata`]).
+    Mode7,
     /// Atari ST: VT-52 with IGS graphics (see [`crate::igs`]).
     Igs,
     /// Amiga: ANSI with SkyPix graphics (see [`crate::skypix`]).
@@ -36,12 +38,13 @@ pub enum Encoding {
 }
 
 impl Encoding {
-    pub const ALL: [Encoding; 9] = [
+    pub const ALL: [Encoding; 10] = [
         Encoding::Cp437,
         Encoding::Utf8,
         Encoding::Petscii,
         Encoding::Atascii,
         Encoding::Viewdata,
+        Encoding::Mode7,
         Encoding::Igs,
         Encoding::Skypix,
         Encoding::Avatar,
@@ -57,6 +60,7 @@ impl Encoding {
             Encoding::Avatar => "Avatar",
             Encoding::Rip => "RIPscrip",
             Encoding::Viewdata => "Viewdata",
+            Encoding::Mode7 => "Mode 7",
             Encoding::Igs => "IGS",
             Encoding::Skypix => "SkyPix",
         }
@@ -74,6 +78,7 @@ impl Encoding {
             Encoding::Atascii => Some((crate::atascii::COLS, crate::atascii::ROWS)),
             Encoding::Rip => Some((crate::rip::COLS, crate::rip::ROWS)),
             Encoding::Viewdata => Some((crate::viewdata::COLS, crate::viewdata::ROWS)),
+            Encoding::Mode7 => Some((crate::viewdata::COLS, crate::viewdata::BEEB_ROWS)),
             Encoding::Igs => Some((crate::igs::COLS, crate::igs::ROWS)),
             Encoding::Skypix => Some((crate::skypix::COLS, crate::skypix::ROWS)),
             _ => None,
@@ -97,6 +102,7 @@ impl Encoding {
                 .filter_map(|c| if c == '\r' { Some(0x9B) } else { crate::atascii::encode_char(c) })
                 .collect(),
             Encoding::Viewdata => text.chars().filter_map(crate::viewdata::encode_char).collect(),
+            Encoding::Mode7 => text.chars().filter_map(crate::viewdata::beeb_encode_char).collect(),
         }
     }
 }
@@ -151,6 +157,13 @@ pub struct Terminal {
     /// many BBS doors expect, instead of "delete one line". `ESC [ N` and
     /// `ESC [ |` always start music.
     pub music_on_csi_m: bool,
+    /// Whether music is played at all (it isn't waited for if not).
+    pub music_enabled: bool,
+    /// `MF` (the default, as in BASIC and CTerm): the BBS's text waits
+    /// while a tune plays; `MB`: it plays behind. Kept from tune to tune.
+    music_fore: bool,
+    /// The tune began with `CSI M`, whose `M` may be the start of `MF`.
+    music_via_m: bool,
     /// `CSI ? 80 h` (DECSDM): sixel pictures go at the top left of the
     /// screen and don't scroll it.
     pub sixel_display_mode: bool,
@@ -199,6 +212,9 @@ impl Terminal {
             screen: Screen::new(cols, rows, scrollback),
             encoding: Encoding::Cp437,
             music_on_csi_m: false,
+            music_enabled: true,
+            music_fore: true,
+            music_via_m: false,
             sixel_display_mode: false,
             state: State::Ground,
             string_kind: State::IgnoreString,
@@ -236,6 +252,10 @@ impl Terminal {
             Encoding::Atascii => self.atascii.start(&mut self.screen),
             Encoding::Rip => self.rip = Some(Box::default()),
             Encoding::Viewdata => self.viewdata.start(&mut self.screen),
+            Encoding::Mode7 => {
+                self.viewdata = crate::viewdata::Viewdata::new(crate::viewdata::Kind::Beeb);
+                self.viewdata.start(&mut self.screen);
+            }
             Encoding::Igs => self.igs = Some(Box::default()),
             Encoding::Skypix => self.skypix = Some(Box::default()),
             _ => {}
@@ -249,6 +269,13 @@ impl Terminal {
 
     pub fn rip_mut(&mut self) -> Option<&mut crate::rip::Rip> {
         self.rip.as_deref_mut()
+    }
+
+    /// Show a teletext page's concealed text, or hide it again (Viewdata
+    /// and Mode 7); the new state, or None for other systems.
+    pub fn toggle_reveal(&mut self) -> Option<bool> {
+        matches!(self.encoding, Encoding::Viewdata | Encoding::Mode7)
+            .then(|| self.viewdata.toggle_reveal(&mut self.screen))
     }
 
     /// The Atari ST screen, for an IGS system.
@@ -323,7 +350,7 @@ impl Terminal {
                     self.atascii.byte(&mut self.screen, b, &mut self.events);
                 }
             }
-            Encoding::Viewdata => self.viewdata.feed(&mut self.screen, data, &mut self.events),
+            Encoding::Viewdata | Encoding::Mode7 => self.viewdata.feed(&mut self.screen, data, &mut self.events),
             Encoding::Igs => {
                 if let Some(igs) = self.igs.as_deref_mut() {
                     igs.feed(data);
@@ -429,11 +456,39 @@ impl Terminal {
             State::Music => match b {
                 0x0E => {
                     self.state = State::Ground;
-                    let tones = music::parse(&self.osc);
+                    // After CSI M, a tune starting B, F, L, S (or N without
+                    // a number) means M and that: CSI MF is MF, not F.
+                    let mut tune = std::mem::take(&mut self.osc);
+                    if self.music_via_m {
+                        let first = tune.first().map(|b| b.to_ascii_uppercase());
+                        let digit_next = tune.get(1).is_some_and(u8::is_ascii_digit);
+                        if matches!(first, Some(b'B' | b'F' | b'L' | b'S')) || first == Some(b'N') && !digit_next {
+                            tune.insert(0, b'M');
+                        }
+                    }
+                    // The last MF or MB says how this and later tunes play.
+                    for w in tune.windows(2) {
+                        if w[0].eq_ignore_ascii_case(&b'M') {
+                            match w[1].to_ascii_uppercase() {
+                                b'F' => self.music_fore = true,
+                                b'B' => self.music_fore = false,
+                                _ => {}
+                            }
+                        }
+                    }
+                    let tones = music::parse(&tune);
+                    self.osc = tune;
                     if !tones.is_empty() {
                         let ms: u64 = tones.iter().map(|t| t.ms as u64).sum();
-                        self.syncterm.audio.music(std::time::Duration::from_millis(ms));
+                        let length = std::time::Duration::from_millis(ms);
+                        self.syncterm.audio.music(length);
                         self.events.push(TermEvent::Music(tones));
+                        // In the foreground, nothing more shows until it ends
+                        // (a minute at most).
+                        if self.music_fore && self.music_enabled {
+                            let wait = length.min(std::time::Duration::from_secs(60));
+                            self.syncterm.hold = Some(std::time::Instant::now() + wait);
+                        }
                     }
                 }
                 _ if self.osc.len() < MAX_STRING => self.osc.push(b),
@@ -524,6 +579,7 @@ impl Terminal {
                 | Encoding::Avatar
                 | Encoding::Rip
                 | Encoding::Viewdata
+                | Encoding::Mode7
                 | Encoding::Igs
                 | Encoding::Skypix => {
                     if self.avatar.insert {
@@ -784,6 +840,7 @@ impl Terminal {
         let no_params = self.params.is_empty();
         if b == b'|' || no_params && (b == b'N' || b == b'M' && self.music_on_csi_m) {
             self.state = State::Music;
+            self.music_via_m = b == b'M';
             self.osc.clear();
             return;
         }
@@ -1116,6 +1173,8 @@ mod tests {
     #[test]
     fn ansi_music() {
         let mut t = term();
+        // Muted, so the text doesn't wait for the tunes (see below).
+        t.music_enabled = false;
         t.feed(b"Hi\x1b[NMLO3A\x0e there\x1b[|MLO3A8\x0e");
         assert_eq!(line(&t, 0), "Hi there");
         let a = Tone { hz: 440, ms: 500 };
@@ -1128,6 +1187,25 @@ mod tests {
         t.feed(b"\x1b[MMLO3A\x0e\x1b[1M");
         assert_eq!(t.take_events(), [TermEvent::Music(vec![a])]);
         assert_eq!(line(&t, 0), "");
+    }
+
+    #[test]
+    fn music_in_the_foreground_holds_the_text() {
+        let mut t = term();
+        // By default a tune plays in the foreground: the text after waits.
+        t.feed(b"\x1b[NT120L4C\x0eafter");
+        assert_eq!(line(&t, 0), "");
+        let at = t.next_poll().expect("held");
+        t.poll(at);
+        assert_eq!(line(&t, 0), "after");
+        // MB plays it behind, and that stays for the next tune.
+        t.feed(b"\x1b[NMBC\x0e!\x1b[NC\x0e?");
+        assert_eq!(line(&t, 0), "after!?");
+        // After CSI M, "F..." is MF: here, back to the foreground.
+        t.music_on_csi_m = true;
+        t.feed(b"\x1b[MFC\x0e#");
+        assert_eq!(line(&t, 0), "after!?");
+        assert!(matches!(t.take_events().last(), Some(TermEvent::Music(tones)) if tones.len() == 2));
     }
 
     #[test]

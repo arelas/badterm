@@ -34,6 +34,7 @@ ogg.workspace = true
 rusty-opus.workspace = true
 claxon.workspace = true
 lewton.workspace = true
+nanomp3.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "net"] }

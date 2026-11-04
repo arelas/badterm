@@ -100,6 +100,7 @@
             <dt><kbd>Alt-Enter</kbd></dt><dd>Full screen</dd>
             <dt><kbd>Alt-I</kbd></dt><dd>iCE colors or blinking</dd>
             <dt><kbd>Alt-E</kbd></dt><dd>CP437 or UTF-8</dd>
+            <dt><kbd>Alt-K</kbd></dt><dd>Reveal concealed text (Viewdata)</dd>
             <dt><kbd>Alt-M</kbd></dt><dd>Sound and music: on, on including <code>ESC [ M</code>, off</dd>
             <dt><kbd>Alt-Z</kbd></dt><dd>Help</dd>
           </dl>
@@ -124,7 +125,7 @@
       <p>Each entry keeps how to reach a BBS and how to show it. In the entry form, <kbd>Tab</kbd> and the arrow keys move between fields, and <kbd>Space</kbd> or <kbd>←</kbd> <kbd>→</kbd> change the ones with choices:</p>
       <dl class="fields">
         <dt>Address, Port, Protocol</dt><dd>Telnet, Telnet over TLS ("TelnetS", port 992), SSH, RLogin, raw TCP, or Modem, where the address is a phone number (see <a href="#modem">modems</a>). The address may carry the port: <code>host:2323</code>.</dd>
-        <dt>Emulation</dt><dd>CP437 (ANSI-BBS, the usual), UTF-8, Avatar, RIPscrip, PETSCII (Commodore 64), ATASCII (Atari), Viewdata (Prestel), IGS (Atari ST) or SkyPix (Amiga). See <a href="#systems">emulations</a>.</dd>
+        <dt>Emulation</dt><dd>CP437 (ANSI-BBS, the usual), UTF-8, Avatar, RIPscrip, PETSCII (Commodore 64), ATASCII (Atari), Viewdata (Prestel), Mode 7 (BBC Micro), IGS (Atari ST) or SkyPix (Amiga). See <a href="#systems">emulations</a>.</dd>
         <dt>Screen mode, Font</dt><dd>80x25 to 132x52; the Amiga fonts for Amiga boards; and code pages (CP866, KOI8-R, CP1251, Greek, Hebrew, Turkish, Baltic, Central and West European, ...) for boards in other languages. A BBS can also choose them itself.</dd>
         <dt>iCE colors</dt><dd>Auto leaves it to the BBS; On shows bright backgrounds; Off blinks.</dd>
         <dt>Phosphor mode, Bell</dt><dd>This BBS's own CRT look and bell, or the defaults from Settings.</dd>
@@ -158,10 +159,11 @@
         <dt>SyncTERM pictures</dt><dd>Synchronet's graphical doors (SyncDoom and the like) draw PPM and JPEG XL pictures with SyncTERM's commands, and BadTerm draws them too. A BBS can keep files for them in a cache on your computer: a folder per BBS in BadTerm's cache folder, at most 256 MB each, which you can delete at any time.</dd>
         <dt>The mouse</dt><dd>A BBS or door that asks for the mouse (Synchronet's games do) gets your clicks, drags and wheel. Hold <kbd>Shift</kbd> to select and copy text instead.</dd>
         <dt>Fonts from the BBS</dt><dd>Fonts a BBS sends (CTerm's loadable fonts) are used where it asks for them.</dd>
-        <dt>SyncTERM sound</dt><dd>Those doors' sound effects and music: WAV, AIFF, VOC, FLAC, Ogg Opus and Vorbis sounds and synthesized tones, on 16 channels mixed together. <kbd>Alt-M</kbd> turns sound off.</dd>
+        <dt>SyncTERM sound</dt><dd>Those doors' sound effects and music: WAV, AIFF, VOC, FLAC, MP3, Ogg Opus and Vorbis sounds and synthesized tones, on 16 channels mixed together. <kbd>Alt-M</kbd> turns sound off.</dd>
         <dt>PETSCII</dt><dd>Commodore 64 BBSes, on a 40x25 screen in the C64's colors and character sets. The C64's F1 to F8 are on your F1 to F8, and RUN/STOP is <kbd>Esc</kbd>.</dd>
         <dt>ATASCII</dt><dd>Atari 8-bit BBSes, on a 40x24 screen in light blue on blue.</dd>
-        <dt>Viewdata</dt><dd>Prestel-style viewdata services such as Telstar: the 40x24 teletext page with its block graphics, double height and eight colors. <kbd>Enter</kbd> is the <kbd>#</kbd> key that ends what you type; <kbd>*</kbd> is <kbd>*</kbd>.</dd>
+        <dt>Viewdata</dt><dd>Prestel-style viewdata services such as Telstar: the 40x24 teletext page with its block graphics, double height and eight colors. <kbd>Enter</kbd> is the <kbd>#</kbd> key that ends what you type; <kbd>*</kbd> is <kbd>*</kbd>. <kbd>Alt-K</kbd> reveals concealed text, such as a quiz's answers.</dd>
+        <dt>Mode 7</dt><dd>BBC Micro BBSes, on the BBC's teletext screen: 40x25, scrolling, with the BBC's own characters and keys (<kbd>Delete</kbd> is DEL).</dd>
         <dt>IGS</dt><dd>Atari ST BBSes with Instant Graphics and Sound: their VT-52 text and drawings (lines, shapes, fill patterns, text in many sizes) on the ST's screen, and menus you click. The sound isn't played yet.</dd>
         <dt>SkyPix</dt><dd>Amiga BBSes (C-Net and SkyLine) with SkyPix: ANSI text in the Amiga's Topaz font with drawings over it, in the Amiga's 16 colors. A click is sent to the BBS, as SkyPix menus expect.</dd>
       </dl>
@@ -222,7 +224,7 @@ badterm --render art.ans out.png draw ANSI art to an image
 
       <h2 id="problems">When something's wrong</h2>
       <dl class="fields">
-        <dt>The BBS looks garbled</dt><dd>It may speak another emulation: try UTF-8 (<kbd>Alt-E</kbd>), or set the entry's emulation to the one the BBS's listing gives: Avatar, RIPscrip, PETSCII, ATASCII, Viewdata, IGS or SkyPix.</dd>
+        <dt>The BBS looks garbled</dt><dd>It may speak another emulation: try UTF-8 (<kbd>Alt-E</kbd>), or set the entry's emulation to the one the BBS's listing gives: Avatar, RIPscrip, PETSCII, ATASCII, Viewdata, Mode 7, IGS or SkyPix.</dd>
         <dt>Blinking text where colors should be</dt><dd>Press <kbd>Alt-I</kbd> for iCE colors, or set iCE colors to On in the entry.</dd>
         <dt>Passwords aren't remembered on Linux</dt><dd>BadTerm uses the Secret Service (GNOME Keyring or KWallet). Without one, passwords stay in <code>dialer.toml</code>.</dd>
         <dt>The modem doesn't answer</dt><dd>Check the serial port and speed in Settings, Modem; try flow control "none" for a cable without RTS/CTS; and make sure nothing else has the port open.</dd>

@@ -94,6 +94,7 @@ impl App {
         }
         if let Some(s) = self.session.as_mut() {
             s.term.music_on_csi_m = self.settings.music == Music::All;
+            s.term.music_enabled = self.settings.music != Music::Off;
         }
         if let Err(e) = self.settings.save(&self.paths.settings) {
             log::warn!("saving settings: {e:#}");

@@ -14,8 +14,8 @@ fonts and colors of a host terminal.
 > **Status:** 0.3, in daily use. Telnet, telnet over TLS, SSH, RLogin, raw
 > TCP and modem connections; ZMODEM, YMODEM, XMODEM and Kermit transfers;
 > ANSI-BBS (as SyncTERM's CTerm, with its fonts, sixel, pictures, sound and
-> the mouse), Avatar, RIPscrip, PETSCII, ATASCII, Viewdata, IGS (Atari ST)
-> and SkyPix (Amiga); and the dialing directory with import and export all
+> the mouse), Avatar, RIPscrip, PETSCII, ATASCII, Viewdata, BBC Mode 7, IGS
+> (Atari ST) and SkyPix (Amiga); and the dialing directory with import and export all
 > work. See [ROADMAP.md](ROADMAP.md) for what's planned.
 
 ## Features
@@ -106,7 +106,10 @@ fonts and colors of a host terminal.
   double height, flashing and concealed text, and the UK character set.
   Attributes are worked out from the page as a real decoder does, so a
   BBS that rewrites part of a row gets the colors right. Enter sends the
-  `#` key.
+  `#` key, and `Alt-K` reveals concealed text (answers to quizzes, say).
+  **BBC Micro Mode 7**, the BBC's teletext screen, is an emulation of its
+  own: 40x25, attributes as bytes, a scrolling screen, the BBC's own
+  characters and keys.
 - **IGS**, the graphics of Atari ST BBSes (Instant Graphics and Sound,
   version 2.19): VT-52 text and GEM drawing on the ST's screen (medium
   resolution, or low with sixteen colors): lines in their styles, widths
@@ -154,12 +157,14 @@ fonts and colors of a host terminal.
   import from NetRunner, EtherTerm, MagiTerm and Qodem (`fonebook.txt`).
   Use the dialer, the command line, or drag a file onto the window.
 - **ANSI music**: BBS tunes in the BASIC `PLAY` language (`ESC [ N` or
-  `ESC [ |` up to Ctrl-N) play as PC-speaker square waves. `Alt-M` turns
-  it off, or also on for `ESC [ M`, which many doors use but which
-  otherwise means "delete a line"
+  `ESC [ |` up to Ctrl-N) play as PC-speaker square waves. As in BASIC and
+  SyncTERM, a tune plays in the foreground (`MF`) unless the BBS says `MB`:
+  what the BBS sends after it waits until it ends. `Alt-M` turns it off,
+  or also on for `ESC [ M`, which many doors use but which otherwise means
+  "delete a line"
 - **SyncTERM's sound**, for Synchronet's doors: sound effects and music the
-  BBS sends (WAV, AIFF, VOC, FLAC, and Ogg Opus or Vorbis, from the cache
-  or inline) or has BadTerm synthesize, on 16 channels mixed together with
+  BBS sends (WAV, AIFF, VOC, FLAC, MP3, and Ogg Opus or Vorbis, from the
+  cache or inline) or has BadTerm synthesize, on 16 channels mixed together with
   fades, loops, crossfades and volume, as CTerm documents them. Long music
   is decoded in the background, so the screen doesn't wait for it.
   `Alt-M`'s "off" silences these too
@@ -287,6 +292,7 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | `Alt-B`, `Shift-PgUp`, mouse wheel | Scrollback (arrows, `PgUp`/`PgDn`, `Home`; any other key returns) |
 | `Alt-I` | Toggle iCE colors / blinking |
 | `Alt-E` | Toggle CP437 / UTF-8 |
+| `Alt-K` | Reveal concealed text (Viewdata and Mode 7) |
 | `Alt-C` | Start/stop capturing to a file |
 | `Alt-S` | Save the scrollback (`.ans`, `.txt`) or the screen (`.png`) |
 | drag with the mouse | Copy the selected text (`Shift` on release: as ANSI) |
@@ -451,7 +457,8 @@ An entry's "Emulation" sets how what the BBS sends is shown: CP437
 RIPscrip (graphics: click a button or mouse area to send its command; the
 text screen is 80x43 over the 640x350 graphics), PETSCII (Commodore 64:
 F1 to F8 are the C64's, `Esc` is RUN/STOP), ATASCII (Atari 8-bit),
-Viewdata (Prestel: Enter is the `#` key), IGS (Atari ST) or SkyPix (Amiga).
+Viewdata (Prestel: Enter is the `#` key), Mode 7 (BBC Micro), IGS (Atari
+ST) or SkyPix (Amiga).
 
 Passwords you enter in the directory, remember from the login dialog, or
 import with a SyncTERM list are moved into the OS keychain when the
@@ -461,7 +468,8 @@ Keys are sent the way ANSI-BBS software expects: arrows as `ESC [ A..D`,
 `Home`/`End` as `ESC [ H` / `ESC [ K`, `PgUp`/`PgDn` as `ESC [ V` / `ESC [ U`,
 `Ins` as `ESC [ @` and `Del` as DEL. The other emulations send their own
 machine's keys: the C64's and Atari's codes, a Prestel keyboard's (`Enter`
-is `#`), and the Atari ST's VT-52 arrows (`ESC A..D`).
+is `#`), the BBC Micro's (`Delete` is DEL, the arrows 0x88 to 0x8B), and
+the Atari ST's VT-52 arrows (`ESC A..D`).
 
 ## Website
 

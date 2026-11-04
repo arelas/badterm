@@ -156,6 +156,7 @@ impl App {
                 }
                 if let Some(s) = self.session.as_mut() {
                     s.term.music_on_csi_m = self.settings.music == Music::All;
+                    s.term.music_enabled = self.settings.music != Music::Off;
                 }
                 let msg = self.settings.music.name();
                 self.settings_changed(msg);
@@ -224,6 +225,15 @@ impl App {
             KeyCode::KeyB => {
                 let page = session.term.screen.rows();
                 self.scroll = self.scroll.max(1).max(page.min(session.term.screen.scrollback_len()));
+            }
+            // A teletext page's concealed text (Viewdata, Mode 7).
+            KeyCode::KeyK => {
+                match session.term.toggle_reveal() {
+                    Some(true) => self.notify("Concealed text shown"),
+                    Some(false) => self.notify("Concealed text hidden"),
+                    None => self.notify("Alt-K reveals concealed text on Viewdata and Mode 7 pages"),
+                }
+                self.request_redraw();
             }
             KeyCode::KeyI => {
                 let s = &mut session.term.screen;

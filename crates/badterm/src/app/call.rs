@@ -26,6 +26,7 @@ impl App {
         };
         let mut session = Session::new(entry, cols as usize, rows as usize, config);
         session.term.music_on_csi_m = self.settings.music == Music::All;
+        session.term.music_enabled = self.settings.music != Music::Off;
         session.term.syncterm.cache_dir = Some(self.paths.bbs_cache.join(cache_folder(&session.entry)));
         self.dialer_open = false;
         self.session_id += 1;

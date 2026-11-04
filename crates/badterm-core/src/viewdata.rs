@@ -65,26 +65,65 @@ fn is_code(b: u8) -> bool {
     b < 0x20
 }
 
+/// Which teletext terminal: a Prestel one, or a BBC Micro in Mode 7.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Kind {
+    #[default]
+    Prestel,
+    /// The BBC Micro's Mode 7 (CTerm's "BEEB"): 40x25; attributes only as
+    /// bytes 0x80-0x9F (ESC starts the BBC's own VDU codes); the screen
+    /// scrolls rather than wrapping at its top and bottom; `#`, `_` and
+    /// `` ` `` are swapped as the BBC's character set has them; and a
+    /// double-height row's lower half is the row below's own text.
+    Beeb,
+}
+
+/// BBC Mode 7 has a 25th row.
+pub const BEEB_ROWS: usize = 25;
+
 #[derive(Debug)]
 pub struct Viewdata {
+    pub kind: Kind,
     /// What was received, by position: printable bytes, or attribute
     /// codes (0x00-0x1F).
-    page: [[u8; COLS]; ROWS],
+    page: Vec<[u8; COLS]>,
     x: usize,
     y: usize,
-    /// ESC was the last byte: the next is an attribute.
+    /// ESC was the last byte: the next is an attribute (Prestel).
     escape: bool,
+    /// Concealed text shown (Reveal).
+    pub reveal: bool,
+    /// The BBC's multi-byte codes: what's still to come (VDU 23 takes 9
+    /// bytes, VDU 31, cursor position, 2), and what's come.
+    vdu: (u8, usize, Vec<u8>),
 }
 
 impl Default for Viewdata {
     fn default() -> Viewdata {
-        Viewdata { page: [[b' '; COLS]; ROWS], x: 0, y: 0, escape: false }
+        Viewdata::new(Kind::Prestel)
     }
 }
 
 impl Viewdata {
+    pub fn new(kind: Kind) -> Viewdata {
+        let rows = if kind == Kind::Beeb { BEEB_ROWS } else { ROWS };
+        Viewdata {
+            kind,
+            page: vec![[b' '; COLS]; rows],
+            x: 0,
+            y: 0,
+            escape: false,
+            reveal: false,
+            vdu: (0, 0, Vec::new()),
+        }
+    }
+
+    fn rows(&self) -> usize {
+        self.page.len()
+    }
+
     pub fn start(&mut self, s: &mut Screen) {
-        *self = Viewdata::default();
+        *self = Viewdata::new(self.kind);
         s.look.fonts[0] = FONT;
         s.base_font = FONT;
         s.autowrap = false;
@@ -92,10 +131,20 @@ impl Viewdata {
         self.draw(s);
     }
 
+    /// Show concealed text, or hide it again.
+    pub fn toggle_reveal(&mut self, s: &mut Screen) -> bool {
+        self.reveal = !self.reveal;
+        self.draw(s);
+        self.reveal
+    }
+
     /// Bytes from the BBS: the page changes, then the screen is drawn from it.
     pub fn feed(&mut self, s: &mut Screen, data: &[u8], events: &mut Vec<TermEvent>) {
         for &b in data {
-            self.byte(s, b, events);
+            match self.kind {
+                Kind::Prestel => self.byte(s, b, events),
+                Kind::Beeb => self.beeb_byte(s, b, events),
+            }
         }
         self.draw(s);
     }
@@ -111,16 +160,14 @@ impl Viewdata {
             }
             return;
         }
+        let rows = self.rows();
         match b {
             0x07 => events.push(TermEvent::Bell),
             0x08 => self.back(),
             0x09 => self.forward(),
-            0x0A => self.y = (self.y + 1) % ROWS,
-            0x0B => self.y = (self.y + ROWS - 1) % ROWS,
-            0x0C => {
-                self.page = [[b' '; COLS]; ROWS];
-                (self.x, self.y) = (0, 0);
-            }
+            0x0A => self.y = (self.y + 1) % rows,
+            0x0B => self.y = (self.y + rows - 1) % rows,
+            0x0C => self.clear(),
             0x0D => self.x = 0,
             0x11 => s.cursor_visible = true,
             0x14 => s.cursor_visible = false,
@@ -133,6 +180,106 @@ impl Viewdata {
         }
     }
 
+    /// A byte to a BBC Micro in Mode 7.
+    fn beeb_byte(&mut self, s: &mut Screen, b: u8, events: &mut Vec<TermEvent>) {
+        // The rest of a VDU 23 (cursor on or off) or VDU 31 (position).
+        if self.vdu.1 > 0 {
+            self.vdu.2.push(b);
+            self.vdu.1 -= 1;
+            if self.vdu.1 == 0 {
+                let args = std::mem::take(&mut self.vdu.2);
+                match self.vdu.0 {
+                    23 if args.first() == Some(&1) => s.cursor_visible = args.get(1).copied().unwrap_or(1) != 0,
+                    28 => {
+                        let (x, y) = (args[0].saturating_sub(0x20) as usize, args[1].saturating_sub(0x20) as usize);
+                        if x < COLS && y < self.rows() {
+                            (self.x, self.y) = (x, y);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+        let b = if b >= 0xA0 { b & 0x7F } else { b };
+        match b {
+            0x07 => events.push(TermEvent::Bell),
+            0x08 => self.beeb_back(),
+            0x09 => self.beeb_forward(),
+            0x0A => self.beeb_down(),
+            0x0B => {
+                if self.y == 0 {
+                    self.page.rotate_right(1);
+                    self.page[0] = [b' '; COLS];
+                } else {
+                    self.y -= 1;
+                }
+            }
+            0x0C => self.clear(),
+            0x0D => self.x = 0,
+            0x17 => self.vdu = (23, 9, Vec::new()),
+            0x1C => self.vdu = (28, 2, Vec::new()),
+            0x1E => (self.x, self.y) = (0, 0),
+            // A destructive backspace.
+            0x7F => {
+                self.beeb_back();
+                self.page[self.y][self.x] = b' ';
+            }
+            // The BBC's #, _ and ` are where the teletext chip has #, the
+            // long dash and £.
+            0x23 => self.beeb_put(0x5F),
+            0x5F => self.beeb_put(0x60),
+            0x60 => self.beeb_put(0x23),
+            0x20..=0x7E => self.beeb_put(b),
+            0x80..=0x9F => self.beeb_put(b - 0x80),
+            _ => {}
+        }
+    }
+
+    fn beeb_put(&mut self, b: u8) {
+        self.page[self.y][self.x] = b;
+        self.beeb_forward();
+    }
+
+    /// Down a row, scrolling the page up at the bottom.
+    fn beeb_down(&mut self) {
+        if self.y + 1 == self.rows() {
+            self.page.rotate_left(1);
+            let last = self.rows() - 1;
+            self.page[last] = [b' '; COLS];
+        } else {
+            self.y += 1;
+        }
+    }
+
+    fn beeb_forward(&mut self) {
+        self.x += 1;
+        if self.x == COLS {
+            self.x = 0;
+            self.beeb_down();
+        }
+    }
+
+    fn beeb_back(&mut self) {
+        if self.x > 0 {
+            self.x -= 1;
+            return;
+        }
+        self.x = COLS - 1;
+        if self.y == 0 {
+            self.page.rotate_right(1);
+            self.page[0] = [b' '; COLS];
+        } else {
+            self.y -= 1;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.page.fill([b' '; COLS]);
+        (self.x, self.y) = (0, 0);
+        self.reveal = false;
+    }
+
     fn put(&mut self, b: u8) {
         self.page[self.y][self.x] = b;
         self.forward();
@@ -143,14 +290,14 @@ impl Viewdata {
         self.x += 1;
         if self.x == COLS {
             self.x = 0;
-            self.y = (self.y + 1) % ROWS;
+            self.y = (self.y + 1) % self.rows();
         }
     }
 
     fn back(&mut self) {
         if self.x == 0 {
             self.x = COLS - 1;
-            self.y = (self.y + ROWS - 1) % ROWS;
+            self.y = (self.y + self.rows() - 1) % self.rows();
         } else {
             self.x -= 1;
         }
@@ -158,23 +305,32 @@ impl Viewdata {
 
     /// Draw the page on the screen, row by row.
     pub fn draw(&self, s: &mut Screen) {
+        let rows = self.rows();
         let mut above: Option<[Cell; COLS]> = None;
-        for y in 0..ROWS.min(s.rows()) {
-            let (row, top) = draw_row(&self.page[y]);
+        for y in 0..rows.min(s.rows()) {
+            let (row, top) = draw_row(&self.page[y], self.reveal);
             let cells = match above.take() {
-                // The row under a double-height row shows its bottom half.
-                Some(top_cells) => top_cells.map(|c| {
+                // The row under a double-height row shows bottom halves:
+                // of the row above's cells on Prestel, of its own on a BBC.
+                Some(top_cells) if self.kind == Kind::Prestel => top_cells.map(|c| {
                     if c.flags & flags::DOUBLE_TOP != 0 {
                         Cell { flags: (c.flags & !flags::DOUBLE_TOP) | flags::DOUBLE_BOTTOM, ..c }
                     } else {
                         Cell { ch: b' ', flags: c.flags & !flags::BLINK, ..c }
                     }
                 }),
+                Some(_) => row.map(|c| {
+                    if c.flags & flags::DOUBLE_TOP != 0 {
+                        Cell { flags: (c.flags & !flags::DOUBLE_TOP) | flags::DOUBLE_BOTTOM, ..c }
+                    } else {
+                        c
+                    }
+                }),
                 None => {
-                    if top && y + 1 < ROWS {
+                    if top && y + 1 < rows {
                         above = Some(row);
                     }
-                    if top && y + 1 == ROWS {
+                    if top && y + 1 == rows {
                         row.map(|c| Cell { flags: c.flags & !flags::DOUBLE_TOP, ..c })
                     } else {
                         row
@@ -193,7 +349,7 @@ impl Viewdata {
 
 /// One row of the page as cells, applying its serial attributes from the
 /// left; and whether it has double height in it.
-fn draw_row(page: &[u8; COLS]) -> ([Cell; COLS], bool) {
+fn draw_row(page: &[u8; COLS], reveal: bool) -> ([Cell; COLS], bool) {
     let (mut fg, mut bg) = (7u8, 0u8);
     let (mut mosaic, mut separated, mut hold, mut flash, mut conceal, mut double) =
         (false, false, false, false, false, false);
@@ -232,7 +388,7 @@ fn draw_row(page: &[u8; COLS]) -> ([Cell; COLS], bool) {
         if flash {
             f |= flags::BLINK;
         }
-        if conceal {
+        if conceal && !reveal {
             f |= flags::CONCEAL;
         }
         if double {
@@ -270,6 +426,16 @@ fn draw_row(page: &[u8; COLS]) -> ([Cell; COLS], bool) {
         }
     }
     (cells, any_double)
+}
+
+/// A typed character as a BBC Micro sends it: its `£` is 0x60.
+pub fn beeb_encode_char(c: char) -> Option<u8> {
+    match c {
+        '£' => Some(0x60),
+        '\r' => Some(0x0D),
+        c if c.is_ascii() && !c.is_ascii_control() => Some(c as u8),
+        _ => None,
+    }
 }
 
 /// A typed character as a Prestel keyboard sends it: its `#` key is
@@ -336,6 +502,43 @@ mod tests {
         // Back to the start of the row, and make that code green.
         v.feed(&mut s, b"\r\x1bB", &mut Vec::new());
         assert_eq!(s.row(0)[5].fg, color(2));
+    }
+
+    #[test]
+    fn reveal_shows_concealed_text() {
+        let mut s = Screen::new(COLS, ROWS, 0);
+        let mut v = Viewdata::default();
+        v.start(&mut s);
+        v.feed(&mut s, b"\x1bXsecret", &mut Vec::new());
+        assert!(s.row(0)[1].flags & flags::CONCEAL != 0);
+        assert!(v.toggle_reveal(&mut s));
+        assert!(s.row(0)[1].flags & flags::CONCEAL == 0);
+        // A new page hides it again.
+        v.feed(&mut s, b"\x0c\x1bXagain", &mut Vec::new());
+        assert!(s.row(0)[1].flags & flags::CONCEAL != 0);
+    }
+
+    #[test]
+    fn bbc_mode_7() {
+        let mut s = Screen::new(COLS, BEEB_ROWS, 0);
+        let mut v = Viewdata::new(Kind::Beeb);
+        v.start(&mut s);
+        // Attributes as C1 bytes (red text); ESC isn't one; # is #.
+        v.feed(&mut s, b"\x81Hi #", &mut Vec::new());
+        assert_eq!((s.row(0)[1].ch, s.row(0)[1].fg), (b'H', color(1)));
+        assert_eq!(s.row(0)[4].ch, b'#');
+        // VDU 31 (here 28, with 0x20 added) moves; the bottom row scrolls.
+        v.feed(&mut s, b"\x1c\x20\x38last\n", &mut Vec::new());
+        assert_eq!(Screen::row_text(s.row(23)), "last");
+        assert_eq!(Screen::row_text(s.row(24)), "");
+        assert_eq!(s.cursor(), (4, 24));
+        // Double height: the row below shows the lower halves of its own text.
+        v.feed(&mut s, b"\x0c\x8dBIG\r\n\x8dBIG", &mut Vec::new());
+        assert!(s.row(1)[1].flags & flags::DOUBLE_BOTTOM != 0);
+        assert_eq!(s.row(1)[1].ch, b'B');
+        // VDU 23,1,0;0;0;0; hides the cursor.
+        v.feed(&mut s, &[23, 1, 0, 0, 0, 0, 0, 0, 0, 0], &mut Vec::new());
+        assert!(!s.cursor_visible);
     }
 
     #[test]

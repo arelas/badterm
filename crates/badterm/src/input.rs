@@ -100,6 +100,7 @@ pub fn encode(key: Key, mods: Mods, encoding: Encoding) -> Vec<u8> {
         Encoding::Petscii => return encode_petscii(key, mods),
         Encoding::Atascii => return encode_atascii(key, mods),
         Encoding::Viewdata => return encode_viewdata(key),
+        Encoding::Mode7 => return encode_beeb(key),
         Encoding::Igs => return encode_vt52(key, mods),
         _ => {}
     }
@@ -195,6 +196,24 @@ fn encode_vt52(key: Key, mods: Mods) -> Vec<u8> {
         _ => return Vec::new(),
     };
     seq.to_vec()
+}
+
+/// A BBC Micro's keys: Delete is DEL, and the cursor keys send 0x88 to
+/// 0x8B (as with *FX4,1, which BBC terminal programs set).
+fn encode_beeb(key: Key) -> Vec<u8> {
+    let b = match key {
+        Key::Char(c) => return badterm_core::viewdata::beeb_encode_char(c).map(|b| vec![b]).unwrap_or_default(),
+        Key::Enter => 0x0D,
+        Key::Backspace | Key::Delete => 0x7F,
+        Key::Escape => 0x1B,
+        Key::Tab => 0x09,
+        Key::Left => 0x88,
+        Key::Right => 0x89,
+        Key::Down => 0x8A,
+        Key::Up => 0x8B,
+        _ => return Vec::new(),
+    };
+    vec![b]
 }
 
 /// A Prestel keyboard: Enter is its `#` key, which ends what you type;

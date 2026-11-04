@@ -326,12 +326,15 @@ pub fn format_supported(pm: u32, ps: u32) -> bool {
     const OGG: u32 = 32;
     const VORBIS: u32 = 96;
     const OPUS: u32 = 100;
+    const MPEG: u32 = 35;
     match pm {
         WAV | WAVEX => matches!(ps, 2..=7),
         AIFF => matches!(ps, 1..=4 | 6),
         VOC => matches!(ps, 2 | 5),
         FLAC => matches!(ps, 1..=3),
         OGG => matches!(ps, VORBIS | OPUS),
+        // Layers I, II and III.
+        MPEG => matches!(ps, 128..=130),
         _ => false,
     }
 }
@@ -466,7 +469,7 @@ fn soften(mono: &mut [i16], hz: f64) {
 }
 
 /// A sound file, as stereo frames at [`RATE`]: WAV, AIFF and VOC at once,
-/// Ogg (Opus or Vorbis) and FLAC on a thread (their length read first).
+/// Ogg (Opus or Vorbis), FLAC and MP3 on a thread (their length read first).
 pub fn decode(data: &[u8]) -> Option<Sound> {
     let (rate, channels, samples) = if data.starts_with(b"RIFF") && data.get(8..12) == Some(b"WAVE") {
         decode_wav(data)?
@@ -474,7 +477,7 @@ pub fn decode(data: &[u8]) -> Option<Sound> {
         decode_aiff(data)?
     } else if data.starts_with(b"Creative Voice File\x1a") {
         decode_voc(data)?
-    } else if data.starts_with(b"OggS") || data.starts_with(b"fLaC") {
+    } else if data.starts_with(b"OggS") || data.starts_with(b"fLaC") || nanomp3::detect(data) {
         let (frames, decode) = later(data)?;
         let frames = frames.min(MAX_FRAMES);
         return Some(Sound::decoded_later(frames, move || {
@@ -501,6 +504,17 @@ fn later(data: &[u8]) -> Option<(usize, Box<dyn FnOnce() -> Option<Decoded> + Se
         let frames = at_rate(info.samples.unwrap_or(0), info.sample_rate);
         return Some((frames, Box::new(move || decode_flac(reader))));
     }
+    if !data.starts_with(b"OggS") {
+        // MP3 (or MP1, MP2): its length from a scan of its frames.
+        let reader = nanomp3::SliceReader::<f32>::new(data);
+        let rate = reader.sample_rate();
+        let frames = at_rate(reader.total_samples().unwrap_or(0), rate);
+        if rate == 0 || frames == 0 {
+            return None;
+        }
+        let owned = data.to_vec();
+        return Some((frames, Box::new(move || decode_mp3(&owned))));
+    }
     // Ogg: the stream's codec from its first packet, its length from the
     // last page's granule position.
     let mut reader = ogg::PacketReader::new(std::io::Cursor::new(data));
@@ -519,6 +533,21 @@ fn later(data: &[u8]) -> Option<(usize, Box<dyn FnOnce() -> Option<Decoded> + Se
     } else {
         None
     }
+}
+
+fn decode_mp3(data: &[u8]) -> Option<Decoded> {
+    let mut reader = nanomp3::SliceReader::<f32>::new(data);
+    let channels = reader.channels().map_or(2, |c| c as usize);
+    let rate = reader.sample_rate();
+    let mut samples = Vec::new();
+    let mut buf = vec![0f32; 4608];
+    while let Ok(n @ 1..) = reader.read(&mut buf) {
+        samples.extend_from_slice(&buf[..n]);
+        if samples.len() > MAX_FRAMES * channels {
+            break;
+        }
+    }
+    Some((rate, channels, samples))
 }
 
 fn decode_flac(mut reader: claxon::FlacReader<std::io::Cursor<Vec<u8>>>) -> Option<Decoded> {
@@ -885,7 +914,8 @@ mod tests {
                 && format_supported(1, 2)
                 && format_supported(23, 2)
                 && format_supported(32, 96)
-                && !format_supported(35, 130)
+                && format_supported(35, 130)
+                && !format_supported(23, 96)
         );
         assert_eq!(parse_id("0x20"), 32);
     }

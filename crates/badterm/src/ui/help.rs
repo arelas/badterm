@@ -59,6 +59,7 @@ const RIGHT: [Group; 2] = [
             ("@-Enter", "Full screen"),
             ("@-I", "iCE colors or blinking"),
             ("@-E", "CP437 or UTF-8"),
+            ("@-K", "Reveal (Viewdata)"),
             ("@-M", "Sound and music"),
         ],
     },
@@ -66,8 +67,7 @@ const RIGHT: [Group; 2] = [
         heading: "In the dialing directory",
         keys: &[
             ("Enter", "Call"),
-            ("Ins / E", "Add / edit"),
-            ("Del", "Remove"),
+            ("Ins/E/Del", "Add / edit / remove"),
             ("P", "Pin to the top"),
             ("/ or F3", "Find"),
             ("S", "Sort"),

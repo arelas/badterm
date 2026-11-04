@@ -120,14 +120,14 @@ The next things to do, in order.
 - [ ] More screen modes: 40-column, resizable
 - [x] Avatar/0+ emulation
 - [ ] More retro systems: C128 80-column mode, PETSCII autologin and copy as text
-- [x] Viewdata (Prestel) (not yet: BBC Micro Mode 7, revealing concealed text)
+- [x] Viewdata (Prestel) and BBC Micro Mode 7, with Reveal (`Alt-K`)
 - [x] Atari ST IGS graphics (not yet: its sound, MIDI)
 - [x] Amiga SkyPix graphics (not yet: samples, brushes sent by XMODEM, Amiga disk fonts)
 - [x] Sixel graphics
 - [x] SyncTERM's pictures: the file cache, PPM and JPEG XL drawing, pixel
       copy and paste, fonts from the cache (`SetFont`)
-- [x] SyncTERM's audio APCs (WAV, AIFF, VOC, FLAC, Ogg Opus and Vorbis;
-      not yet: MP3, or music played in the foreground, `MF`)
+- [x] SyncTERM's audio APCs (WAV, AIFF, VOC, FLAC, MP3, Ogg Opus and
+      Vorbis), and ANSI music in the foreground (`MF`, the default)
 - [x] RIPscrip graphics (not yet: icon and scene files, RIP file transfers)
 - [x] Visual and audible bell options
 
