@@ -15,8 +15,16 @@
 //! scaled up for larger sizes; BGI's vector fonts (Borland's own files) are
 //! drawn in it too.
 //!
-//! Left out: icon files (`1I`, `1W`), scene files and file queries (`1R`,
-//! `1F`), variables (`1D`) and RIP's block-mode file transfers.
+//! Icons (`1I`, `1W`), scenes (`1R`) and file queries (`1F`) use the
+//! BBS's own folder, `RIP` in its file cache, as SyncTERM does; icons and
+//! scenes are also looked for in the downloads folder, where a ZMODEM
+//! download puts them. An icon is a BGI `getimage` image: its width and
+//! height less one (16-bit, little-endian), then each row as four bit
+//! planes, the intensity plane first.
+//!
+//! Left out: variables (`1D`) and RIP's block-mode file transfers.
+
+use std::path::{Path, PathBuf};
 
 use crate::palette::Rgb;
 use crate::screen::{Cell, Screen};
@@ -29,6 +37,101 @@ pub const ROWS: usize = 43;
 
 /// What a RIP terminal answers to `ESC [ !`: RIPscrip, version 1.54.
 pub const VERSION_REPLY: &[u8] = b"RIPSCRIP015400";
+
+/// How deep scenes may play other scenes.
+const MAX_SCENE_DEPTH: usize = 4;
+
+/// The largest icon file read, or scene played.
+const MAX_FILE: u64 = 4 << 20;
+
+/// What RIP needs from outside: where its files are, and a way to answer.
+pub struct Io<'a> {
+    /// The BBS's file cache; RIP's own files are in `RIP` in it.
+    pub cache: Option<&'a Path>,
+    /// Where downloads go, also searched for icons and scenes.
+    pub downloads: Option<&'a Path>,
+    pub replies: &'a mut Vec<u8>,
+}
+
+impl Io<'_> {
+    fn rip_dir(&self) -> Option<PathBuf> {
+        Some(self.cache?.join("RIP"))
+    }
+
+    /// An existing file, by name in any case, in the RIP folder or the
+    /// downloads.
+    fn find(&self, name: &str) -> Option<PathBuf> {
+        let dirs = [self.rip_dir(), self.downloads.map(Path::to_path_buf)];
+        dirs.into_iter().flatten().find_map(|dir| {
+            let exact = dir.join(name);
+            if exact.is_file() {
+                return Some(exact);
+            }
+            std::fs::read_dir(&dir).ok()?.flatten().map(|e| e.path()).find(|p| {
+                p.is_file() && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.eq_ignore_ascii_case(name))
+            })
+        })
+    }
+}
+
+/// A file name the BBS gave, if it is only a name: no folders, no `..`.
+fn file_name(text: &[u8]) -> Option<String> {
+    let name = std::str::from_utf8(text).ok()?.trim();
+    let bad = |c: char| matches!(c, '/' | '\\' | ':' | '\0') || c.is_control();
+    (!name.is_empty() && !name.contains("..") && !name.chars().any(bad)).then(|| name.to_string())
+}
+
+/// An icon file: BGI's `getimage` layout, 16 colors in four planes.
+fn decode_icon(data: &[u8]) -> Option<(usize, usize, Vec<u8>)> {
+    let w = u16::from_le_bytes([*data.first()?, *data.get(1)?]) as usize + 1;
+    let h = u16::from_le_bytes([*data.get(2)?, *data.get(3)?]) as usize + 1;
+    let row = w.div_ceil(8);
+    let body = data.get(4..4 + row * 4 * h)?;
+    let mut px = Vec::with_capacity(w * h);
+    for planes in body.chunks_exact(row * 4) {
+        for x in 0..w {
+            let bit = |p: usize| (planes[p * row + x / 8] >> (7 - (x & 7))) & 1;
+            px.push(bit(0) << 3 | bit(1) << 2 | bit(2) << 1 | bit(3));
+        }
+    }
+    Some((w, h, px))
+}
+
+fn encode_icon(w: usize, h: usize, px: &[u8]) -> Vec<u8> {
+    let row = w.div_ceil(8);
+    let mut out = Vec::with_capacity(4 + row * 4 * h);
+    out.extend_from_slice(&(w.saturating_sub(1) as u16).to_le_bytes());
+    out.extend_from_slice(&(h.saturating_sub(1) as u16).to_le_bytes());
+    for line in px.chunks_exact(w.max(1)).take(h) {
+        let mut planes = vec![0u8; row * 4];
+        for (x, &c) in line.iter().enumerate() {
+            for p in 0..4 {
+                if c >> (3 - p) & 1 != 0 {
+                    planes[p * row + x / 8] |= 0x80 >> (x & 7);
+                }
+            }
+        }
+        out.extend_from_slice(&planes);
+    }
+    out
+}
+
+/// A file's time as RIP gives it, `mm/dd/yy.hh:mm:ss` (UTC).
+fn rip_time(t: std::time::SystemTime) -> String {
+    let secs = t.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let (days, rem) = ((secs / 86400) as i64, secs % 86400);
+    // Howard Hinnant's days-to-civil.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{month:02}/{day:02}/{:02}.{:02}:{:02}:{:02}", year % 100, rem / 3600, rem / 60 % 60, rem % 60)
+}
 
 /// The longest RIP line kept, continuations included.
 const MAX_LINE: usize = 64 * 1024;
@@ -132,7 +235,11 @@ pub struct Rip {
     /// The RIP line being read, from its `!`.
     line: Option<Vec<u8>>,
     /// A RIP line just ended with CR: its LF goes too.
-    eat_lf: bool,
+    pub(crate) eat_lf: bool,
+    /// A scene file (`1R`) to play before what follows.
+    scene: Option<Vec<u8>>,
+    /// How many scenes are playing inside each other.
+    pub scene_depth: usize,
     /// Changed since the front end last looked.
     pub dirty: bool,
 }
@@ -169,6 +276,8 @@ impl Default for Rip {
             text_window: (0, 0, COLS - 1, ROWS - 1),
             line: None,
             eat_lf: false,
+            scene: None,
+            scene_depth: 0,
             dirty: true,
         }
     }
@@ -201,7 +310,7 @@ impl Rip {
 
     /// Take a byte at the text level: `at_line_start` says whether it
     /// begins a line, where a RIP line may start.
-    pub fn byte(&mut self, s: &mut Screen, b: u8, at_line_start: bool) -> Feed {
+    pub fn byte(&mut self, s: &mut Screen, b: u8, at_line_start: bool, io: &mut Io) -> Feed {
         if std::mem::take(&mut self.eat_lf) && b == b'\n' {
             return Feed::Done;
         }
@@ -231,7 +340,7 @@ impl Rip {
                     return Feed::Done;
                 }
                 let line = self.line.take().unwrap_or_default();
-                self.run_line(s, &line);
+                self.run_line(s, &line, io);
                 // The line's end is not shown: RIP lines are invisible.
                 self.eat_lf = b == b'\r';
                 Feed::Done
@@ -248,7 +357,13 @@ impl Rip {
         }
     }
 
-    fn run_line(&mut self, s: &mut Screen, line: &[u8]) {
+    /// A scene file a `1R` asked for: the caller plays it as if it came
+    /// from the BBS, before the rest of what did.
+    pub fn take_scene(&mut self) -> Option<Vec<u8>> {
+        self.scene.take()
+    }
+
+    fn run_line(&mut self, s: &mut Screen, line: &[u8], io: &mut Io) {
         // Split on unescaped bars; the first piece is the `!`.
         let mut cmds: Vec<Vec<u8>> = vec![Vec::new()];
         let mut i = 1;
@@ -264,12 +379,12 @@ impl Rip {
             i += 1;
         }
         for cmd in cmds.iter().filter(|c| !c.is_empty()) {
-            self.command(s, cmd);
+            self.command(s, cmd, io);
         }
         self.dirty = true;
     }
 
-    fn command(&mut self, s: &mut Screen, cmd: &[u8]) {
+    fn command(&mut self, s: &mut Screen, cmd: &[u8], io: &mut Io) {
         let (level, op, args) = match cmd {
             [d @ b'1'..=b'9', op, args @ ..] => (d - b'0', *op, args),
             [op, args @ ..] => (0, *op, args),
@@ -491,13 +606,63 @@ impl Rip {
                 let text = a.rest().to_vec();
                 self.draw_button(x0, y0, x1, y1, &text);
             }
+            (1, b'I') => {
+                let (x, y, mode, clip) = (a.i2(), a.i2(), a.n2(), a.n1() == 1);
+                a.skip(2);
+                if let Some(name) = file_name(a.rest()) {
+                    let name = if name.contains('.') { name } else { format!("{name}.ICN") };
+                    self.load_icon(x, y, mode, clip, &name, io);
+                }
+            }
+            (1, b'W') => {
+                a.skip(1);
+                if let (Some(name), Some((w, h, px))) = (file_name(a.rest()), &self.clipboard) {
+                    let data = encode_icon(*w, *h, px);
+                    let saved = io.rip_dir().ok_or_else(|| anyhow::anyhow!("no file cache")).and_then(|dir| {
+                        std::fs::create_dir_all(&dir)?;
+                        Ok(std::fs::write(dir.join(&name), data)?)
+                    });
+                    if let Err(e) = saved {
+                        log::warn!("RIP icon {name}: {e:#}");
+                    }
+                }
+            }
+            (1, b'R') => {
+                a.skip(8);
+                let found = file_name(a.rest()).and_then(|n| io.find(&n));
+                match found.map(std::fs::read) {
+                    _ if self.scene_depth >= MAX_SCENE_DEPTH => log::warn!("RIP scenes nested too deep"),
+                    Some(Ok(data)) if data.len() as u64 <= MAX_FILE => self.scene = Some(data),
+                    _ => log::info!("RIP scene {:?} not found", String::from_utf8_lossy(a.rest())),
+                }
+            }
+            (1, b'F') => {
+                let mode = a.n2();
+                a.skip(4);
+                let Some(name) = file_name(a.rest()) else { return };
+                let meta = io.find(&name).and_then(|p| std::fs::metadata(p).ok());
+                let reply = match (mode, meta) {
+                    (0, m) => if m.is_some() { "1" } else { "0" }.to_string(),
+                    (1, m) => if m.is_some() { "1\r\n" } else { "0\r\n" }.to_string(),
+                    (_, None) => "0\r\n".to_string(),
+                    (2, Some(m)) => format!("1.{}\r\n", m.len()),
+                    (3, Some(m)) => {
+                        format!("1.{}.{}\r\n", m.len(), rip_time(m.modified().unwrap_or(std::time::UNIX_EPOCH)))
+                    }
+                    (_, Some(m)) => {
+                        let t = rip_time(m.modified().unwrap_or(std::time::UNIX_EPOCH));
+                        format!("1.{}.{}.{t}\r\n", name.to_ascii_uppercase(), m.len())
+                    }
+                };
+                io.replies.extend_from_slice(reply.as_bytes());
+            }
             _ => log::debug!("unhandled RIP command {level}{}", op as char),
         }
     }
 
     /// `RIP_RESET_WINDOWS`: everything back as it starts.
     fn reset(&mut self, s: &mut Screen) {
-        *self = Rip { line: self.line.take(), eat_lf: self.eat_lf, ..Rip::default() };
+        *self = Rip { line: self.line.take(), eat_lf: self.eat_lf, scene_depth: self.scene_depth, ..Rip::default() };
         s.set_scroll_region(0, s.rows() - 1);
         s.erase_display(2);
         s.move_to(0, 0);
@@ -700,6 +865,50 @@ impl Rip {
     /// Put the clipboard at (x, y): copied, XORed, ORed, ANDed or inverted.
     fn paste(&mut self, x: i32, y: i32, mode: usize) {
         let Some((w, h, data)) = self.clipboard.clone() else { return };
+        self.stamp(x, y, mode, w, h, &data);
+    }
+
+    /// `1I`: an icon file stamped at (x, y) as [`Rip::paste`] does, and
+    /// put on the clipboard too if asked. An icon that would not fit in
+    /// the viewport is not drawn; a missing one is a box saying so.
+    fn load_icon(&mut self, x: i32, y: i32, mode: usize, clip: bool, name: &str, io: &Io) {
+        let file = io.find(name).filter(|p| std::fs::metadata(p).is_ok_and(|m| m.len() <= MAX_FILE));
+        match file.and_then(|p| std::fs::read(p).ok()) {
+            Some(data) => {
+                let Some((w, h, px)) = decode_icon(&data) else {
+                    log::warn!("RIP icon {name}: not an icon file");
+                    return;
+                };
+                let v = self.view;
+                if v.x0 + x as usize + w - 1 > v.x1 || v.y0 + y as usize + h - 1 > v.y1 {
+                    return;
+                }
+                self.stamp(x, y, mode, w, h, &px);
+                if clip {
+                    self.clipboard = Some((w, h, px));
+                }
+            }
+            None => {
+                let label = format!("Icon {}", name.to_ascii_uppercase());
+                let saved = (self.color, self.line_style, self.thick, self.font_size, self.vertical, self.xor);
+                (self.color, self.line_style, self.thick, self.font_size, self.vertical, self.xor) =
+                    (12, 0xCCCC, false, 1, false, false);
+                let width = 8 * label.len().max(13) as i32;
+                let (x1, y1) = (x + width + 24, y + 37);
+                self.polyline(&[(x, y), (x1, y), (x1, y1), (x, y1)], true);
+                for (text, dy) in [(label.as_bytes(), 6), (b"not available".as_slice(), 20)] {
+                    self.pos = (x + (x1 - x + 1 - 8 * text.len() as i32) / 2, y + dy);
+                    self.text(text);
+                }
+                (self.color, self.line_style, self.thick, self.font_size, self.vertical, self.xor) = saved;
+                if clip {
+                    self.copy_to_clipboard(x, y, x1, y1);
+                }
+            }
+        }
+    }
+
+    fn stamp(&mut self, x: i32, y: i32, mode: usize, w: usize, h: usize, data: &[u8]) {
         let xor = self.xor;
         self.xor = false;
         for dy in 0..h {
@@ -925,6 +1134,55 @@ mod tests {
         assert_eq!(t.rip().unwrap().click(5, 5), Some(b"say hi".to_vec()));
         let t = term(b"!|1M00000010101100000say hi\r\n!|1K\r\n");
         assert_eq!(t.rip().unwrap().click(5, 5), None);
+    }
+
+    #[test]
+    fn icons_scenes_and_file_queries() {
+        let dir = std::env::temp_dir().join(format!("badterm-rip-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut t = Terminal::new(COLS, ROWS, 0);
+        t.encoding = Encoding::Rip;
+        t.start_emulation();
+        t.syncterm.cache_dir = Some(dir.clone());
+        // A 10x3 bar of color 9 (odd width: planes pad to a byte), copied
+        // and written out as an icon.
+        t.feed(b"!|S0109|B00000902|1C00000902|1W0BAR.ICN\r\n");
+        let icn = std::fs::read(dir.join("RIP/BAR.ICN")).unwrap();
+        assert_eq!(icn.len(), 4 + 2 * 4 * 3);
+        assert_eq!(decode_icon(&icn), Some((10, 3, vec![9; 30])));
+        // Loaded elsewhere (any case, the extension added), XORed.
+        t.feed(b"!|*|S0103|B0K0K0K0K|1I0K0K01000bar\r\n");
+        assert_eq!((px(&t, 20, 20), px(&t, 21, 20), px(&t, 29, 22), px(&t, 30, 22)), (3 ^ 9, 9, 9, 0));
+        // Too near the edge: not drawn.
+        t.feed(b"!|1IHN0000000BAR\r\n");
+        assert_eq!(px(&t, 636, 0), 0);
+        // A missing icon is a dashed red box.
+        t.feed(b"!|*|1I0A0A00000NONE\r\n");
+        assert_eq!((px(&t, 10, 10), px(&t, 12, 10), px(&t, 10, 47)), (12, 0, 12));
+        // File queries.
+        let _ = t.take_replies();
+        t.feed(b"!|1F000000BAR.ICN|1F010000nope.icn|1F020000bar.icn\r\n");
+        assert_eq!(t.take_replies(), b"10\r\n1.28\r\n");
+        t.feed(b"!|1F040000BAR.ICN|1F000000../x\r\n");
+        let r = String::from_utf8(t.take_replies()).unwrap();
+        assert!(r.starts_with("1.BAR.ICN.28.") && r.ends_with("\r\n") && r.len() == 13 + 17 + 2, "{r}");
+        // A scene file plays inline, text and graphics, and what follows
+        // comes after it.
+        std::fs::write(dir.join("RIP/HELLO.RIP"), b"!|c0E|L00000500\r\nfrom the scene\r\n").unwrap();
+        t.feed(b"!|*|1R00000000hello.rip\r\nafter\r\n");
+        assert_eq!(px(&t, 3, 0), 14);
+        assert_eq!(Screen::row_text(t.screen.row(0)).trim_end(), "from the scene");
+        assert_eq!(Screen::row_text(t.screen.row(1)).trim_end(), "after");
+        // One that plays itself stops.
+        std::fs::write(dir.join("RIP/LOOP.RIP"), b"!|1R00000000LOOP.RIP\r\n").unwrap();
+        t.feed(b"!|1R00000000LOOP.RIP\r\n");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            rip_time(std::time::UNIX_EPOCH + std::time::Duration::from_secs(951_782_400 + 3725)),
+            "02/29/00.01:02:05"
+        );
+        assert_eq!(file_name(b"a/b"), None);
+        assert_eq!(file_name(b" x.icn "), Some("x.icn".into()));
     }
 
     #[test]

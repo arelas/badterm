@@ -194,6 +194,8 @@ pub struct Terminal {
     viewdata: crate::viewdata::Viewdata,
     /// The RIPscrip canvas, when the encoding is RIP.
     rip: Option<Box<crate::rip::Rip>>,
+    /// Where downloads go: RIP looks there for icons and scenes too.
+    pub download_dir: Option<std::path::PathBuf>,
     /// The Atari ST screen, when the encoding is IGS.
     igs: Option<Box<crate::igs::Igs>>,
     /// The Amiga screen, when the encoding is SkyPix.
@@ -237,6 +239,7 @@ impl Terminal {
             avatar: Default::default(),
             viewdata: Default::default(),
             rip: None,
+            download_dir: None,
             igs: None,
             skypix: None,
             line_start: true,
@@ -543,9 +546,31 @@ impl Terminal {
     fn rip_byte(&mut self, b: u8) -> bool {
         use crate::rip::Feed;
         let Some(rip) = self.rip.as_mut() else { return false };
-        match rip.byte(&mut self.screen, b, self.line_start) {
+        let mut io = crate::rip::Io {
+            cache: self.syncterm.cache_dir.as_deref(),
+            downloads: self.download_dir.as_deref(),
+            replies: &mut self.replies,
+        };
+        match rip.byte(&mut self.screen, b, self.line_start, &mut io) {
             Feed::Pass => false,
-            Feed::Done => true,
+            Feed::Done => {
+                // A scene file plays here, as if the BBS had sent it.
+                if let Some(scene) = rip.take_scene() {
+                    rip.scene_depth += 1;
+                    // The LF after the line that asked for it is still to come.
+                    let eat_lf = std::mem::take(&mut rip.eat_lf);
+                    self.line_start = true;
+                    for b in scene {
+                        self.byte(b);
+                    }
+                    if let Some(rip) = self.rip.as_mut() {
+                        rip.scene_depth = rip.scene_depth.saturating_sub(1);
+                        rip.eat_lf = eat_lf;
+                    }
+                    self.line_start = true;
+                }
+                true
+            }
             Feed::Text(bytes) => {
                 self.line_start = false;
                 for b in bytes {

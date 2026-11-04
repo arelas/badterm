@@ -127,7 +127,8 @@ The next things to do, in order.
       copy and paste, fonts from the cache (`SetFont`)
 - [x] SyncTERM's audio APCs (WAV, AIFF, VOC, FLAC, MP3, Ogg Opus and
       Vorbis), and ANSI music in the foreground (`MF`, the default)
-- [x] RIPscrip graphics (not yet: icon and scene files, RIP file transfers)
+- [x] RIPscrip graphics, with icon and scene files (not yet: RIP file
+      transfers, variables)
 - [x] Visual and audible bell options
 
 ## File transfer
