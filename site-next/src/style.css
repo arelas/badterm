@@ -64,9 +64,9 @@ kbd { font: inherit; color: var(--v-yellow); }
 .nav a:hover, .nav a[aria-current="true"] { color: var(--v-white); }
 .nav a[aria-current="true"] kbd { color: var(--v-lcyan); }
 .mark { color: var(--v-white) !important; white-space: nowrap; }
-/* The wordmark on one line at 31 px: a pixel a half-cell, so it stays sharp. */
+/* The wordmark on one line at 27 px: a pixel a half-cell, so it stays sharp. */
 .mark { display: block; line-height: 0; }
-.mark img { display: block; width: 97px; height: 31px; image-rendering: pixelated; }
+.mark img { display: block; width: 94px; height: 27px; image-rendering: pixelated; }
 @media (max-width: 860px) { .nav ul { display: none; } .nav .btn { margin-left: auto; } }
 
 /* Buttons */

@@ -77,8 +77,8 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   - a 1200x630 card for shared links
 
   The site uses the kit for its favicon (SVG, a 64 px PNG and a 180 px
-  home-screen icon), its link previews and the header's wordmark (31 px, a
-  pixel a half-cell). `tools/iconlab.py` is the sheet of the directions the
+  home-screen icon), its link previews and the header's wordmark (27 px, a
+  pixel a half-cell, without the ki, which crowds the letters at that size). `tools/iconlab.py` is the sheet of the directions the
   first icon (B▄, retired) was chosen from.
 
 ## Serving

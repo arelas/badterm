@@ -516,10 +516,11 @@ def caption(s):
     return s
 
 
-def line(seed=SEED):
+def line(seed=SEED, aura=False, ghost=True):
     """The wordmark on one line, for the website's header: BAD and TERM side
-    by side in the same letters, keyline, shadow and stroke, with a thin ki
-    and a low crown. A Screen sized to fit."""
+    by side in the same letters, stroke and grey ghost shadow. No ki by
+    default: at header size it only crowds the letters (`aura` puts a thin
+    one back). A Screen sized to fit."""
     import letterpen
     L = letterpen.letters()
     bad, bw = letterpen.mask_of("BAD", L, gap=-0.2, sx=1.2)
@@ -541,7 +542,8 @@ def line(seed=SEED):
 
         def never(x, qy):
             return False
-        ki(cv, mask, rng, never, side=2.2, down=1.6, base=2.6, sky=0.4)
+        if aura:
+            ki(cv, mask, rng, never, side=2.2, down=1.6, base=2.6, sky=0.4)
         for qy in range(QH):
             for x in range(W):
                 if (x, qy) not in mask and any((x + dx, qy + dy) in mask for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
@@ -552,7 +554,8 @@ def line(seed=SEED):
             for x in range(W):
                 if not reached[qy, x] and (x, qy) not in mask:
                     cv.set(x, qy, None)
-        shadow(cv, mask)
+        if ghost:
+            shadow(cv, mask)
         shade_letters(cv, mask, {0: cap, 1: cap})
         s = Screen(W, H)
         cv.onto(s)
