@@ -11,22 +11,21 @@ half-cells ("quads") down: 9 rows tall, stems 4 cells, 0.22 of the cap, as the
 masters' 0.23.
 
 Layers, back to front:
-  aura      gold energy rising off the word, the Super Saiyan. A field: each
-            quad's heat falls with its distance from the word, and the reach
-            is longest straight up, where it breaks into tongues and spikes.
-            White-hot against the keyline, then yellow, yellow worked over
-            brown, brown, and a light-shade rim, as real pack flame is drawn.
+  ki        the Super Saiyan aura, a field on the quads: heat falls with the
+            distance from the word, its reach longest straight up, where the
+            outline breaks into a crown of tongues. White-hot at the keyline,
+            white worked over gold, a gold body striated upward, a rim of
+            gold dark-shaded over brown (a glow; a dark rim reads as fire).
+  arcs      blue-white electricity zigzagging through the gold.
+  lift      sparks off the tongues' tips, rocks floating up lit from below,
+            the floor cracked and glowing, dust blasting out along it.
   keyline   one black outline around both words: every shape has an edge.
-  chrome    ice chrome, iCE's cold metal, in bands across each word (a white
-            crown, light-cyan sky, the dark blue horizon, cyan below, a
-            light-cyan lip at the floor), lit from the upper left: top and left
-            faces brighter, right faces darker, white glints at the joints.
-  bolts     lightning forking down through the gold, white core, cyan edge.
-  ground    the floor cracking under it, glowing, rock lifting off.
+  shadow    a grey ghost one cell right and one quad down.
+  letters   Lord Jazz's negative-land stroke: one cyan ground, light green and
+            light blue worked over it in vertical streaks, darker to the right.
   caption   the word said plainly, spaced, and the tag.
 """
 
-import math
 import os
 import random
 import sys
@@ -34,7 +33,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ansi import (BLACK, BLUE, BROWN, CYAN, DGRAY, GRAY, LBLUE, LCYAN, LGREEN, LMAGENTA, MAGENTA, RED, WHITE, YELLOW, Screen)  # noqa: E402
+from ansi import (BLACK, BLUE, BROWN, CYAN, DGRAY, GRAY, LBLUE, LCYAN, LGREEN, LMAGENTA, MAGENTA, WHITE, YELLOW, Screen)  # noqa: E402
 
 W, H = 80, 25
 QH = H * 2
@@ -169,135 +168,7 @@ def pocket(mask, x, qy, span=12):
     return (left and right and over) or narrow
 
 
-def aura(cv, mask, rng):
-    d, dy = distance(mask)
-    out = outside(mask)
-    # how far the energy reaches, by column: tongues and the tall spikes of hair
-    xs = np.arange(W)
-    tongues = 4.0 + 2.2 * np.sin(xs * 0.9 + rng.uniform(0, 6)) + 1.6 * np.sin(xs * 2.3 + rng.uniform(0, 6))
-    spikes = np.zeros(W)
-    for cx in rng.sample(range(4, 76), 9):
-        hgt, wid = rng.uniform(9, 17), rng.uniform(2.5, 4.5)
-        spikes = np.maximum(spikes, hgt * np.clip(1 - np.abs(xs - cx) / wid, 0, 1) ** 1.4)
-    up = 5.0 + tongues + spikes                       # reach straight up
-    # every column's tongue burns a little longer or shorter than its neighbours'
-    streak = np.array([0.32 * math.sin(x * 1.9 + 1.3) * math.cos(x * 0.61 + 0.4) + rng.uniform(-0.08, 0.08) for x in range(W)])
-    side, down = 4.0, 2.5
-    heat_rgb = {}
-    for qy in range(QH):
-        for x in range(W):
-            if (x, qy) in mask or d[qy, x] > 40 or not out[qy, x] or pocket(mask, x, qy):
-                continue
-            dist = d[qy, x]
-            up_frac = max(0.0, -dy[qy, x] / max(dist, 1e-6))          # 1 straight above the word
-            down_frac = max(0.0, dy[qy, x] / max(dist, 1e-6))
-            reach = side + (up[x] - side) * up_frac ** 1.5 - (side - down) * down_frac
-            reach *= 1 + rng.uniform(-0.10, 0.10)                     # ragged edges
-            t = (dist - 2.0) / max(1.0, reach)                         # 0 at the keyline
-            t += streak[x] * (0.25 + 0.75 * up_frac)                   # tongues: alternate columns burn shorter
-            heat_rgb[(x, qy)] = t
-    # paint: solids first, then cells that sit across a heat boundary become blends
-    # Shaded the way Lord Jazz shades a stroke: one ground under the fill and
-    # a bright ink drawn over it, its density stepping down as the heat falls.
-    # Two solid tones, yellow inside and brown outside, split where the heat
-    # crosses 0.45, the split wobbling; a single shade cell of transition at
-    # the split; the rim a light shade of brown on black. Shading only where
-    # two colours meet, as the tutorials say, never as the fill.
-    STEPS = [(0.24, (FULL, YELLOW, BROWN)), (0.44, (DARK, YELLOW, BROWN)), (0.54, (MEDIUM, YELLOW, BROWN)),
-             (0.78, (FULL, BROWN, BROWN)), (0.88, (MEDIUM, BROWN, RED)), (1.00, (LIGHT, BROWN, BLACK))]
-
-    def step(t):
-        for edge, cell in STEPS:
-            if t < edge:
-                return cell
-        return None
-    for y in range(H):
-        for x in range(W):
-            a, b = heat_rgb.get((x, y * 2)), heat_rgb.get((x, y * 2 + 1))
-            sa = step(a) if a is not None and a >= 0 else None
-            sb = step(b) if b is not None and b >= 0 else None
-            if sa is None and sb is None:
-                continue
-            if sa and sb:
-                hot = sa if a <= b else sb
-                ch, fg, bg = hot
-                if ch == FULL and fg == BROWN and (x % 3 == 1 or (x * 7 + y * 3) % 11 == 0):
-                    ch, fg, bg = DARK, BROWN, RED           # streaks and embers in the brown
-                elif ch == FULL and fg == YELLOW and x % 3 == 0 and a > 0.15:
-                    ch, fg, bg = DARK, YELLOW, BROWN        # streaks in the yellow
-                if ch == FULL:
-                    cv.set(x, y * 2, fg); cv.set(x, y * 2 + 1, fg)
-                else:
-                    cv.glyph(x, y, ch, fg, bg)
-            else:
-                # a tongue's end: a half block on black, in the step's ink
-                one = sa or sb
-                c = one[1] if one[1] != BROWN or one[0] in (FULL, DARK) else BROWN
-                cv.set(x, y * 2, c if sa else None)
-                cv.set(x, y * 2 + 1, c if sb else None)
-    for _ in range(7):
-        x, qy = rng.randint(2, W - 3), rng.randint(0, QH - 12)
-        if out[qy, x] and d[qy, x] > 5 and (x, qy // 2) not in cv.fixed and cv.q[qy, x] >= 0:
-            cv.set(x, qy, WHITE)
-    return d
-
-
-def bolts(cv, rng, d):
-    """Lightning forking down through the gold toward the word, stopping short of it."""
-    for sx in (rng.randint(10, 22), rng.randint(56, 70)):
-        x, qy = sx, 0
-        branch = None
-        while qy < QH and d[min(qy, QH - 1), max(0, min(W - 1, x))] > 2.5:
-            step = rng.randint(2, 3)
-            for _ in range(step):
-                if qy >= QH or d[qy, x] <= 2.5:
-                    break
-                cv.set(x, qy, WHITE)
-                for side in (-1, 1):
-                    if 0 <= x + side < W and d[qy, x + side] > 2.5 and rng.random() < 0.5:
-                        cv.set(x + side, qy, LCYAN)
-                qy += 1
-            nx = max(1, min(W - 2, x + rng.choice((-2, -1, 1, 2))))
-            for xx in range(min(x, nx), max(x, nx) + 1):
-                if qy < QH and d[qy, xx] > 2.5:
-                    cv.set(xx, qy, LCYAN)
-            if branch is None and qy > 6 and rng.random() < 0.35:
-                branch = (x, qy)
-            x = nx
-        if branch:
-            bx, bq = branch
-            for i in range(rng.randint(5, 9)):
-                bx += rng.choice((-1, 1)) * (1 if i % 2 else 2)
-                bq += 1
-                if not (0 <= bx < W and bq < QH) or d[bq, bx] <= 2.5:
-                    break
-                cv.set(bx, bq, LCYAN)
-
-
-def ground(cv, rng, d, floor_q, x_from=1):
-    """The floor under the word cracking open, rock lifting off it."""
-    for x in range(x_from, W - 1):
-        if d[floor_q, x] > 1.5:
-            cv.set(x, floor_q, DGRAY)
-    for _ in range(9):                                # cracks, glowing
-        x = rng.randint(x_from + 2, W - 5)
-        for k in range(rng.randint(2, 5)):
-            if d[floor_q, x] > 1.5:
-                cv.set(x, floor_q, YELLOW if k % 2 == 0 else BROWN)
-            x += rng.choice((-1, 1))
-    for _ in range(18):                               # chips rising, lit from below
-        x, qy = rng.randint(x_from + 1, W - 4), floor_q - rng.randint(1, 8)
-        if qy < 0 or d[qy, x] <= 2.5:
-            continue
-        cv.set(x, qy, GRAY if rng.random() < 0.4 else DGRAY)
-        if rng.random() < 0.5 and d[qy, x + 1] > 2.5:
-            cv.set(x + 1, qy, DGRAY)
-        if qy + 1 < QH and d[qy + 1, x] > 2.5:
-            cv.set(x, qy + 1, YELLOW)
-
-
 # ---------------------------------------------------------------- chrome
-
 # Each palette: the ground under the whole fill, the accent over it by
 # height (its hue slides down the stroke), the highlight, the ground the
 # foot of the stroke sits on.
@@ -306,10 +177,6 @@ PALETTES = {
     "frieza": {"ground": MAGENTA, "accents": [(0.30, WHITE), (0.62, LCYAN), (1.01, LMAGENTA)], "high": WHITE, "foot": BLUE,
                "edge_low": LMAGENTA},
 }
-
-
-def _jitter(x, y):
-    return ((x * 73856093) ^ (y * 19349663)) % 1000 / 1000.0 - 0.5
 
 
 def shade_letters(cv, mask, tops, palette):
@@ -408,6 +275,179 @@ def shadow(cv, mask):
 PALETTE = "ice"
 
 
+def ki(cv, mask, rng, keep_clear):
+    """The Super Saiyan aura: ki, not fire. White-hot against the word, white
+    worked over gold, a wide gold body, and a rim of gold dark-shaded over
+    brown, a glow and not a burn (a dark rim reads as fire). Its outline is a crown: flame tongues set at a steady
+    beat along the word, tall and short in turn, tallest over the open sky
+    above TERM, each with hollow sides that draw it to a point. The bands
+    follow the outline, so every tongue is the same nest of colours, smaller
+    as it rises. White over gold needs a bright (iCE) background, as the piece
+    is flagged."""
+    d, dy = distance(mask)
+    out = outside(mask)
+    xs = np.arange(W)
+    spikes = np.zeros(W)
+    cx, k = rng.uniform(0.5, 3.0), 0
+    beat = []
+    while cx < W + 2:
+        tall = k % 2 == 0
+        open_sky = 1.45 if cx > 44 else 1.0
+        hgt = (rng.uniform(13, 17) if tall else rng.uniform(6, 9)) * open_sky
+        half = rng.uniform(3.0, 3.8) if tall else rng.uniform(2.2, 2.8)
+        spikes = np.maximum(spikes, hgt * np.clip(1 - np.abs(xs - cx) / half, 0, 1) ** 1.5)
+        beat.append(cx)
+        cx += rng.uniform(5.2, 6.6)
+        k += 1
+    up = np.where(xs > 42, 10.0, 6.0) + spikes                  # the body fills the open sky
+    side, down = 5.0, 2.6
+    heat, upness = {}, {}
+    for qy in range(QH):
+        for x in range(W):
+            if (x, qy) in mask or not out[qy, x] or keep_clear(x, qy) or pocket(mask, x, qy) or d[qy, x] > 40:
+                continue
+            dist = d[qy, x]
+            up_frac = max(0.0, -dy[qy, x] / max(dist, 1e-6))
+            down_frac = max(0.0, dy[qy, x] / max(dist, 1e-6))
+            reach = side + (up[x] - side) * up_frac ** 2.2 - (side - down) * down_frac
+            t = max(0.0, (dist - 1.5) / max(1.0, reach))
+            if t < 1:
+                heat[(x, qy)] = t
+                upness[(x, qy)] = up_frac
+    # tidy the field: no lone specks, no pinholes (a quad shut out by the
+    # pocket test with the gold all round it)
+    N4 = ((1, 0), (-1, 0), (0, 1), (0, -1))
+    for _ in range(2):
+        for (x, qy) in [p for p in heat if sum((p[0] + a, p[1] + b) in heat for a, b in N4) <= 1]:
+            heat.pop((x, qy), None)
+        for qy in range(QH):
+            for x in range(W):
+                if (x, qy) in heat or (x, qy) in mask or not out[qy, x] or keep_clear(x, qy) or d[qy, x] < 1.5:
+                    continue
+                nb = [heat[(x + a, qy + b)] for a, b in N4 if (x + a, qy + b) in heat]
+                if len(nb) >= 3:
+                    heat[(x, qy)] = sum(nb) / len(nb)
+                    upness[(x, qy)] = 0.0
+    STEPS = [(0.12, (FULL, WHITE, WHITE)), (0.22, (DARK, WHITE, YELLOW)), (0.32, (MEDIUM, WHITE, YELLOW)),
+             (0.80, (FULL, YELLOW, YELLOW)), (1.01, (DARK, YELLOW, BROWN))]
+
+    def step(t):
+        for edge, cell in STEPS:
+            if t < edge:
+                return cell
+    phase = rng.randint(0, 3)
+    for y in range(H):
+        for x in range(W):
+            a, b = heat.get((x, y * 2)), heat.get((x, y * 2 + 1))
+            if a is None and b is None:
+                continue
+            if a is None or b is None:
+                # an edge or a tongue's tip: a half block on black
+                t = a if a is not None else b
+                ch, c, _ = step(t)
+                c = c if ch == FULL else (WHITE if t < 0.32 else YELLOW)
+                cv.set(x, y * 2, c if a is not None else None)
+                cv.set(x, y * 2 + 1, c if b is not None else None)
+                continue
+            lo = step(min(a, b))
+            rising = min(upness.get((x, y * 2), 0), upness.get((x, y * 2 + 1), 0)) > 0.30
+            if lo == (FULL, YELLOW, YELLOW) and rising and (x + phase) % 4 == 0 and min(a, b) < 0.74:
+                cv.glyph(x, y, MEDIUM, WHITE, YELLOW)            # white streaming up out of the core
+            elif lo == (FULL, YELLOW, YELLOW) and rising and (x + phase) % 4 == 2 and min(a, b) > 0.38:
+                cv.glyph(x, y, DARK, YELLOW, BROWN)              # and the rim's deeper gold hanging down
+            elif lo[0] == FULL:
+                sa, sb = step(a), step(b)
+                cv.set(x, y * 2, sa[1] if sa[0] == FULL else lo[1])
+                cv.set(x, y * 2 + 1, sb[1] if sb[0] == FULL else lo[1])
+            else:
+                cv.glyph(x, y, *lo)
+    return d, heat
+
+
+def put(cv, x, qy, c):
+    """Set one quad of a cell the aura may have drawn as a shade glyph, keeping
+    the cell's other half the colour the glyph mostly showed, not black."""
+    cell = cv.fixed.get((x, qy // 2))
+    if cell:
+        ch, fg, bg = cell
+        keep = bg if ch == LIGHT else fg
+        cv.set(x, (qy // 2) * 2, keep)
+        cv.set(x, (qy // 2) * 2 + 1, keep)
+    cv.set(x, qy, c)
+
+
+def arcs(cv, rng, d, heat, keep_clear, n=3):
+    """Electricity crackling through the gold (the second form): a few
+    zigzags of light cyan, white at the bends, drawn over the aura's body,
+    never on the black and never against the keyline."""
+    def ok(x, qy):
+        t = heat.get((x, qy))
+        return t is not None and 0.30 < t < 0.86 and d[qy, x] > 2.5 and not keep_clear(x, qy)
+    tries = drawn = 0
+    while drawn < n and tries < 2000:
+        tries += 1
+        x, qy = rng.randint(4, W - 5), rng.randint(2, QH - 10)
+        if not ok(x, qy):
+            continue
+        path, bends = [], []
+        dx = rng.choice((-1, 1))
+        for leg in range(rng.randint(3, 5)):
+            run = [(x, qy + i) for i in range(1, rng.randint(2, 4))]
+            if not all(ok(*p) for p in run):
+                break
+            path += run
+            x, qy = run[-1]
+            bends.append((x, qy))
+            jump = [(x + dx * i, qy) for i in range(1, rng.randint(2, 4))]
+            if not all(ok(*p) for p in jump):
+                break
+            path += jump
+            x, qy = jump[-1]
+            dx = -dx if rng.random() < 0.6 else dx
+        if len(path) < 7:
+            continue
+        for p in path:
+            put(cv, p[0], p[1], WHITE if p in bends else LCYAN)
+        drawn += 1
+
+
+def lift(cv, rng, d, heat, floor_q, x_from, keep_clear):
+    """The world lifting off the ground: sparks rising off the tongues' tips,
+    rocks floating up lit gold from below, the floor cracked and glowing,
+    dust blasting out sideways along it."""
+    placed = 0
+    for _ in range(600):
+        if placed >= 9:
+            break
+        x, qy = rng.randint(1, W - 2), rng.randint(0, QH - 12)
+        below = [heat.get((x, qy + k)) for k in range(2, 5)]
+        if any((x + a, qy + b) in heat for a in (-1, 0, 1) for b in (-1, 0, 1)) or not any(t is not None and t > 0.8 for t in below) \
+                or keep_clear(x, qy) or d[qy, x] < 4:
+            continue
+        put(cv, x, qy, WHITE if rng.random() < 0.5 else YELLOW)
+        placed += 1
+    for _ in range(7):
+        x, qy = rng.randint(x_from + 2, W - 4), floor_q - rng.randint(2, 9)
+        if d[qy, x] < 3 or d[qy + 1, x] < 3 or keep_clear(x, qy):
+            continue
+        for k in range(rng.choice((1, 2))):
+            put(cv, x + k, qy, GRAY if k == 0 else DGRAY)
+            put(cv, x + k, qy + 1, YELLOW)
+    for x in range(x_from, W - 1):
+        if d[floor_q, x] > 1.5:
+            put(cv, x, floor_q, DGRAY)
+    for _ in range(6):
+        x = rng.randint(x_from + 2, W - 4)
+        for k in range(rng.randint(2, 4)):
+            if 0 <= x < W - 1 and d[floor_q, x] > 1.5:
+                put(cv, x, floor_q, WHITE if k == 0 else YELLOW)
+            x += rng.choice((-1, 1))
+    y = floor_q // 2
+    for x in list(range(x_from - 6, x_from + 4)) + list(range(W - 7, W)):
+        if 0 <= x < W and rng.random() < 0.75 and not keep_clear(x, floor_q):
+            cv.glyph(x, y, LIGHT if rng.random() < 0.7 else MEDIUM, GRAY, BLACK)
+
+
 def main():
     global PALETTE
     out = sys.argv[1]
@@ -416,9 +456,12 @@ def main():
     rng = random.Random(seed)
     mask, bad_rows, term_rows = layout()
     cv = Canvas()
-    d = aura(cv, mask, rng)
-    bolts(cv, rng, d)
-    ground(cv, rng, d, term_rows[1] + 4, x_from=20)
+    def keep_clear(x, qy):
+        return x < 20 and qy >= 28          # the caption's corner
+    floor_q = term_rows[1] + 4
+    d, heat = ki(cv, mask, rng, keep_clear)
+    arcs(cv, rng, d, heat, keep_clear)
+    lift(cv, rng, d, heat, floor_q, 20, keep_clear)
     # the keyline: one quad of black all round the word
     for qy in range(QH):
         for x in range(W):
