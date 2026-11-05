@@ -1,0 +1,4 @@
+# Build output and local screenshots: site-next/build.py makes dist/ from src/ and tools/.
+dist/
+build/
+shots/
