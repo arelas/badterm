@@ -228,11 +228,15 @@ def shade_letters(cv, mask, tops, palette):
                     cv.glyph(x, y, MEDIUM if streak else DARK, G, C)
                 elif streak == 1:
                     cv.glyph(x, y, LIGHT, G, C)
+                elif not lit and streak == 2:
+                    cv.glyph(x, y, LIGHT, B, C)              # the shadow side: a breath of the blue below
                 else:
                     cv.set(x, top_q, C); cv.set(x, top_q + 1, C)
             elif r <= 4:
                 if streak in (0, 2):
                     cv.glyph(x, y, LIGHT if r == 3 else MEDIUM, B, C)
+                elif streak == 1:
+                    cv.glyph(x, y, LIGHT, B, C)              # the blue coming in, a column between
                 else:
                     cv.set(x, top_q, C); cv.set(x, top_q + 1, C)
             elif r <= 6:
@@ -245,6 +249,8 @@ def shade_letters(cv, mask, tops, palette):
             else:
                 if right_flank:
                     cv.glyph(x, y, DARK, B, BD)
+                elif streak == 0:
+                    cv.glyph(x, y, DARK, B, C)               # the cyan ground still showing through the foot
                 else:
                     cv.set(x, top_q, B); cv.set(x, top_q + 1, B)
         else:
