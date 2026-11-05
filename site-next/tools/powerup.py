@@ -277,8 +277,9 @@ PALETTE = "ice"
 
 def ki(cv, mask, rng, keep_clear):
     """The Super Saiyan aura: ki, not fire. White-hot against the word, white
-    worked over gold, a wide gold body, and a rim of gold dark-shaded over
-    brown, a glow and not a burn (a dark rim reads as fire). Its outline is a crown: flame tongues set at a steady
+    worked over gold, a gold body, and a rim of gold dark-shaded over brown,
+    a glow and not a burn (a dark rim reads as fire). The body is solid
+    only where the ki rises; on the sides it is shaded, a glow and not a slab. Its outline is a crown: flame tongues set at a steady
     beat along the word, tall and short in turn, tallest over the open sky
     above TERM, each with hollow sides that draw it to a point. The bands
     follow the outline, so every tongue is the same nest of colours, smaller
@@ -292,15 +293,20 @@ def ki(cv, mask, rng, keep_clear):
     beat = []
     while cx < W + 2:
         tall = k % 2 == 0
-        open_sky = 1.45 if cx > 44 else 1.0
-        hgt = (rng.uniform(13, 17) if tall else rng.uniform(6, 9)) * open_sky
-        half = rng.uniform(3.0, 3.8) if tall else rng.uniform(2.2, 2.8)
+        open_sky = 1.2 if cx > 44 else 1.0
+        hgt = (rng.uniform(9, 12) if tall else rng.uniform(4, 6)) * open_sky
+        half = rng.uniform(2.4, 3.0) if tall else rng.uniform(1.8, 2.3)
         spikes = np.maximum(spikes, hgt * np.clip(1 - np.abs(xs - cx) / half, 0, 1) ** 1.5)
         beat.append(cx)
-        cx += rng.uniform(5.2, 6.6)
+        cx += rng.uniform(4.4, 5.6)
         k += 1
-    up = np.where(xs > 42, 10.0, 6.0) + spikes                  # the body fills the open sky
-    side, down = 5.0, 2.6
+    up = 5.0 + spikes                                           # one size all round: BAD has no sky to spare
+    side, down = 3.6, 2.0
+    # where the two words come close (the crotch under A, by the D) the ki is
+    # pinched between them: thinner there, or it piles up into a slab
+    d_bad, _ = distance({p: w for p, w in mask.items() if w == 0})
+    d_term, _ = distance({p: w for p, w in mask.items() if w == 1})
+    pinch = np.clip((np.maximum(d_bad, d_term) - 2.0) / 9.0, 0.4, 1.0)
     heat, upness = {}, {}
     for qy in range(QH):
         for x in range(W):
@@ -309,7 +315,7 @@ def ki(cv, mask, rng, keep_clear):
             dist = d[qy, x]
             up_frac = max(0.0, -dy[qy, x] / max(dist, 1e-6))
             down_frac = max(0.0, dy[qy, x] / max(dist, 1e-6))
-            reach = side + (up[x] - side) * up_frac ** 2.2 - (side - down) * down_frac
+            reach = (side + (up[x] - side) * up_frac ** 2.2 - (side - down) * down_frac) * pinch[qy, x]
             t = max(0.0, (dist - 1.5) / max(1.0, reach))
             if t < 1:
                 heat[(x, qy)] = t
@@ -336,6 +342,10 @@ def ki(cv, mask, rng, keep_clear):
             if t < edge:
                 return cell
     phase = rng.randint(0, 3)
+
+    def sideways_ok(x, y):
+        """Solid gold only where the ki is rising."""
+        return max(upness.get((x, y * 2), 0), upness.get((x, y * 2 + 1), 0)) > 0.30
     for y in range(H):
         for x in range(W):
             a, b = heat.get((x, y * 2)), heat.get((x, y * 2 + 1))
@@ -355,6 +365,9 @@ def ki(cv, mask, rng, keep_clear):
                 cv.glyph(x, y, MEDIUM, WHITE, YELLOW)            # white streaming up out of the core
             elif lo == (FULL, YELLOW, YELLOW) and rising and (x + phase) % 4 == 2 and min(a, b) > 0.38:
                 cv.glyph(x, y, DARK, YELLOW, BROWN)              # and the rim's deeper gold hanging down
+            elif lo == (FULL, YELLOW, YELLOW) and not sideways_ok(x, y):
+                # on the sides the ki isn't rising: a glow, shaded, not a slab
+                cv.glyph(x, y, *((MEDIUM, WHITE, YELLOW) if min(a, b) < 0.56 else (DARK, YELLOW, BROWN)))
             elif lo[0] == FULL:
                 sa, sb = step(a), step(b)
                 cv.set(x, y * 2, sa[1] if sa[0] == FULL else lo[1])
