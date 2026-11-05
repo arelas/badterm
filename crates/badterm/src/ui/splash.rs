@@ -6,7 +6,9 @@
 //! color over another), so letters can have rounded corners and a color
 //! ramp down them. The letters fade from white through cyan to blue, like
 //! ice lit from above, and cast a dark shadow down and to the right; thin
-//! rules above and below fade out to dots, in the same colors.
+//! rules above and below fade out to dots, in the same colors. After the M
+//! sits the logo's cursor, a copper bar at the baseline: BADTERM▄, whose first
+//! letter and cursor are the app's icon.
 
 use std::time::Duration;
 
@@ -150,6 +152,10 @@ const LETTERS: [(char, [&str; 12]); 7] = [
 /// The letters' color by pixel row, ice: a white highlight at the top,
 /// light cyan, cyan, then deep blue at the bottom.
 const RAMP: [u8; 12] = [15, 11, 11, 11, 11, 11, 3, 3, 3, 1, 1, 1];
+/// The cursor after the name: 4 pixels by 2 at the baseline, a pixel's gap
+/// after the last letter, VGA yellow over brown (the copper of the icon).
+const CURSOR: [u8; 2] = [14, 6];
+const CURSOR_W: usize = 4;
 /// Where the logo's top pixel row is (an even one: a text row's top).
 const LOGO_Y: usize = 10;
 const SHADOW: u8 = 8;
@@ -228,18 +234,27 @@ fn centered(s: &mut Screen, y: usize, parts: &[(&str, u8)]) {
     }
 }
 
+/// The cursor's pixels, from the logo's top left, with their colors.
+fn cursor() -> Vec<(usize, usize, u8)> {
+    let x = "BADTERM".len() * 10;
+    (0..CURSOR.len())
+        .flat_map(|y| (0..CURSOR_W).map(move |dx| (x + dx, RAMP.len() - CURSOR.len() + y, CURSOR[y])))
+        .collect()
+}
+
 pub fn draw(s: &mut Screen) {
     s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', Color::Pc(7), Color::Pc(0)));
     let mut c = Canvas([[0; PW]; PH]);
-    let lit = logo();
-    let width = lit.iter().map(|&(x, _)| x + 1).max().unwrap_or(0);
+    let mut lit: Vec<(usize, usize, u8)> = logo().into_iter().map(|(x, y)| (x, y, RAMP[y])).collect();
+    lit.extend(cursor());
+    let width = lit.iter().map(|&(x, _, _)| x + 1).max().unwrap_or(0);
     let x0 = (PW - width) / 2;
-    // The shadow, then the letters over it.
-    for &(x, y) in &lit {
+    // The shadow, then the letters and the cursor over it.
+    for &(x, y, _) in &lit {
         c.set(x0 + x + 1, LOGO_Y + y + 1, SHADOW);
     }
-    for &(x, y) in &lit {
-        c.set(x0 + x, LOGO_Y + y, RAMP[y]);
+    for &(x, y, color) in &lit {
+        c.set(x0 + x, LOGO_Y + y, color);
     }
     c.draw(s);
 
@@ -271,5 +286,20 @@ mod tests {
         for (ch, rows) in LETTERS {
             assert!(rows.iter().all(|r| r.len() == 9), "{ch}");
         }
+    }
+
+    #[test]
+    fn cursor_after_the_name() {
+        let mut s = Screen::new(COLS, ROWS, 0);
+        draw(&mut s);
+        // The logo's last two pixel rows share a text row: there the cursor is
+        // yellow over brown, right of every letter, and inside the screen.
+        let y = (LOGO_Y + RAMP.len() - 2) / 2;
+        let row = s.row(y);
+        let at: Vec<usize> =
+            (0..COLS).filter(|&x| row[x].fg == Color::Pc(CURSOR[0]) && row[x].bg == Color::Pc(CURSOR[1])).collect();
+        assert_eq!(at.len(), CURSOR_W, "{:?}", Screen::row_text(row));
+        let last_letter = (0..COLS).rev().find(|&x| row[x].fg == Color::Pc(1)).expect("the letters' blue bottom");
+        assert!(at[0] > last_letter + 1 && at[CURSOR_W - 1] < COLS - 2, "{at:?}, last letter at {last_letter}");
     }
 }
