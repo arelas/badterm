@@ -42,6 +42,11 @@ OLD = os.path.join(REPO, "site")
 EXTRAS = os.path.join(REPO, "extras")
 API = "https://git.badcluster.dev/api/v1/repos/arelas/badterm/releases?limit=1"
 RELEASES = "https://git.badcluster.dev/arelas/badterm/releases"
+# Each release is copied to GitHub (packaging/github-release.py, the release
+# job's step before this site's), and the download links point there, so
+# downloads come from GitHub, not our server.
+GITHUB_API = "https://api.github.com/repos/arelas/badterm/releases/tags/"
+GITHUB_RELEASES = "https://github.com/arelas/badterm/releases"
 URL = "https://badterm.com/"
 # Where --deploy sends it (an rsync destination). CI sets it to the root of
 # the folder its deploy key may write, ubuntu@oracle1.badcluster.dev:.
@@ -60,6 +65,35 @@ def latest_release():
     with open(os.path.join(REPO, "Cargo.toml"), "rb") as f:
         version = tomllib.load(f)["workspace"]["package"]["version"]
     return {"tag_name": f"v{version}", "assets": []}
+
+
+def on_github(release):
+    """The release with each file's link moved to GitHub's copy, where GitHub
+    has the same file at the same size (a copy that failed, or hasn't run,
+    leaves that file on Forgejo); and the releases page to link: GitHub's if
+    every file is there."""
+    tag = release["tag_name"]
+    if not release["assets"]:
+        return {**release, "releases_page": RELEASES}
+    try:
+        req = urllib.request.Request(GITHUB_API + urllib.parse.quote(tag),
+                                     headers={"User-Agent": "badterm-site-build", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            there = {a["name"]: a for a in json.load(r).get("assets", [])}
+    except (OSError, ValueError) as e:
+        print(f"  {tag} isn't on GitHub ({e}); the downloads stay on Forgejo")
+        return {**release, "releases_page": RELEASES}
+    assets = []
+    for a in release["assets"]:
+        g = there.get(a["name"])
+        if g and g.get("size") == a.get("size") and g.get("state", "uploaded") == "uploaded":
+            assets.append({**a, "browser_download_url": g["browser_download_url"]})
+        else:
+            print(f"  {a['name']} isn't on GitHub as it is here; it stays on Forgejo")
+            assets.append(a)
+    moved = sum(a["browser_download_url"].startswith(GITHUB_RELEASES) for a in assets)
+    print(f"  downloads: {moved} of {len(assets)} files from GitHub")
+    return {**release, "assets": assets, "releases_page": GITHUB_RELEASES if moved == len(assets) else RELEASES}
 
 
 def stamp(page, release):
@@ -211,7 +245,7 @@ def build():
     for d in ("img", "fonts", "art"):
         os.makedirs(os.path.join(DIST, d))
 
-    release = latest_release()
+    release = on_github(latest_release())
     version = release["tag_name"].lstrip("v")
     print(f"Release: {release['tag_name']} ({len(release['assets'])} files)")
 
@@ -283,6 +317,13 @@ def build():
         f.write(stamped)
     page("help.html", help_content(), "BadTerm help")
     page("extras.html", extras_content(), "BadTerm extras")
+    # "Releases" links: GitHub's page, if the release is all there.
+    for name in ("index.html", "help.html", "extras.html"):
+        path = os.path.join(DIST, name)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text.replace(f'href="{RELEASES}"', f'href="{release["releases_page"]}"'))
 
     total = sum(os.path.getsize(os.path.join(d, n)) for d, _, ns in os.walk(DIST) for n in ns)
     print(f"Built {DIST} ({total // 1024} KB)")

@@ -24,6 +24,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -75,9 +76,21 @@ def from_forgejo(tag, folder):
     return t["commit"]["sha"]
 
 
+def wait_for(sha, token, repo, minutes=10):
+    """Until the mirror has pushed `sha` to GitHub (it does on each push,
+    within seconds; a release is made from it)."""
+    for _ in range(minutes * 6):
+        status, _ = call("GET", f"{API}/repos/{repo}/commits/{sha}", token)
+        if status == 200:
+            return
+        time.sleep(10)
+    sys.exit(f"github-release: {sha} isn't on GitHub after {minutes} minutes: is the push mirror working?")
+
+
 def copy(tag, sha, folder, token, repo):
     status, rel = call("GET", f"{API}/repos/{repo}/releases/tags/{urllib.parse.quote(tag)}", token)
     if status == 404:
+        wait_for(sha, token, repo)
         version = tag.lstrip("v")
         body = (
             f"BadTerm {version}, built and released at "

@@ -226,7 +226,8 @@ fonts and colors of a host terminal.
 ## Installing
 
 Downloads are on the [website](https://badterm.com/) and the
-[releases page](https://git.badcluster.dev/arelas/badterm/releases).
+[releases page](https://github.com/arelas/badterm/releases) (GitHub's copy;
+each release is made at <https://git.badcluster.dev/arelas/badterm/releases>).
 
 - **Windows**: run `badterm-…-windows-x64-setup.exe` (it and `badterm.exe`
   are code signed). It installs for you
