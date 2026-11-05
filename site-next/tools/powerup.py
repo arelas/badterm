@@ -70,16 +70,23 @@ def line(letters):
 
 
 def layout():
-    """The two words' quads, as a dict (x, qy) -> which word (0 BAD, 1 TERM)."""
+    """The two words' quads, as a dict (x, qy) -> which word (0 BAD, 1 TERM),
+    drawn with the pen (letterpen.py): the letters' claws rise above the cap
+    line and their drips fall below the baseline, and the letters press
+    together until they touch, so each word is one mass."""
+    import letterpen
+    L = letterpen.letters()
+    sx = 1.2
+    bad, bw = letterpen.mask_of("BAD", L, gap=-0.2, sx=sx)
+    term, tw = letterpen.mask_of("TERM", L, gap=-0.2, sx=sx)
+    bx, by = 4, 6                     # BAD's cap line at quad 6: its claws reach up into the aura
+    tx, ty = 79 - tw - 1, by + 20     # TERM under BAD's right half; its claws rise into BAD's drips
     mask = {}
-    bad, term = line([B_, A_, D_]), line([T_, E_, R_, M_])
-    bx, by = 5, 6          # BAD's top-left: x in cells, y in quads
-    tx, ty = 78 - len(term[0]), by + 17   # TERM under BAD's right half, touching it
-    for w, (rows, ox, oy) in enumerate(((bad, bx, by), (term, tx, ty))):
-        for y, r in enumerate(rows):
-            for x, c in enumerate(r):
-                if c == "#":
-                    mask[(ox + x, oy + y)] = w
+    for w, (cells, ox, oy) in enumerate(((bad, bx, by), (term, tx, ty))):
+        for x, qy in cells:
+            p = (ox + x, oy + qy)
+            if 0 <= p[0] < W and 0 <= p[1] < QH:
+                mask.setdefault(p, w)
     return mask, (by, by + 17), (ty, ty + 17)
 
 
@@ -320,6 +327,9 @@ def shade_letters(cv, mask, tops, palette):
         r = (qy - tops[w]) // 2
         cells.setdefault((w, r, x), [False, False])[(qy - tops[w]) % 2] = True
 
+    def band(r):
+        return max(0, min(8, r))
+
     def run(w, r, x):
         a0 = x
         while cells.get((w, r, a0 - 1)) == [True, True]:
@@ -329,16 +339,17 @@ def shade_letters(cv, mask, tops, palette):
             a1 += 1
         return a0, a1
 
-    for (w, r, x), (t, b) in cells.items():
-        top_q = tops[w] + r * 2
+    for (w, r_raw, x), (t, b) in cells.items():
+        top_q = tops[w] + r_raw * 2
         y = top_q // 2
+        r = band(r_raw)
         if t and b:
-            a0, a1 = run(w, r, x)
+            a0, a1 = run(w, r_raw, x)
             n = a1 - a0 + 1
             i = x - a0
-            lit = i < max(1, (n * 3 + 2) // 5)            # the left three fifths of a run face the light
+            lit = i < max(1, (n + 1) // 2)                 # the left half of a stroke faces the light
             right_flank = i == n - 1 and n > 1
-            streak = (x * 5 + w * 3) % 4                   # which vertical streak this column is in
+            streak = (x * 5 + w * 3) % 4 if n >= 3 else 3  # a thin stroke stays plain; streaks need room
             above_open = (x, top_q - 1) not in mask
             if r == 0 or above_open:
                 if lit and streak in (0, 2):
@@ -384,11 +395,13 @@ def shade_letters(cv, mask, tops, palette):
 
 def shadow(cv, mask):
     """Grey behind the word, a cell right and a quad down, where it falls on
-    the keyline's black: the ghost stroke that stands in for a clean drop
-    shadow."""
+    the keyline's black outside the word: the ghost stroke that stands in for
+    a clean drop shadow. Counters stay black, so the letters keep reading."""
+    reached = outside(mask)
     for (x, qy) in list(mask):
         p = (x + 1, qy + 1)
-        if p not in mask and 0 <= p[0] < W and 0 <= p[1] < QH:
+        if p not in mask and 0 <= p[0] < W and 0 <= p[1] < QH and reached[p[1], p[0]] \
+                and (p[0], p[1] + 1) not in mask and (p[0] + 1, p[1]) not in mask:
             cv.set(p[0], p[1], DGRAY)
 
 
