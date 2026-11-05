@@ -19,7 +19,7 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   SGR colors (bold for bright, blink for iCE backgrounds), cursor moves, erase,
   the last column's delayed wrap, SAUCE. It draws an 80x25 screen in BadTerm's
   own VGA 8x16 glyphs, plus BadTerm's status bar in the same format as the app's.
-  The page dials The Vortex BBS (`ATDT vortexbbs.com`, `CONNECT 33600`), then
+  The page dials badterm.com itself (`ATDT badterm.com`, `CONNECT 33600`), then
   receives the logo at the chosen line speed. Any key or click skips the dial,
   and with reduced motion the screen shows up already drawn. Click the screen
   and the menu's keys work: D, F, S and C jump to their sections, P cycles

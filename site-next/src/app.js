@@ -3,7 +3,7 @@
  * The hero is a real 80x25 text screen: an ANSI-BBS parser (SGR, cursor moves,
  * erase, iCE colors, SAUCE), drawn cell by cell in the IBM VGA 8x16 font BadTerm
  * itself uses, then shown through WebGL: sharp scaling with phosphor mode off,
- * a glow, scanlines and a touch of curve with it on. It dials The Vortex BBS,
+ * a glow, scanlines and a touch of curve with it on. It dials badterm.com,
  * receives the logo at the chosen line speed, and then takes the menu's keys.
  * Everything else on the page is plain HTML; this only adds to it.
  */
@@ -352,10 +352,10 @@ void main() {
     let steps = [], art = null, started = 0, online = -1, done = false, needsDraw = true, uploaded = false;
     const enc = (s) => Uint8Array.from(cp437(s));
     const status = {
-      dialing: () => raster.setStatus(" Connecting to vortexbbs.com...  " + MOD + "-H cancel", STATUS_ATTR),
+      dialing: () => raster.setStatus(" Connecting to badterm.com...  " + MOD + "-H cancel", STATUS_ATTR),
       online: (secs) => {
         const hh = String(Math.floor(secs / 3600)).padStart(2, "0"), mm = String(Math.floor(secs / 60) % 60).padStart(2, "0"), ss = String(secs % 60).padStart(2, "0");
-        raster.setStatus(` The Vortex BBS │ ${hh}:${mm}:${ss} iCE │ ${MOD}: D Dir H Hangup U Upload Z Help X Exit`, STATUS_ATTR);
+        raster.setStatus(` badterm.com │ ${hh}:${mm}:${ss} iCE │ ${MOD}: D Dir H Hangup U Upload Z Help X Exit`, STATUS_ATTR);
       },
       idle: () => raster.setStatus(" Not connected │ " + MOD + "-D Dialing directory  " + MOD + "-Z Help  " + MOD + "-X Exit", STATUS_ATTR),
     };
@@ -365,7 +365,7 @@ void main() {
       return [
         { fn: () => { term.reset(); term.cursor = true; raster.showCursor = true; status.dialing(); online = -1; done = false; screen.classList.remove("has-link"); } },
         { bytes: enc("\x1b[0m\x1b[2J\x1b[37m"), rate: Infinity },
-        { bytes: enc("ATDT vortexbbs.com"), rate: 26 },
+        { bytes: enc("ATDT badterm.com"), rate: 26 },
         { wait: 500 },
         { bytes: enc("\r\n"), rate: Infinity },
         { wait: 1100 },

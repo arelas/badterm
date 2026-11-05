@@ -229,7 +229,7 @@ def build():
         f.write(hero.ans(sauce=sauce))
     still = ansi.Screen(80, 26)          # the picture before the page's script runs: the screen and the status bar
     still.cells[:25] = hero.cells
-    status = " The Vortex BBS │ 00:00:00 iCE │ Alt: D Dir H Hangup U Upload Z Help X Exit"
+    status = " badterm.com │ 00:00:00 iCE │ Alt: D Dir H Hangup U Upload Z Help X Exit"
     still.text(0, 25, status.ljust(80), ansi.BLACK, ansi.CYAN)
     still.png(os.path.join(DIST, "art", "hero.png"))
     still.png(os.path.join(DIST, "art", "hero-2x.png"), scale=2)
