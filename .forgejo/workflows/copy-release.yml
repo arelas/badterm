@@ -1,0 +1,26 @@
+name: Copy a release to GitHub
+
+# Copies a release that is already on Forgejo to github.com/arelas/badterm
+# (the push mirror): the GitHub release for the same tag, with the same
+# files, by packaging/github-release.py --from-forgejo. Every new release is
+# copied by the release job's last step; this is for one made before that
+# (or one whose copy failed). Run it from the Actions tab ("Run workflow"),
+# with the tag. Needs the GH_RELEASE_TOKEN secret, as the release job does.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The release's tag, such as v0.4.8"
+        required: true
+
+jobs:
+  copy:
+    runs-on: [self-hosted, Linux]
+    steps:
+      - uses: https://git.badcluster.dev/actions/checkout@v7
+      - name: Copy the release to GitHub
+        env:
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: python3 -I packaging/github-release.py --from-forgejo "$TAG"
