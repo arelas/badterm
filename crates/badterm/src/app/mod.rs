@@ -671,8 +671,10 @@ impl ApplicationHandler<UserEvent> for App {
 /// The icon for the title bar and taskbar (Windows and X11; macOS takes the
 /// app bundle's icon, Wayland the desktop file's).
 fn window_icon() -> Option<winit::window::Icon> {
-    let rgba = include_bytes!("../../assets/icon/badterm-64.rgba");
-    winit::window::Icon::from_rgba(rgba.to_vec(), 64, 64).map_err(|e| log::warn!("window icon: {e}")).ok()
+    // 32 px, the crisp small master: Windows scales it to the 16 px title-bar/
+    // taskbar size cleanly, where the 64 px gradient averaged to mud.
+    let rgba = include_bytes!("../../assets/icon/badterm-32.rgba");
+    winit::window::Icon::from_rgba(rgba.to_vec(), 32, 32).map_err(|e| log::warn!("window icon: {e}")).ok()
 }
 
 /// The terminal rows on view, `scroll` lines back from the live screen.
