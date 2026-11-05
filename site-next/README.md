@@ -34,14 +34,10 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   in a gold ki aura, drawn by `tools/powerup.py` with the letters from
   `tools/letterpen.py` (numpy, run by hand; the build only reads the file). The
   corner the logo leaves free holds the tagline, the menu whose hotkeys the page
-  makes clickable, and the prompt. The HELP and EXTRAS banners are drawn the
-  older way:
-  - block letters in half-block pixels
-  - one short ramp per object: ice (white, light cyan, cyan, blue) for BadTerm,
-    gold (white, yellow, brown) for The Vortex BBS
-  - a dark-gray drop shadow, and rules that fade out to dots
-  - everything kept inside 79 columns
-  - the artist's tag in the corner (`bc!`)
+  makes clickable, and the prompt. The HELP and EXTRAS banners are the pages'
+  titles in the same letters, stroke and ki (`powerup.py --banner WORD`, into
+  `src/art/`; H, L, P, X and S were drawn for them), with a spaced-out line
+  and the artist's tag (`bc!`) under them.
 
   The files are real `.ans`, each with a SAUCE record (iCE, 8-pixel spacing,
   legacy aspect), and `art/hero.png` is the no-script fallback.
@@ -57,11 +53,11 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   builds the contents menu from those headings, in their order. The menu is
   sticky, and its lightbar follows the section in view. The layout adds VGA
   keycaps, the key lists as panels, and code as terminal panels. The page is
-  topped by an ANSI HELP banner in the logo's ice ramp.
+  topped by the ANSI HELP banner.
 - **The extras page is built from `extras/`:** a card per theme
   (`themes/*.toml` plus its preview) and per bezel (`bezels/bezels.toml`), each
   with the real file name and size, BBS-listing style. The "share yours" text
-  comes from `site/extras.html`. The page is topped by a gold EXTRAS banner.
+  comes from `site/extras.html`. The page is topped by the ANSI EXTRAS banner.
 - **The three pages share** `src/_nav.html` and `src/_footer.html`. The footer
   carries a SAUCE-style record for each page.
 - **The logo kit is made by `tools/brand.py`** from the files the app ships:

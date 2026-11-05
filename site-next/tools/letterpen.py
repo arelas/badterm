@@ -138,6 +138,36 @@ def letters():
         stem(11.2), claw(11.2, reach=3.8, rise=4.6),
         [(2.8, 1.0, 1.3), (4.6, 4.4, 2.4), (6.4, 9.8, 2.9), (8.2, 4.4, 2.4), (10.0, 1.0, 1.3)],
     ])
+    # H: M's two clawed stems, leaning apart, and a bar that leaves each
+    # stem thin and swells between them.
+    L["H"] = (11, [
+        stem(1.6), claw(1.6, reach=3.4, rise=4.0, lean=-1.0),
+        stem(9.4), claw(9.4, reach=3.6, rise=4.6),
+        [(2.8, 9.6, 1.6), (5.6, 9.0, 2.8), (8.2, 9.2, 1.8)],
+    ])
+    # L: a clawed stem and E's foot, kicking out and up to a point.
+    L["L"] = (9.5, [
+        stem(1.8, drip=False), claw(1.8, reach=4.2, rise=4.8),
+        [(3.0, 17.0, 3.2), (6.0, 17.4, 3.2), (8.4, 16.6, 2.4), (9.6, 14.6, 1.2), (10.0, 12.6, 0.3)],
+    ])
+    # P: B's stem and claw, and one bowl, deeper than B's upper one.
+    L["P"] = (10, [
+        stem(1.8), claw(1.8),
+        [(3.0, 1.2, 1.4), (6.0, 0.6, 2.5), (8.8, 2.8, 3.2), (8.8, 7.0, 2.9), (5.8, 10.2, 2.1), (3.0, 10.6, 1.3)],
+    ])
+    # X: a heavy stroke falling left to right, a lighter one crossing it;
+    # both flick to points above the cap line and drip below the baseline.
+    L["X"] = (11, [
+        [(0.2, -3.2, 0.3), (0.9, -0.8, 1.6), (2.2, 1.4, 3.0), (5.5, 9.0, 3.6), (8.6, 16.6, 3.9), (9.3, 18.8, 1.8), (9.5, 20.6, 0.4)],
+        [(10.8, -3.8, 0.3), (10.0, -1.4, 1.3), (8.9, 1.2, 2.3), (5.5, 9.0, 2.6), (2.1, 16.6, 3.0), (1.2, 18.6, 1.4), (0.7, 20.2, 0.3)],
+    ])
+    # S: one spine, thick through its turns and thin at its ends: a blade
+    # flicking up off the top right, a tail curling up at the bottom left.
+    L["S"] = (10, [
+        [(9.8, -3.0, 0.3), (9.2, -0.2, 1.3), (7.4, 1.2, 2.4), (4.4, 1.0, 3.0), (2.0, 3.0, 3.4), (2.0, 6.4, 3.4),
+         (4.6, 8.8, 3.2), (7.4, 10.4, 3.4), (8.8, 13.4, 3.7), (7.9, 16.6, 3.3), (5.0, 17.9, 2.6), (2.4, 17.5, 1.8),
+         (0.9, 15.8, 0.4)],
+    ])
     return L
 
 

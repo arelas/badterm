@@ -4,6 +4,7 @@
     python3 -I site-next/tools/powerup.py OUT.ans [seed]            # the piece, with its caption
     python3 -I site-next/tools/powerup.py OUT.ans [seed] --bare     # the corner left empty
     python3 -I site-next/tools/powerup.py OUT.svg [seed] --line     # on one line, for the site's header
+    python3 -I site-next/tools/powerup.py OUT.ans --banner HELP     # a page's banner (site-next/src/art/)
 
 The bare piece is BadTerm's logo: crates/badterm/assets/logo/badterm.ans,
 which the app's splash screen and the website's front page both show,
@@ -279,7 +280,7 @@ def shadow(cv, mask):
 
 
 
-def ki(cv, mask, rng, keep_clear, side=3.6, down=2.0, base=5.0, sky=1.0):
+def ki(cv, mask, rng, keep_clear, side=3.6, down=2.0, base=5.0, sky=1.0, min_blob=0):
     """The Super Saiyan aura: ki, not fire. White-hot against the word, white
     worked over gold, a gold body, and a rim of gold dark-shaded over brown,
     a glow and not a burn (a dark rim reads as fire). The body is solid
@@ -337,6 +338,26 @@ def ki(cv, mask, rng, keep_clear, side=3.6, down=2.0, base=5.0, sky=1.0):
                 if len(nb) >= 3:
                     heat[(x, qy)] = sum(nb) / len(nb)
                     upness[(x, qy)] = 0.0
+    if min_blob:
+        # drop the bits of the field cut off from the rest, smaller than
+        # min_blob quads: slivers caught in the gap between two letters
+        seen = set()
+        for start in list(heat):
+            if start in seen:
+                continue
+            blob, todo = [], [start]
+            seen.add(start)
+            while todo:
+                q = todo.pop()
+                blob.append(q)
+                for a, b in N4:
+                    n = (q[0] + a, q[1] + b)
+                    if n in heat and n not in seen:
+                        seen.add(n)
+                        todo.append(n)
+            if len(blob) < min_blob:
+                for q in blob:
+                    heat.pop(q)
     STEPS = [(0.12, (FULL, WHITE, WHITE)), (0.22, (DARK, WHITE, YELLOW)), (0.32, (MEDIUM, WHITE, YELLOW)),
              (0.80, (FULL, YELLOW, YELLOW)), (1.01, (DARK, YELLOW, BROWN))]
 
@@ -564,13 +585,60 @@ def line(seed=SEED, aura=False, ghost=True):
     return s
 
 
+def banner(word, gap=0.5, rows=15, cap=6, seed=SEED):
+    """A page's title in the logo's letters, for the website's banners
+    (HELP, EXTRAS): the same stroke, keyline, shadow and a thinner ki, the
+    word centred on 80 columns. Its letters sit further apart than BAD's
+    and TERM's, so stems never fuse (H against E). An 80 x `rows` Screen."""
+    import letterpen
+    cells, _ = letterpen.mask_of(word, letterpen.letters(), gap=gap, sx=1.2)
+    xs = [x for x, _ in cells]
+    ox = (80 - (max(xs) - min(xs) + 1)) // 2 - min(xs)
+    saved = W, H, QH
+    globals().update(W=80, H=rows, QH=rows * 2)
+    try:
+        mask = {(ox + x, cap + y): 0 for x, y in cells if 0 <= ox + x < W and 0 <= cap + y < QH}
+        rng = random.Random(seed)
+        cv = Canvas()
+
+        def channel(x, qy):
+            # between two letters (the X's leg and the T's stem): the ki
+            # goes round the word, not into it
+            return any((x - k, qy) in mask for k in range(1, 7)) and any((x + k, qy) in mask for k in range(1, 7))
+        d, heat = ki(cv, mask, rng, channel, side=3.0, down=1.8, base=4.0, sky=0.7, min_blob=40)
+        arcs(cv, rng, d, heat, channel, n=2)
+        for qy in range(QH):
+            for x in range(W):
+                if (x, qy) not in mask and any((x + dx, qy + dy) in mask for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+                    cv.set(x, qy, None)
+                    cv.fixed.pop((x, qy // 2), None)
+        reached = outside(mask)
+        for qy in range(QH):
+            for x in range(W):
+                if not reached[qy, x] and (x, qy) not in mask:
+                    cv.set(x, qy, None)
+        shadow(cv, mask)
+        shade_letters(cv, mask, {0: cap})
+        s = Screen(W, H)
+        cv.onto(s)
+    finally:
+        globals().update(W=saved[0], H=saved[1], QH=saved[2])
+    return s
+
+
 SAUCE = dict(title="BADTERM", author="Bad Cluster", group="", date="20261105")
 
 
 def main():
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    args = [a for i, a in enumerate(sys.argv[1:], 1) if not a.startswith("--") and sys.argv[i - 1] != "--banner"]
     out = args[0]
     seed = int(args[1]) if len(args) > 1 else SEED
+    if "--banner" in sys.argv:
+        word = sys.argv[sys.argv.index("--banner") + 1]
+        with open(out, "wb") as f:
+            f.write(banner(word, seed=seed).ans(sauce={**SAUCE, "title": f"BadTerm {word.lower()}"}))
+        print("wrote", out)
+        return
     if "--line" in sys.argv:
         with open(out, "w", encoding="utf-8") as f:
             f.write(quads_svg(line(seed)))
