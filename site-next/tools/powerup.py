@@ -1,7 +1,15 @@
 #!/usr/bin/env python3
 """BADTERM, powering up: the wordmark as a scene logo, 80x25.
 
-    python3 -I site-next/tools/powerup.py OUT.ans [seed]
+    python3 -I site-next/tools/powerup.py OUT.ans [seed]            # the piece, with its caption
+    python3 -I site-next/tools/powerup.py OUT.ans [seed] --bare     # the corner left empty
+    python3 -I site-next/tools/powerup.py OUT.svg [seed] --line     # on one line, for the site's header
+
+The bare piece is BadTerm's logo: crates/badterm/assets/logo/badterm.ans,
+which the app's splash screen and the website's front page both show,
+with their own words in the corner. Regenerate it after changing this:
+
+    python3 -I site-next/tools/powerup.py crates/badterm/assets/logo/badterm.ans --bare
 
 BAD over TERM, the scene's stacked layout ("negative / land", "earth /
 bound"), TERM tucked under BAD's right half and touching it, so the two words
@@ -33,7 +41,8 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ansi import (BLACK, BLUE, BROWN, CYAN, DGRAY, GRAY, LBLUE, LCYAN, LGREEN, LMAGENTA, MAGENTA, WHITE, YELLOW, Screen)  # noqa: E402
+from ansi import (BLACK, BLUE, BROWN, CYAN, DGRAY, GRAY, LBLUE, LCYAN, LGREEN, LMAGENTA, MAGENTA, WHITE, YELLOW, Screen,
+                  quads_svg)  # noqa: E402
 
 W, H = 80, 25
 QH = H * 2
@@ -169,17 +178,7 @@ def pocket(mask, x, qy, span=12):
 
 
 # ---------------------------------------------------------------- chrome
-# Each palette: the ground under the whole fill, the accent over it by
-# height (its hue slides down the stroke), the highlight, the ground the
-# foot of the stroke sits on.
-PALETTES = {
-    "ice": {"ground": CYAN, "accents": [(0.34, LCYAN), (1.01, LBLUE)], "high": WHITE, "foot": BLUE, "edge_low": LBLUE},
-    "frieza": {"ground": MAGENTA, "accents": [(0.30, WHITE), (0.62, LCYAN), (1.01, LMAGENTA)], "high": WHITE, "foot": BLUE,
-               "edge_low": LMAGENTA},
-}
-
-
-def shade_letters(cv, mask, tops, palette):
+def shade_letters(cv, mask, tops):
     """Lord Jazz's stroke, measured off negative land row by row. Over one
     cyan ground: the top edge in half blocks with light-green highlights on
     its lit (left) side; the rows under it mostly light green worked over
@@ -278,10 +277,9 @@ def shadow(cv, mask):
             cv.set(p[0], p[1], DGRAY)
 
 
-PALETTE = "ice"
 
 
-def ki(cv, mask, rng, keep_clear):
+def ki(cv, mask, rng, keep_clear, side=3.6, down=2.0, base=5.0, sky=1.0):
     """The Super Saiyan aura: ki, not fire. White-hot against the word, white
     worked over gold, a gold body, and a rim of gold dark-shaded over brown,
     a glow and not a burn (a dark rim reads as fire). The body is solid
@@ -300,14 +298,13 @@ def ki(cv, mask, rng, keep_clear):
     while cx < W + 2:
         tall = k % 2 == 0
         open_sky = 1.2 if cx > 44 else 1.0
-        hgt = (rng.uniform(9, 12) if tall else rng.uniform(4, 6)) * open_sky
+        hgt = (rng.uniform(9, 12) if tall else rng.uniform(4, 6)) * open_sky * sky
         half = rng.uniform(2.4, 3.0) if tall else rng.uniform(1.8, 2.3)
         spikes = np.maximum(spikes, hgt * np.clip(1 - np.abs(xs - cx) / half, 0, 1) ** 1.5)
         beat.append(cx)
         cx += rng.uniform(4.4, 5.6)
         k += 1
-    up = 5.0 + spikes                                           # one size all round: BAD has no sky to spare
-    side, down = 3.6, 2.0
+    up = base + spikes                                          # one size all round: BAD has no sky to spare
     # where the two words come close (the crotch under A, by the D) the ki is
     # pinched between them: thinner there, or it piles up into a slab
     d_bad, _ = distance({p: w for p, w in mask.items() if w == 0})
@@ -467,20 +464,24 @@ def lift(cv, rng, d, heat, floor_q, x_from, keep_clear):
             cv.glyph(x, y, LIGHT if rng.random() < 0.7 else MEDIUM, GRAY, BLACK)
 
 
-def main():
-    global PALETTE
-    out = sys.argv[1]
-    seed = int(sys.argv[2]) if len(sys.argv) > 2 else 11
-    PALETTE = sys.argv[3] if len(sys.argv) > 3 else "ice"
+SEED = 11   # the build of the aura chosen in round 12
+CORNER_X, CORNER_ROW = 20, 14   # the caption's corner, kept clear of the aura: columns 0-19, rows 14-24
+
+
+def piece(seed=SEED):
+    """The wordmark, its aura and the floor, with the caption's corner left
+    empty for whoever shows it to fill (the study's caption, the website's
+    menu, the app's version line), as a Screen."""
     rng = random.Random(seed)
     mask, bad_rows, term_rows = layout()
     cv = Canvas()
+
     def keep_clear(x, qy):
-        return x < 20 and qy >= 28          # the caption's corner
+        return x < CORNER_X and qy >= CORNER_ROW * 2
     floor_q = term_rows[1] + 4
     d, heat = ki(cv, mask, rng, keep_clear)
     arcs(cv, rng, d, heat, keep_clear)
-    lift(cv, rng, d, heat, floor_q, 20, keep_clear)
+    lift(cv, rng, d, heat, floor_q, CORNER_X, keep_clear)
     # the keyline: one quad of black all round the word
     for qy in range(QH):
         for x in range(W):
@@ -497,18 +498,86 @@ def main():
             if not reached[qy, x] and (x, qy) not in mask:
                 cv.set(x, qy, None)
     shadow(cv, mask)
-    shade_letters(cv, mask, {0: bad_rows[0], 1: term_rows[0]}, PALETTE)
+    shade_letters(cv, mask, {0: bad_rows[0], 1: term_rows[0]})
     s = Screen(W, H)
     cv.onto(s)
-    # the caption, stacked in the room under BAD, saying the word plainly
+    return s
+
+
+def caption(s):
+    """The piece's own caption, stacked in the room under BAD, saying the
+    word plainly, and the tag."""
     cx = 2
     s.parts(cx, 15, [("t h e", GRAY)])
     s.parts(cx, 17, [("b a d a s s", WHITE)])
     s.parts(cx, 19, [("t e r m i n a l", GRAY)])
-    s.parts(cx, 21, [("· ", DGRAY), ("b a d t e r m . c o m", CYAN)])
+    s.parts(cx, 21, [("\u00b7 ", DGRAY), ("b a d t e r m . c o m", CYAN)])
     s.parts(cx, 23, [("bc", DGRAY), ("!", YELLOW)])
+    return s
+
+
+def line(seed=SEED):
+    """The wordmark on one line, for the website's header: BAD and TERM side
+    by side in the same letters, keyline, shadow and stroke, with a thin ki
+    and a low crown. A Screen sized to fit."""
+    import letterpen
+    L = letterpen.letters()
+    bad, bw = letterpen.mask_of("BAD", L, gap=-0.2, sx=1.2)
+    term, tw = letterpen.mask_of("TERM", L, gap=0.3, sx=1.2)
+    margin, gap, cap = 3, 2, 8
+    cols = margin + bw + gap + tw + margin
+    rows = (cap + 18 + 6 + 1) // 2
+    saved = W, H, QH
+    globals().update(W=cols, H=rows, QH=rows * 2)
+    try:
+        mask = {}
+        for w, (cells, ox) in enumerate(((bad, margin), (term, margin + bw + gap))):
+            for x, qy in cells:
+                p = (ox + x, cap + qy)
+                if 0 <= p[0] < W and 0 <= p[1] < QH:
+                    mask.setdefault(p, w)
+        rng = random.Random(seed)
+        cv = Canvas()
+
+        def never(x, qy):
+            return False
+        ki(cv, mask, rng, never, side=2.2, down=1.6, base=2.6, sky=0.4)
+        for qy in range(QH):
+            for x in range(W):
+                if (x, qy) not in mask and any((x + dx, qy + dy) in mask for dx in (-1, 0, 1) for dy in (-1, 0, 1)):
+                    cv.set(x, qy, None)
+                    cv.fixed.pop((x, qy // 2), None)
+        reached = outside(mask)
+        for qy in range(QH):
+            for x in range(W):
+                if not reached[qy, x] and (x, qy) not in mask:
+                    cv.set(x, qy, None)
+        shadow(cv, mask)
+        shade_letters(cv, mask, {0: cap, 1: cap})
+        s = Screen(W, H)
+        cv.onto(s)
+    finally:
+        globals().update(W=saved[0], H=saved[1], QH=saved[2])
+    return s
+
+
+SAUCE = dict(title="BADTERM", author="Bad Cluster", group="", date="20261105")
+
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    out = args[0]
+    seed = int(args[1]) if len(args) > 1 else SEED
+    if "--line" in sys.argv:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(quads_svg(line(seed)))
+        print("wrote", out)
+        return
+    s = piece(seed)
+    if "--bare" not in sys.argv:
+        caption(s)
     with open(out, "wb") as f:
-        f.write(s.ans(sauce=dict(title="BADTERM", author="Bad Cluster", group="", date="20261105")))
+        f.write(s.ans(sauce=SAUCE))
     print("wrote", out)
 
 

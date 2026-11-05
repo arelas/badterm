@@ -158,6 +158,45 @@ def sauce_record(size, cols, rows, title="", author="", group="", date="", ice=T
     return b"\x1a" + rec
 
 
+def quads_svg(s, title="BadTerm", clip=None):
+    """A Screen as an SVG of its half-cells, a unit each: every half-cell the
+    color its cell mostly shows (a shade, its main ink), black left out, so
+    it sits on any dark ground; crisp at any size. With `clip`, the whole
+    screen on a black tile with rounded corners (an icon)."""
+    top_of = {0xDB: lambda f, b: (f, f), 0xDF: lambda f, b: (f, b), 0xDC: lambda f, b: (b, f),
+              0xB2: lambda f, b: (f, f), 0xB1: lambda f, b: (f, f)}
+    grid = [[None] * s.cols for _ in range(s.rows * 2)]
+    for y in range(s.rows):
+        for x in range(s.cols):
+            ch, fg, bg = s.cells[y][x]
+            t, b = top_of.get(ch, lambda f, b: (b, b))(fg, bg)
+            grid[y * 2][x], grid[y * 2 + 1][x] = t, b
+    if clip is None:   # crop to the ink
+        rows = [i for i, r in enumerate(grid) if any(c not in (None, BLACK) for c in r)]
+        cols = [x for x in range(s.cols) if any(grid[y][x] not in (None, BLACK) for y in rows)]
+        y0, y1, x0, x1 = rows[0], rows[-1], cols[0], cols[-1]
+    else:
+        y0, y1, x0, x1 = 0, s.rows * 2 - 1, 0, s.cols - 1
+    out = []
+    for y in range(y0, y1 + 1):
+        x = x0
+        while x <= x1:
+            c = grid[y][x]
+            n = 1
+            while x + n <= x1 and grid[y][x + n] == c:
+                n += 1
+            if c not in (None, BLACK):
+                out.append('<rect x="%d" y="%d" width="%d" height="1" fill="#%02X%02X%02X"/>' % ((x - x0, y - y0, n) + tuple(VGA[c])))
+            x += n
+    w, h = x1 - x0 + 1, y1 - y0 + 1
+    body = "".join(out)
+    if clip is not None:   # a rounded tile, its corner radius `clip` units, on black
+        body = ('<clipPath id="t"><rect width="%d" height="%d" rx="%g"/></clipPath><g clip-path="url(#t)">'
+                '<rect width="%d" height="%d" fill="#000000"/>%s</g>' % (w, h, clip, w, h, body))
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" shape-rendering="crispEdges">'
+            '<title>%s</title>%s</svg>\n' % (w, h, w, h, title, body))
+
+
 class Pixels:
     """A canvas of half-block pixels: two per text cell, stacked. Drawing it
     onto a Screen picks each cell's character from its two colors."""

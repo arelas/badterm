@@ -1,14 +1,15 @@
-"""The website's ANSI art, drawn the way the BBS scene drew logos: on a canvas
-of half-block pixels, letters with a short color ramp down them and a dark
-shadow down and to the right, thin rules that fade out to dots, and a small
-tag in the corner.
+"""The website's ANSI art.
 
-  hero: the BADTERM logo (the app's own splash letters, read from
-        crates/badterm/src/ui/splash.rs), the tagline, and a BBS-style menu
-        whose hotkeys the page makes clickable. 80x25, iCE.
-  banner: a page's title in the same letters (HELP in ice, EXTRAS in gold).
+  hero: the front page's screen, BadTerm's logo (the app's own splash piece,
+        crates/badterm/assets/logo/badterm.ans), with the tagline, a BBS-style
+        menu whose hotkeys the page makes clickable, and the prompt in the
+        corner the logo leaves for them. 80x25, iCE.
+  banner: a page's title drawn the way the BBS scene drew logos, on a canvas
+        of half-block pixels: block letters with a short color ramp down them
+        and a dark shadow down and to the right, between thin rules that fade
+        out to dots (HELP in ice, EXTRAS in gold), and a small tag.
 
-Each is returned as (Screen, hotspots), where a hotspot is a clickable run of
+hero returns (Screen, hotspots, prompt), where a hotspot is a clickable run of
 cells: {"row", "c0", "c1", "key", "href"}.
 """
 
@@ -17,16 +18,17 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ansiparse  # noqa: E402
 from ansi import (BLACK, BLUE, BROWN, CYAN, DGRAY, GRAY, LBLUE, LCYAN, WHITE, YELLOW, Pixels, Screen, cp)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-SPLASH = os.path.join(REPO, "crates", "badterm", "src", "ui", "splash.rs")
+LOGO = os.path.join(REPO, "crates", "badterm", "assets", "logo", "badterm.ans")
 
 LW, LH = 9, 12   # the splash's letter cell, in pixels
 STEP = 10        # letter advance (one pixel of space)
 
-# Letters the splash doesn't have, in its style: 3-pixel strokes, corners
+# More letters in that style: 3-pixel strokes, corners
 # rounded off by a missing pixel.
 EXTRA = {
     "V": ["###...###", "###...###", "###...###", "###...###", "###...###", "###...###",
@@ -58,19 +60,27 @@ GOLD_RULE = [(0.18, 0xC4, YELLOW), (0.42, 0xC4, BROWN), (0.70, 0xC4, DGRAY), (0.
              (0.95, 0xFA, DGRAY)]
 
 
-def splash_letters():
-    """The splash screen's letters, parsed from its source: {char: [rows]}."""
-    src = open(SPLASH, encoding="utf-8").read()
-    out = {}
-    for m in re.finditer(r"\(\s*'(.)',\s*\[(.*?)\],\s*\)", src, re.S):
-        rows = re.findall(r'"([#.]+)"', m.group(2))
-        assert len(rows) == LH and all(len(r) == LW for r in rows), m.group(1)
-        out[m.group(1)] = rows
-    assert set("BADTERM") <= set(out), sorted(out)
-    return out
+# The block letters of BadTerm's first splash screen, 9 x 12 pixels, for the
+# pages' banners (HELP, EXTRAS).
+BLOCK = {
+    "B": ["#######..", "########.", "###...###", "###...###", "###..###.", "#######..",
+          "########.", "###...###", "###...###", "###...###", "########.", "#######.."],
+    "A": ["..#####..", ".#######.", "###...###", "###...###", "###...###", "#########",
+          "#########", "###...###", "###...###", "###...###", "###...###", "###...###"],
+    "D": ["#######..", "########.", "###...###", "###...###", "###...###", "###...###",
+          "###...###", "###...###", "###...###", "###...###", "########.", "#######.."],
+    "T": ["#########", "#########", "...###...", "...###...", "...###...", "...###...",
+          "...###...", "...###...", "...###...", "...###...", "...###...", "...###..."],
+    "E": ["#########", "#########", "###......", "###......", "###......", "#######..",
+          "#######..", "###......", "###......", "###......", "#########", "#########"],
+    "R": ["#######..", "########.", "###...###", "###...###", "###...###", "########.",
+          "#######..", "###.###..", "###..###.", "###...###", "###...###", "###...###"],
+    "M": ["##.....##", "###...###", "####.####", "###.#.###", "###...###", "###...###",
+          "###...###", "###...###", "###...###", "###...###", "###...###", "###...###"],
+}
 
 
-LETTERS = {**EXTRA, **splash_letters()}
+LETTERS = {**EXTRA, **BLOCK}
 
 
 # The logo's cursor: a copper bar, 4 pixels by 2, at the baseline a pixel
@@ -109,43 +119,48 @@ def rule(s, y, steps, x0=0, width=80):
                 break
 
 
-def hero(version):
+def logo_screen():
+    """BadTerm's logo (crates/badterm/assets/logo/badterm.ans, drawn by
+    powerup.py) as a Screen, its corner (columns 0-19, rows 14-24) empty."""
     s = Screen(80, 25)
-    p = Pixels(80, 50)
-    x0 = (80 - word_width("BADTERM", cursor=True)) // 2
-    logo(p, "BADTERM", x0, 6, ICE, cursor=True)   # pixel row 6 = the top of text row 3
-    p.onto(s)
+    rows = ansiparse.parse(open(LOGO, "rb").read())
+    for y, row in enumerate(rows[:25]):
+        for x, cell in enumerate(row[:80]):
+            s.put(x, y, *cell)
+    return s
 
-    rule(s, 1, ICE_RULE)
-    rule(s, 11, ICE_RULE)
-    s.centered(13, [("t h e   ", GRAY), ("b a d a s s", WHITE), ("   t e r m i n a l", GRAY)])
 
-    words = ["telnet", "ssh", "modem", "ansi", "petscii", "ripscrip", "sixel", "viewdata"]
-    parts = []
-    for i, w in enumerate(words):
-        if i:
-            parts.append((" ù ", DGRAY))
-        parts.append((w, CYAN))
-    s.centered(15, [(t.replace("ù", "∙"), c) for t, c in parts])
+def poster():
+    """The logo with its own caption stacked in the corner: what it is,
+    badterm.com, and the tag (as site-next/tools/powerup.py captions it)."""
+    s = logo_screen()
+    s.parts(2, 15, [("t h e", GRAY)])
+    s.parts(2, 17, [("b a d a s s", WHITE)])
+    s.parts(2, 19, [("t e r m i n a l", GRAY)])
+    s.parts(2, 21, [("\u00b7 ", DGRAY), ("b a d t e r m . c o m", CYAN)])
+    s.parts(2, 23, [("bc", DGRAY), ("!", YELLOW)])
+    return s
 
-    # The menu: [K] label, hotkey in yellow, brackets dark, labels gray.
+
+def hero(version):
+    """The front page's screen: the logo, and in its corner the tagline, a
+    BBS-style menu whose hotkeys the page makes clickable, and the prompt."""
+    s = logo_screen()
+    x0 = 1
+    s.parts(x0, 15, [("the ", GRAY), ("badass", WHITE), (" terminal", GRAY)])
     items = [("D", "download", "#download"), ("F", "features", "#features"), ("S", "systems", "#systems"),
              ("P", "phosphor", "#phosphor"), ("C", "call the vortex", "#call")]
-    gap = 3
-    total = sum(len(f"[{k}] {label}") for k, label, _ in items) + gap * (len(items) - 1)
-    x = (80 - total) // 2
     hotspots = []
-    for k, label, href in items:
-        start = x
-        x = s.parts(x, 18, [("[", DGRAY), (k, YELLOW), ("]", DGRAY), (" " + label, GRAY)])
-        hotspots.append({"row": 18, "c0": start, "c1": x - 1, "key": k, "href": href})
-        x += gap
-
+    for i, (k, label, href) in enumerate(items):
+        y = 17 + i
+        end = s.parts(x0, y, [("[", DGRAY), (k, YELLOW), ("]", DGRAY), (" " + label, CYAN)])
+        hotspots.append({"row": y, "c0": x0, "c1": end - 1, "key": k, "href": href})
     # The prompt; the page puts the cursor after it.
-    end = s.parts(x0, 21, [("Main menu ", GRAY), ("[", DGRAY), ("D F S P C", YELLOW), ("]", DGRAY), (": ", GRAY)])
-    s.parts(1, 24, [(f"v{version}", DGRAY), (" ∙ ", DGRAY), ("badterm.com", CYAN)])
-    s.parts(76, 24, [("bc", DGRAY), ("!", DGRAY)])  # the artist's tag: Bad Cluster
-    return s, hotspots, {"row": 21, "col": end}
+    end = s.parts(x0, 23, [("Menu ", GRAY), ("[", DGRAY), ("DFSPC", YELLOW), ("]", DGRAY), (": ", GRAY)])
+    s.parts(x0, 24, [(f"v{version}", DGRAY)])
+    s.parts(17, 24, [("bc", DGRAY), ("!", YELLOW)])  # the artist's tag: Bad Cluster
+    assert end < 20 and all(h["c1"] < 20 for h in hotspots), "the corner is 20 columns"
+    return s, hotspots, {"row": 23, "col": end}
 
 
 def banner(word, ramp, rule_steps, tagline):

@@ -1,18 +1,24 @@
-//! The splash screen shown for a moment at start: the name as ANSI art,
-//! with the version and where BadTerm comes from.
+//! The splash screen shown for a moment at start: BadTerm's logo, the
+//! BADTERM wordmark powering up, with the version and where BadTerm comes
+//! from in the corner the logo leaves for them.
 //!
-//! The art is drawn the way the BBS scene's logos were: on a canvas of
-//! half-block "pixels" (each text cell is two of them, stacked: `▀` in one
-//! color over another), so letters can have rounded corners and a color
-//! ramp down them. The letters fade from white through cyan to blue, like
-//! ice lit from above, and cast a dark shadow down and to the right; thin
-//! rules above and below fade out to dots, in the same colors. After the M
-//! sits the logo's cursor, a copper bar at the baseline: BADTERM▄, whose first
-//! letter and cursor are the app's icon.
+//! The logo is an ANSI piece (`assets/logo/badterm.ans`, drawn by
+//! `site-next/tools/powerup.py`), played here as a BBS would send it: BAD
+//! over TERM, one welded mass under one black keyline, shaded in the
+//! negative-land style (a cyan ground, light green and light blue worked over
+//! it in vertical streaks), in a gold ki aura with iCE colors. The website's
+//! front page shows the same piece with its menu in the corner.
+//!
+//! The splash is the logo, so it is drawn in the VGA's own colors whatever
+//! the color scheme: its cells are resolved to RGB once, which a scheme's
+//! palette leaves alone.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
-use badterm_core::screen::{Cell, Color, Screen};
+use badterm_core::Terminal;
+use badterm_core::sauce;
+use badterm_core::screen::{Cell, Color, Look, Screen};
 
 use super::*;
 
@@ -22,284 +28,109 @@ pub const TIME: Duration = Duration::from_secs(2);
 pub const COLS: usize = 80;
 pub const ROWS: usize = 25;
 
-/// The canvas: two pixels per text row.
-const PW: usize = COLS;
-const PH: usize = ROWS * 2;
+/// The logo: 80x25, iCE colors, with SAUCE.
+const LOGO: &[u8] = include_bytes!("../../assets/logo/badterm.ans");
 
-/// Letters, 9 pixels wide and 12 high (`#` is lit).
-const LETTERS: [(char, [&str; 12]); 7] = [
-    (
-        'B',
-        [
-            "#######..",
-            "########.",
-            "###...###",
-            "###...###",
-            "###..###.",
-            "#######..",
-            "########.",
-            "###...###",
-            "###...###",
-            "###...###",
-            "########.",
-            "#######..",
-        ],
-    ),
-    (
-        'A',
-        [
-            "..#####..",
-            ".#######.",
-            "###...###",
-            "###...###",
-            "###...###",
-            "#########",
-            "#########",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-        ],
-    ),
-    (
-        'D',
-        [
-            "#######..",
-            "########.",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "########.",
-            "#######..",
-        ],
-    ),
-    (
-        'T',
-        [
-            "#########",
-            "#########",
-            "...###...",
-            "...###...",
-            "...###...",
-            "...###...",
-            "...###...",
-            "...###...",
-            "...###...",
-            "...###...",
-            "...###...",
-            "...###...",
-        ],
-    ),
-    (
-        'E',
-        [
-            "#########",
-            "#########",
-            "###......",
-            "###......",
-            "###......",
-            "#######..",
-            "#######..",
-            "###......",
-            "###......",
-            "###......",
-            "#########",
-            "#########",
-        ],
-    ),
-    (
-        'R',
-        [
-            "#######..",
-            "########.",
-            "###...###",
-            "###...###",
-            "###...###",
-            "########.",
-            "#######..",
-            "###.###..",
-            "###..###.",
-            "###...###",
-            "###...###",
-            "###...###",
-        ],
-    ),
-    (
-        'M',
-        [
-            "##.....##",
-            "###...###",
-            "####.####",
-            "###.#.###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-            "###...###",
-        ],
-    ),
-];
+/// The corner the logo leaves empty, under BAD and left of TERM: its first
+/// column past it, and its top row.
+const CORNER_X: usize = 20;
+const CORNER_TOP: usize = 14;
+/// Where the words in it start.
+const TEXT_X: usize = 1;
 
-/// The letters' color by pixel row, ice: a white highlight at the top,
-/// light cyan, cyan, then deep blue at the bottom.
-const RAMP: [u8; 12] = [15, 11, 11, 11, 11, 11, 3, 3, 3, 1, 1, 1];
-/// The cursor after the name: 4 pixels by 2 at the baseline, a pixel's gap
-/// after the last letter, VGA yellow over brown (the copper of the icon).
-const CURSOR: [u8; 2] = [14, 6];
-const CURSOR_W: usize = 4;
-/// Where the logo's top pixel row is (an even one: a text row's top).
-const LOGO_Y: usize = 10;
-const SHADOW: u8 = 8;
-
-/// A canvas of pixels, each a VGA color (0, black, for none).
-struct Canvas([[u8; PW]; PH]);
-
-impl Canvas {
-    fn set(&mut self, x: usize, y: usize, c: u8) {
-        if x < PW && y < PH {
-            self.0[y][x] = c;
-        }
-    }
-
-    /// Onto the screen: each cell shows its two pixels with `▀`, its
-    /// foreground over its background (or a space, or a full block).
-    fn draw(&self, s: &mut Screen) {
-        for y in 0..ROWS {
-            for x in 0..COLS {
-                let (top, bottom) = (self.0[y * 2][x], self.0[y * 2 + 1][x]);
-                let cell = match (top, bottom) {
-                    (0, 0) => Cell::new(b' ', Color::Pc(7), Color::Pc(0)),
-                    (t, b) if t == b => Cell::new(0xDB, Color::Pc(t), Color::Pc(0)),
-                    (0, b) => Cell::new(0xDC, Color::Pc(b), Color::Pc(0)),
-                    (t, b) => Cell::new(0xDF, Color::Pc(t), Color::Pc(b)),
-                };
-                if let Some(c) = s.cell_mut(x, y) {
-                    *c = cell;
-                }
-            }
-        }
-    }
+/// A VGA color, as RGB.
+fn vga(i: u8) -> Color {
+    Color::Rgb(Look::standard().rgb(Color::Pc(i)))
 }
 
-/// The logo's pixels: which are lit, at (x, y) from its top left.
-fn logo() -> Vec<(usize, usize)> {
-    let mut lit = Vec::new();
-    for (i, ch) in "BADTERM".chars().enumerate() {
-        let rows = LETTERS.iter().find(|(c, _)| *c == ch).map(|(_, r)| r).expect("a letter of the name");
-        for (y, row) in rows.iter().enumerate() {
-            for (x, b) in row.bytes().enumerate() {
-                if b == b'#' {
-                    lit.push((i * 10 + x, y));
-                }
-            }
-        }
-    }
-    lit
-}
-
-/// A thin rule across the screen, bright in the middle and fading out
-/// to dots at the edges, in the logo's colors.
-fn rule(s: &mut Screen, y: usize) {
-    for x in 0..COLS {
-        let d = ((x as f64 + 0.5) - COLS as f64 / 2.0).abs() / (COLS as f64 / 2.0);
-        let (ch, fg) = match d {
-            d if d < 0.18 => (0xC4, 11),
-            d if d < 0.42 => (0xC4, 3),
-            d if d < 0.66 => (0xC4, 1),
-            d if d < 0.80 => (0xC4, 8),
-            d if d < 0.88 => (0xF9, 8),
-            d if d < 0.95 && x % 2 == 0 => (0xFA, 8),
-            _ => continue,
-        };
-        s.draw_text(x, y, &[ch], Color::Pc(fg), Color::Pc(0));
-    }
-}
-
-/// Text in pieces of different colors, centered on row `y`.
-fn centered(s: &mut Screen, y: usize, parts: &[(&str, u8)]) {
-    let len: usize = parts.iter().map(|(t, _)| t.chars().count()).sum();
-    let mut x = (COLS - len) / 2;
-    for (text, fg) in parts {
-        label(s, x, y, text, Color::Pc(*fg), Color::Pc(0));
-        x += text.chars().count();
-    }
-}
-
-/// The cursor's pixels, from the logo's top left, with their colors.
-fn cursor() -> Vec<(usize, usize, u8)> {
-    let x = "BADTERM".len() * 10;
-    (0..CURSOR.len())
-        .flat_map(|y| (0..CURSOR_W).map(move |dx| (x + dx, RAMP.len() - CURSOR.len() + y, CURSOR[y])))
-        .collect()
+/// The logo's cells, row by row, played once and resolved to RGB.
+fn logo() -> &'static [Cell] {
+    static CELLS: OnceLock<Vec<Cell>> = OnceLock::new();
+    CELLS.get_or_init(|| {
+        let (content, _) = sauce::split(LOGO);
+        // Rows to spare, so the last row's line feed doesn't scroll it.
+        let mut term = Terminal::new(COLS, ROWS + 2, 0);
+        term.screen.ice_colors = true;
+        term.screen.base_ice = true;
+        term.feed(content);
+        (0..ROWS)
+            .flat_map(|y| term.screen.row(y)[..COLS].to_vec())
+            .map(|c| {
+                let (fg, bg, _) = c.resolve(true);
+                Cell::new(c.ch, Color::Rgb(fg), Color::Rgb(bg))
+            })
+            .collect()
+    })
 }
 
 pub fn draw(s: &mut Screen) {
-    s.fill_rect(0, 0, COLS, ROWS, Cell::new(b' ', Color::Pc(7), Color::Pc(0)));
-    let mut c = Canvas([[0; PW]; PH]);
-    let mut lit: Vec<(usize, usize, u8)> = logo().into_iter().map(|(x, y)| (x, y, RAMP[y])).collect();
-    lit.extend(cursor());
-    let width = lit.iter().map(|&(x, _, _)| x + 1).max().unwrap_or(0);
-    let x0 = (PW - width) / 2;
-    // The shadow, then the letters and the cursor over it.
-    for &(x, y, _) in &lit {
-        c.set(x0 + x + 1, LOGO_Y + y + 1, SHADOW);
+    for (i, cell) in logo().iter().enumerate() {
+        if let Some(c) = s.cell_mut(i % COLS, i / COLS) {
+            *c = *cell;
+        }
     }
-    for &(x, y, color) in &lit {
-        c.set(x0 + x, LOGO_Y + y, color);
-    }
-    c.draw(s);
-
-    // The rules a row clear of the logo (and its shadow), then the words.
-    let (top, bottom) = (LOGO_Y / 2 - 2, (LOGO_Y + 13) / 2 + 2);
-    rule(s, top);
-    rule(s, bottom);
+    // The corner: what it is, which version, where from.
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    centered(s, bottom + 3, &[("t h e   b a d a s s   t e r m i n a l", 7)]);
-    centered(s, bottom + 6, &[(version.as_str(), 15), ("  \u{00B7}  ", 8), ("badterm.com", 11)]);
-    let copyright = [("Copyright (C) 2026 Bad Cluster", 7), ("  \u{00B7}  ", 8), ("free software, GNU GPL v3+", 7)];
-    centered(s, bottom + 8, &copyright);
+    let lines = [
+        (15, "t h e", 7),
+        (16, "b a d a s s", 15),
+        (17, "t e r m i n a l", 7),
+        (19, version.as_str(), 15),
+        (20, "badterm.com", 11),
+        (22, "Copyright (C) 2026", 7),
+        (23, "Bad Cluster", 7),
+        (24, "GNU GPL v3 or later", 8),
+    ];
+    for (y, text, fg) in lines {
+        debug_assert!(y >= CORNER_TOP && TEXT_X + text.chars().count() <= CORNER_X, "{text:?} is outside the corner");
+        label(s, TEXT_X, y, text, vga(fg), vga(0));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn fits() {
-        let mut s = Screen::new(COLS, ROWS, 0);
-        draw(&mut s);
-        let rows: Vec<String> = (0..ROWS).map(|y| Screen::row_text(s.row(y))).collect();
-        assert!(rows.iter().any(|r| r.contains(env!("CARGO_PKG_VERSION"))), "{rows:#?}");
-        // The logo is on screen, inside the edges.
-        let logo_row = &rows[LOGO_Y / 2 + 1];
-        assert!(logo_row.contains('\u{2588}') && !logo_row.starts_with('\u{2588}'), "{rows:#?}");
-        // Every letter is the same width.
-        for (ch, rows) in LETTERS {
-            assert!(rows.iter().all(|r| r.len() == 9), "{ch}");
-        }
+    fn rows(s: &Screen) -> Vec<String> {
+        (0..ROWS).map(|y| Screen::row_text(s.row(y))).collect()
     }
 
     #[test]
-    fn cursor_after_the_name() {
+    fn logo_and_words() {
         let mut s = Screen::new(COLS, ROWS, 0);
         draw(&mut s);
-        // The logo's last two pixel rows share a text row: there the cursor is
-        // yellow over brown, right of every letter, and inside the screen.
-        let y = (LOGO_Y + RAMP.len() - 2) / 2;
-        let row = s.row(y);
-        let at: Vec<usize> =
-            (0..COLS).filter(|&x| row[x].fg == Color::Pc(CURSOR[0]) && row[x].bg == Color::Pc(CURSOR[1])).collect();
-        assert_eq!(at.len(), CURSOR_W, "{:?}", Screen::row_text(row));
-        let last_letter = (0..COLS).rev().find(|&x| row[x].fg == Color::Pc(1)).expect("the letters' blue bottom");
-        assert!(at[0] > last_letter + 1 && at[CURSOR_W - 1] < COLS - 2, "{at:?}, last letter at {last_letter}");
+        let rows = rows(&s);
+        assert!(rows[19].contains(env!("CARGO_PKG_VERSION")), "{rows:#?}");
+        assert!(rows[20].contains("badterm.com"), "{rows:#?}");
+        // The logo fills the screen: blocks and shades on most rows, top to bottom.
+        let inked = rows.iter().filter(|r| r.chars().any(|c| "█▀▄░▒▓".contains(c))).count();
+        assert!(inked >= 22, "{inked} rows with ink: {rows:#?}");
+        // Its aura uses iCE colors (bright backgrounds), in the VGA's own.
+        assert!(logo().iter().any(|c| c.bg == vga(14)), "no yellow backgrounds");
+        assert!(logo().iter().all(|c| matches!((c.fg, c.bg), (Color::Rgb(_), Color::Rgb(_)))));
+    }
+
+    /// The logo leaves its corner empty for the words, and every word fits in it.
+    #[test]
+    fn corner_is_clear() {
+        let cells = logo();
+        for y in CORNER_TOP..ROWS {
+            for x in 0..CORNER_X {
+                let c = cells[y * COLS + x];
+                assert!(c.ch == b' ' && c.bg == vga(0), "the logo has ink at {x},{y}");
+            }
+        }
+        let mut s = Screen::new(COLS, ROWS, 0);
+        draw(&mut s);
+        for y in 0..ROWS {
+            for x in 0..COLS {
+                let cell = s.row(y)[x];
+                let ours = y >= CORNER_TOP && x < CORNER_X;
+                if ours {
+                    continue;
+                }
+                assert_eq!(cell, cells[y * COLS + x], "a word spilled out of the corner at {x},{y}");
+            }
+        }
     }
 }
