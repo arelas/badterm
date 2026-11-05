@@ -7,6 +7,11 @@ Rust, in the tradition of SyncTERM, NetRunner, QModem and Telix. Runs
 natively on Windows, macOS and Linux. Website, help and downloads:
 <https://badterm.com/>.
 
+BadTerm is developed, built and released at
+<https://git.badcluster.dev/arelas/badterm>.
+<https://github.com/arelas/badterm> is a mirror of it, with a copy of each
+release.
+
 BadTerm draws its own text-mode screen using real CP437 bitmap fonts, so ANSI
 art renders pixel-for-pixel as it did on a VGA card. It doesn't depend on the
 fonts and colors of a host terminal.

@@ -641,3 +641,16 @@ jobs:
           echo 'oracle1.badcluster.dev ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJJ08VfdW8Vgx8oSsD2kptTc5f/Cub+x8VsXqcOOMXgF' > "$ssh_dir/known_hosts"
           export RSYNC_RSH="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes"
           BADTERM_SITE_DEST=ubuntu@oracle1.badcluster.dev: python3 -I site-next/build.py --deploy
+
+      # A copy of the release on GitHub, github.com/arelas/badterm, which is a
+      # push mirror of this repository (Forgejo's Settings, Mirror settings):
+      # the same files, by packaging/github-release.py. GH_RELEASE_TOKEN is a
+      # fine-grained GitHub token for that repository (Contents: read and
+      # write). Without it the step says so and does nothing, and a failure
+      # there doesn't fail the release, which is already out here and on
+      # badterm.com.
+      - name: Copy the release to GitHub
+        continue-on-error: true
+        env:
+          GH_RELEASE_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+        run: python3 -I packaging/github-release.py "$GITHUB_REF_NAME" "$GITHUB_SHA" dist/release
