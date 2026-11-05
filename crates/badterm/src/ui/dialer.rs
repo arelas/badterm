@@ -30,6 +30,9 @@ pub enum Action {
     Changed,
     /// The user confirmed hanging up the current call to dial the one chosen.
     HangUpAndDial,
+    /// The user chose to dial the one chosen in a new tab, keeping the
+    /// current call.
+    NewTab,
     /// Close the dialing directory.
     Close,
     /// Open the settings screen.
@@ -267,7 +270,8 @@ enum Mode {
     /// Editing an entry's own macros (by its index).
     Macros(usize, MacroEditor),
     /// Dialing while connected: asks before hanging up the current call.
-    ConfirmHangUp(String),
+    /// The question, and whether a new tab is one of the answers.
+    ConfirmHangUp(String, bool),
     Message(String),
 }
 
@@ -315,11 +319,17 @@ impl DialerUi {
         self.mode = Mode::Message(msg.into());
     }
 
-    /// Ask whether to hang up `current` to dial `next`; answers with
-    /// [`Action::HangUpAndDial`] on yes.
-    pub fn confirm_hang_up(&mut self, current: &str, next: &str) {
-        let msg = format!("Hang up {} and dial {}?", truncate(current, 24), truncate(next, 24));
-        self.mode = Mode::ConfirmHangUp(msg);
+    /// Ask whether to hang up `current` to dial `next` (answered with
+    /// [`Action::HangUpAndDial`]) or, if there is `room` for another tab,
+    /// to call `next` in a new one ([`Action::NewTab`]).
+    pub fn confirm_hang_up(&mut self, current: &str, next: &str, room: bool) {
+        let (current, next) = (truncate(current, 24), truncate(next, 24));
+        let msg = if room {
+            format!("{current} is still connected. Call {next} in a new tab, or hang up and dial it?")
+        } else {
+            format!("Hang up {current} and dial {next}?")
+        };
+        self.mode = Mode::ConfirmHangUp(msg, room);
     }
 
     pub fn status_help(&self) -> &'static str {
@@ -329,7 +339,8 @@ impl DialerUi {
             Mode::Edit(_) => "Enter Save  Esc Cancel  Tab/\u{2191}\u{2193} Field  Space/\u{2190}\u{2192} Change option",
             Mode::Prompt(..) => "Enter OK  Esc Cancel",
             Mode::ConfirmDelete => "Y Remove  N Keep",
-            Mode::ConfirmHangUp(_) => "Y Hang up and dial  N Stay connected",
+            Mode::ConfirmHangUp(_, true) => "T New tab  Y Hang up and dial  N Stay connected",
+            Mode::ConfirmHangUp(_, false) => "Y Hang up and dial  N Stay connected",
             Mode::Message(_) => "Press any key",
             Mode::Macros(..) => "\u{2191}\u{2193} Choose   Type to change (saved as you go)   Esc Done",
         }
@@ -556,10 +567,13 @@ impl DialerUi {
                 }
                 self.mode = Mode::List;
             }
-            Mode::ConfirmHangUp(_) => {
+            Mode::ConfirmHangUp(_, room) => {
+                let room = *room;
                 self.mode = Mode::List;
-                if let Key::Char('y' | 'Y') = key {
-                    return Action::HangUpAndDial;
+                match key {
+                    Key::Char('y' | 'Y') => return Action::HangUpAndDial,
+                    Key::Char('t' | 'T') if room => return Action::NewTab,
+                    _ => {}
                 }
             }
             Mode::Message(_) => self.mode = Mode::List,
@@ -797,8 +811,12 @@ impl DialerUi {
                 confirm_box(s, "Remove entry?", &msg, &[("Y", "Remove"), ("N", "Keep")]);
                 None
             }
-            Mode::ConfirmHangUp(msg) => {
-                confirm_box(s, "Still connected", msg, &[("Y", "Hang up and dial"), ("N", "Stay connected")]);
+            Mode::ConfirmHangUp(msg, room) => {
+                let mut choices = vec![("Y", "Hang up and dial"), ("N", "Stay connected")];
+                if *room {
+                    choices.insert(0, ("T", "New tab"));
+                }
+                confirm_box(s, "Still connected", msg, &choices);
                 None
             }
             Mode::Message(msg) => {
@@ -1015,16 +1033,39 @@ mod tests {
         let (mut ui, mut d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
         assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(0)));
 
-        ui.confirm_hang_up("Alpha", "Beta");
-        assert_eq!(ui.status_help(), "Y Hang up and dial  N Stay connected");
+        ui.confirm_hang_up("Alpha", "Beta", true);
+        assert_eq!(ui.status_help(), "T New tab  Y Hang up and dial  N Stay connected");
         assert!(matches!(key(&mut ui, &mut d, Key::Char('y')), Action::HangUpAndDial));
         // Back to the list afterwards.
         assert!(matches!(key(&mut ui, &mut d, Key::Escape), Action::Close));
 
-        // Anything but Y keeps the call and returns to the list.
-        ui.confirm_hang_up("Alpha", "Beta");
+        // T keeps the call and dials in a new tab.
+        ui.confirm_hang_up("Alpha", "Beta", true);
+        assert!(matches!(key(&mut ui, &mut d, Key::Char('T')), Action::NewTab));
+
+        // Anything else keeps the call and returns to the list.
+        ui.confirm_hang_up("Alpha", "Beta", true);
         assert!(matches!(key(&mut ui, &mut d, Key::Char('n')), Action::None));
         assert!(ui.status_help().starts_with("Enter Dial"));
+
+        // With no room for another tab, there is no T.
+        ui.confirm_hang_up("Alpha", "Beta", false);
+        assert_eq!(ui.status_help(), "Y Hang up and dial  N Stay connected");
+        assert!(matches!(key(&mut ui, &mut d, Key::Char('t')), Action::None));
+    }
+
+    #[test]
+    fn the_hang_up_question_fits_with_long_names() {
+        let (mut ui, d) = (DialerUi::new(PathBuf::new(), Rc::new(Memory::default())), dir());
+        let long = "A Very Long Bulletin Board System Name Indeed";
+        ui.confirm_hang_up(long, long, true);
+        let mut s = Screen::new(COLS, ROWS, 0);
+        ui.draw(&mut s, &d);
+        let rows: Vec<String> = (0..ROWS).map(|y| Screen::row_text(s.row(y))).collect();
+        let row = rows.iter().find(|r| r.contains("New tab")).expect("the choices");
+        assert!(row.contains("Hang up and dial") && row.contains("Stay connected"), "{row}");
+        // The box's right border is on screen.
+        assert!(rows.iter().any(|r| r.trim_end().ends_with('\u{2557}')), "{rows:#?}");
     }
 
     #[test]

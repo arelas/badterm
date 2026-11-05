@@ -288,8 +288,9 @@ command-line output can appear after the next prompt. Use
 ### Dialing directory keys
 
 Open the dialing directory with `Alt-D` (`Cmd-D` on macOS) at any time. If you
-are connected, the call stays up behind it, and dialing another BBS asks before
-hanging up.
+are connected, the call stays up behind it, and dialing another BBS asks
+whether to call it in a new tab (`T`) or hang up and dial it (`Y`); see
+[Tabs](#tabs). `Alt-N` opens it to call straight into a new tab.
 
 | Key | Action |
 | --- | --- |
@@ -307,6 +308,24 @@ hanging up.
 | letter or digit | Jump to the next entry starting with it |
 | `Esc` | Close the dialing directory |
 
+### Tabs
+
+Up to nine calls can be open at once, each in a tab of its own. `Alt-N` opens
+the dialing directory to call a BBS in a new tab; dialing from `Alt-D` during a
+call asks whether to do that (`T`) or to hang up and dial in its place (`Y`).
+`Alt-T` shows the next call and `Shift-Alt-T` the one before, and `Alt-H`
+hangs up the call on screen and closes its tab.
+
+With more than one call open, the status bar starts with a number for each,
+the one on screen highlighted; click one to show it. Calls off screen carry
+on: they receive, run their scripts and macros, redial, and finish their
+transfers. A `*` by a number means that call has sent something new since you
+last looked, and a `!` that it wants you: it rang the bell, asked for a login
+or an upload, finished a transfer, or hung up (the status bar says which).
+Only the call on screen plays music, though a bell off screen still beeps.
+Each call keeps its own place in the scrollback, and `Alt-X` asks before
+hanging them all up.
+
 ### Hotkeys
 
 Every client command is on `Alt` (on macOS, `Cmd`, since Option types
@@ -315,7 +334,9 @@ characters there). Every `Ctrl` key, `Ctrl-D` included, always goes to the BBS.
 | Key | Action |
 | --- | --- |
 | `Alt-D` | Open or close the dialing directory |
-| `Alt-H` | Hang up (or clear a finished call from the screen) |
+| `Alt-N` | Call a BBS in a new tab (opens the dialing directory; the calls open stay connected) |
+| `Alt-T` | Show the next tab (`Shift-Alt-T`: the one before) |
+| `Alt-H` | Hang up (or clear a finished call from the screen), closing its tab |
 | `Alt-R` | Call again (after a hang-up, or now while a redial is waiting) |
 | `Alt-L` | Send the entry's user name; again for the password |
 | `Alt-1` ... `Alt-0` | Keyboard macros (set them in Settings, `Alt-O`, or an entry's own with `M` in the directory) |

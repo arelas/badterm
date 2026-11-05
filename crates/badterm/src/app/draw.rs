@@ -23,7 +23,7 @@ impl App {
         {
             return v.cols();
         }
-        match &self.session {
+        match self.session() {
             Some(s) if !self.dialer_open && !self.settings_open && !self.help_open => s.term.screen.cols(),
             _ => COLS,
         }
@@ -61,100 +61,32 @@ impl App {
         }
         let notice = self.notice.as_ref().filter(|(_, until)| Instant::now() < *until).map(|(m, _)| m.clone());
         if self.dialer_open {
-            let help = notice.unwrap_or_else(|| self.dialer.status_help().to_string());
+            let help = notice.unwrap_or_else(|| match self.new_tab_dial {
+                true => format!("New tab \u{2502} {}", self.dialer.status_help()),
+                false => self.dialer.status_help().to_string(),
+            });
             return ui::text(s, 0, 0, cols, &format!(" {help}"), fg, bg);
         }
-        let Some(session) = &self.session else {
+        let Some(tab) = self.tabs.get(self.active) else {
             let help =
                 notice.unwrap_or_else(|| format!("{} Dialing directory  {} Help  {} Exit", hk("D"), hk("Z"), hk("X")));
             return ui::text(s, 0, 0, cols, &format!(" Not connected \u{2502} {help}"), fg, bg);
         };
-        let screen = &session.term.screen;
-        if self.scroll > 0 {
-            let line = format!(
-                " SCROLLBACK {}/{}  \u{2191}\u{2193} PgUp PgDn Home  Any other key returns",
-                self.scroll,
-                screen.scrollback_len()
-            );
-            return ui::text(s, 0, 0, cols, &line, theme.status_alt.fg(), theme.status_alt.bg());
-        }
-        let e = &session.entry;
-        if let Some(t) = session.transfer() {
-            let line =
-                format!(" {} \u{2502} {} transfer in progress \u{2502} Esc cancels", truncate(&e.name, 30), t.name());
-            return ui::text(s, 0, 0, cols, &line, fg, bg);
-        }
-        if let Some(l) = &self.login {
-            let line = if l.rip {
-                format!(" {} asks \u{2502} Enter answer  Esc cancel", truncate(&e.name, 40))
-            } else {
-                format!(" Logging in to {} \u{2502} Enter log in  Esc cancel", truncate(&e.name, 40))
-            };
-            return ui::text(s, 0, 0, cols, &line, fg, bg);
-        }
-        if let Some(r) = self.redial.as_ref().filter(|_| session.state == State::Closed) {
-            let why = if session.error.is_some() { "No connection" } else { "Busy" };
-            let secs = r.at.saturating_duration_since(Instant::now()).as_secs() + 1;
-            let line = format!(
-                " {why} \u{2502} Calling again in {secs}s (redial {} of {MAX_REDIALS}) \u{2502} Esc cancel  {} now",
-                r.attempt,
-                hk("R")
-            );
-            return ui::text(s, 0, 0, cols, &line, fg, bg);
-        }
-        let line = match session.state {
-            State::Connecting if self.redials > 0 => {
-                format!(" Redialing {} (redial {} of {MAX_REDIALS})...  {} cancel", e.address(), self.redials, hk("H"))
+        let (line, alt) = call_status(tab, notice, self.tabs.len());
+        // With more than one call, a chip for each comes first.
+        let mut x = 0;
+        if self.tabs.len() > 1 {
+            let marks: Vec<char> = self.tabs.iter().map(Tab::mark).collect();
+            for (i, chip) in tabs::chips(&marks).iter().enumerate() {
+                let a = if i == self.active { theme.status_alt } else { theme.status };
+                ui::text(s, x, 0, tabs::CHIP_W, chip, a.fg(), a.bg());
+                x += tabs::CHIP_W;
             }
-            State::Connecting => format!(" Connecting to {}...  {} cancel", e.address(), hk("H")),
-            State::Closed => match &session.error {
-                Some(err) => format!(" Connection failed: {err} \u{2502} {} Call again", hk("R")),
-                None => {
-                    format!(
-                        " Disconnected \u{2502} {HOTKEY}: {} Call again  {} Directory  {} Clear  {} Back",
-                        key("R"),
-                        key("D"),
-                        key("H"),
-                        key("B")
-                    )
-                }
-            },
-            State::Connected => {
-                let t = session.elapsed().as_secs();
-                let mut flags = String::new();
-                if screen.ice_colors {
-                    flags.push_str(" iCE");
-                }
-                if session.capture_path().is_some() {
-                    flags.push_str(" CAP");
-                }
-                if self.script.is_some() {
-                    flags.push_str(" SCRIPT");
-                }
-                if e.baud > 0 {
-                    flags.push_str(&format!(" {}bps", e.baud));
-                }
-                let right = notice.unwrap_or_else(|| {
-                    format!(
-                        "{HOTKEY}: {} Dir {} Hangup {} Upload {} Help {} Exit",
-                        key("D"),
-                        key("H"),
-                        key("U"),
-                        key("Z"),
-                        key("X")
-                    )
-                });
-                format!(
-                    " {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
-                    truncate(&e.name, 16),
-                    t / 3600,
-                    t / 60 % 60,
-                    t % 60,
-                    flags
-                )
-            }
-        };
-        ui::text(s, 0, 0, cols, &line, fg, bg);
+            ui::text(s, x, 0, 1, "\u{2502}", fg, bg);
+            x += 1;
+        }
+        let a = if alt { theme.status_alt } else { theme.status };
+        ui::text(s, x, 0, cols.saturating_sub(x), &line, a.fg(), a.bg());
     }
 
     pub(super) fn redraw(&mut self) {
@@ -184,21 +116,21 @@ impl App {
 
         // Dialogs over the terminal are drawn on a copy of its screen.
         let mut overlay_cursor = None;
-        if let Some(session) = &self.session {
-            let sc = &session.term.screen;
+        if let Some(tab) = self.tabs.get(self.active) {
+            let sc = &tab.session.term.screen;
             if (self.overlay.cols(), self.overlay.rows()) != (sc.cols(), sc.rows()) {
                 self.overlay = Screen::new(sc.cols(), sc.rows(), 0);
             }
         }
-        let overlay = match &self.session {
-            Some(session)
-                if self.login.is_some()
-                    || self.save_prompt.is_some()
-                    || self.upload_prompt.is_some()
-                    || self.download_prompt.is_some()
-                    || session.transfer().is_some() =>
+        let overlay = match self.tabs.get_mut(self.active) {
+            Some(tab)
+                if tab.login.is_some()
+                    || tab.save_prompt.is_some()
+                    || tab.upload_prompt.is_some()
+                    || tab.download_prompt.is_some()
+                    || tab.session.transfer().is_some() =>
             {
-                let sc = &session.term.screen;
+                let sc = &tab.session.term.screen;
                 for y in 0..sc.rows() {
                     for (x, cell) in sc.row(y).iter().enumerate() {
                         if let Some(c) = self.overlay.cell_mut(x, y) {
@@ -206,15 +138,15 @@ impl App {
                         }
                     }
                 }
-                if let Some(login) = &self.login {
+                if let Some(login) = &tab.login {
                     overlay_cursor = Some(login.draw(&mut self.overlay));
-                } else if let Some(prompt) = &self.save_prompt {
+                } else if let Some(prompt) = &tab.save_prompt {
                     overlay_cursor = Some(prompt.draw(&mut self.overlay));
-                } else if let Some(prompt) = &mut self.upload_prompt {
+                } else if let Some(prompt) = &mut tab.upload_prompt {
                     overlay_cursor = prompt.draw(&mut self.overlay);
-                } else if let Some(prompt) = &self.download_prompt {
+                } else if let Some(prompt) = &tab.download_prompt {
                     overlay_cursor = prompt.draw(&mut self.overlay);
-                } else if let Some(t) = session.transfer() {
+                } else if let Some(t) = tab.session.transfer() {
                     transfer_ui::draw_progress(&mut self.overlay, t.name(), t.progress());
                 }
                 true
@@ -224,7 +156,7 @@ impl App {
 
         // An entry can do without the status bar on its screen.
         let mut has_status = true;
-        let frame = match &self.session {
+        let frame = match self.tabs.get(self.active) {
             _ if splash || self.help_open || self.settings_open || self.art_picker.is_some() => {
                 let mut rows: Vec<&[Cell]> = (0..settings_ui::ROWS).map(|y| self.page_screen.row(y)).collect();
                 rows.push(self.status.row(0));
@@ -242,7 +174,8 @@ impl App {
                 rows.push(self.status.row(0));
                 Frame::plain(rows, dialer_cursor, true)
             }
-            Some(session) if overlay => {
+            Some(tab) if overlay => {
+                let session = &tab.session;
                 let mut rows: Vec<&[Cell]> = (0..self.overlay.rows()).map(|y| self.overlay.row(y)).collect();
                 has_status = !session.entry.hide_status;
                 if has_status {
@@ -260,18 +193,19 @@ impl App {
                     ..Frame::plain(rows, overlay_cursor, sc.ice_colors)
                 }
             }
-            Some(session) => {
+            Some(tab) => {
+                let session = &tab.session;
                 let sc = &session.term.screen;
-                let mut rows = terminal_rows(session, self.scroll);
+                let mut rows = terminal_rows(session, tab.scroll);
                 has_status = !session.entry.hide_status;
                 if has_status {
                     rows.push(self.status.row(0));
                 }
-                let live = self.scroll == 0 || sc.scrollback_len() == 0;
+                let live = tab.scroll == 0 || sc.scrollback_len() == 0;
                 let cursor = (live && sc.cursor_visible && session.state == State::Connected).then(|| sc.cursor());
                 let selection = self.selection;
                 // Graphics belong to the live screen, not the scrollback.
-                let graphics = bbs_graphics(session).filter(|_| self.scroll == 0);
+                let graphics = bbs_graphics(session).filter(|_| tab.scroll == 0);
                 Frame {
                     selection,
                     look: &sc.look,
@@ -300,9 +234,17 @@ impl App {
                     }
                 }
             }
-            let msg = match &self.session {
-                Some(s) if s.state == State::Connected => format!("This hangs up the call to {}.", s.entry.name),
-                _ => String::new(),
+            let live: Vec<&str> = self
+                .tabs
+                .iter()
+                .filter(|t| t.session.state == State::Connected)
+                .map(|t| t.session.entry.name.as_str())
+                .collect();
+            let msg = match live.as_slice() {
+                [] => String::new(),
+                [one] => format!("This hangs up the call to {one}."),
+                [_, _] => "This hangs up both calls.".to_string(),
+                many => format!("This hangs up all {} calls.", many.len()),
             };
             ui::confirm_box(&mut sc, "Exit BadTerm?", &msg, &[("Y", "Exit"), ("N", "Stay")]);
             confirm_screen = sc;
@@ -403,6 +345,102 @@ impl App {
             Err(e) => log::error!("getting frame buffer: {e}"),
         }
     }
+}
+
+/// The status bar for a call: the line, and whether it's in the scrollback's
+/// colors. `calls` is how many are open, for which keys it suggests.
+fn call_status(tab: &Tab, notice: Option<String>, calls: usize) -> (String, bool) {
+    let session = &tab.session;
+    let screen = &session.term.screen;
+    if tab.scroll > 0 {
+        let line = format!(
+            " SCROLLBACK {}/{}  \u{2191}\u{2193} PgUp PgDn Home  Any other key returns",
+            tab.scroll,
+            screen.scrollback_len()
+        );
+        return (line, true);
+    }
+    let e = &session.entry;
+    if let Some(t) = session.transfer() {
+        let line =
+            format!(" {} \u{2502} {} transfer in progress \u{2502} Esc cancels", truncate(&e.name, 30), t.name());
+        return (line, false);
+    }
+    if let Some(l) = &tab.login {
+        let line = if l.rip {
+            format!(" {} asks \u{2502} Enter answer  Esc cancel", truncate(&e.name, 40))
+        } else {
+            format!(" Logging in to {} \u{2502} Enter log in  Esc cancel", truncate(&e.name, 40))
+        };
+        return (line, false);
+    }
+    if let Some(r) = tab.redial.as_ref().filter(|_| session.state == State::Closed) {
+        let why = if session.error.is_some() { "No connection" } else { "Busy" };
+        let secs = r.at.saturating_duration_since(Instant::now()).as_secs() + 1;
+        let line = format!(
+            " {why} \u{2502} Calling again in {secs}s (redial {} of {MAX_REDIALS}) \u{2502} Esc cancel  {} now",
+            r.attempt,
+            hk("R")
+        );
+        return (line, false);
+    }
+    let line = match session.state {
+        State::Connecting if tab.redials > 0 => {
+            format!(" Redialing {} (redial {} of {MAX_REDIALS})...  {} cancel", e.address(), tab.redials, hk("H"))
+        }
+        State::Connecting => format!(" Connecting to {}...  {} cancel", e.address(), hk("H")),
+        State::Closed => match &session.error {
+            Some(err) => format!(" Connection failed: {err} \u{2502} {} Call again", hk("R")),
+            None => {
+                format!(
+                    " Disconnected \u{2502} {HOTKEY}: {} Call again  {} Directory  {} Clear  {} Back",
+                    key("R"),
+                    key("D"),
+                    key("H"),
+                    key("B")
+                )
+            }
+        },
+        State::Connected => {
+            let t = session.elapsed().as_secs();
+            let mut flags = String::new();
+            if screen.ice_colors {
+                flags.push_str(" iCE");
+            }
+            if session.capture_path().is_some() {
+                flags.push_str(" CAP");
+            }
+            if tab.script.is_some() {
+                flags.push_str(" SCRIPT");
+            }
+            if e.baud > 0 {
+                flags.push_str(&format!(" {}bps", e.baud));
+            }
+            let right = notice.unwrap_or_else(|| {
+                if calls > 1 {
+                    format!("{HOTKEY}: {} Next tab {} Dir {} Hangup {} Help", key("T"), key("D"), key("H"), key("Z"))
+                } else {
+                    format!(
+                        "{HOTKEY}: {} Dir {} Hangup {} Upload {} Help {} Exit",
+                        key("D"),
+                        key("H"),
+                        key("U"),
+                        key("Z"),
+                        key("X")
+                    )
+                }
+            });
+            format!(
+                " {} \u{2502} {:02}:{:02}:{:02}{} \u{2502} {right}",
+                truncate(&e.name, 16),
+                t / 3600,
+                t / 60 % 60,
+                t % 60,
+                flags
+            )
+        }
+    };
+    (line, false)
 }
 
 /// A RIP, IGS or SkyPix system's graphics, to draw under its screen.

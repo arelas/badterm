@@ -31,6 +31,7 @@
         <li><a href="#start">Getting started</a></li>
         <li><a href="#keys">Keys</a></li>
         <li><a href="#directory">The dialing directory</a></li>
+        <li><a href="#tabs">Several calls at once</a></li>
         <li><a href="#login">Logging in</a></li>
         <li><a href="#transfers">File transfers</a></li>
         <li><a href="#systems">Emulations and systems</a></li>
@@ -67,11 +68,13 @@
           <h3>Calling</h3>
           <dl>
             <dt><kbd>Alt-D</kbd></dt><dd>Dialing directory</dd>
+            <dt><kbd>Alt-N</kbd></dt><dd>Call a BBS in a new tab</dd>
+            <dt><kbd>Alt-T</kbd></dt><dd>Next tab (<kbd>Shift</kbd>: the one before)</dd>
             <dt><kbd>Alt-R</kbd></dt><dd>Call again, or redial now</dd>
             <dt><kbd>Alt-L</kbd></dt><dd>Send your login (name, then password)</dd>
             <dt><kbd>Alt-1…0</kbd></dt><dd>Send a keyboard macro</dd>
             <dt><kbd>Alt-J</kbd></dt><dd>Run a script, or stop it</dd>
-            <dt><kbd>Alt-H</kbd></dt><dd>Hang up</dd>
+            <dt><kbd>Alt-H</kbd></dt><dd>Hang up, and close the tab</dd>
             <dt><kbd>Alt-X</kbd></dt><dd>Exit BadTerm</dd>
           </dl>
         </section>
@@ -144,6 +147,10 @@
       </dl>
       <p><kbd>I</kbd> imports a directory from SyncTERM (<code>.lst</code>), NetRunner (<code>.phn</code>), Qodem (<code>fonebook.txt</code>), EtherTerm (<code>.xml</code>), MagiTerm (<code>magiterm.ini</code>), CSV (including the Telnet BBS Guide's list), JSON or TOML. You can also drop the file on BadTerm's window. <kbd>X</kbd> exports one; the file name's extension picks the format.</p>
       <p>A BBS that answers busy, or doesn't answer, is called again every 15 seconds, up to ten times. <kbd>Alt-R</kbd> calls at once; <kbd>Esc</kbd> stops.</p>
+
+      <h2 id="tabs">Several calls at once</h2>
+      <p>Up to nine calls can be open at once, each in a tab of its own. <kbd>Alt-N</kbd> opens the dialing directory to call a BBS in a new tab; dialing from <kbd>Alt-D</kbd> during a call asks whether to do that (<kbd>T</kbd>) or to hang up and dial in its place (<kbd>Y</kbd>). <kbd>Alt-T</kbd> shows the next call, <kbd>Shift-Alt-T</kbd> the one before, and <kbd>Alt-H</kbd> hangs up the call on screen and closes its tab.</p>
+      <p>With more than one call open, the status bar starts with a number for each, the one on screen highlighted; click one to show it. Calls off screen carry on: they receive, run their scripts and macros, redial, and finish their transfers. A <code>*</code> by a number means that call has sent something new, and a <code>!</code> that it wants you: it rang the bell, asked for a login or an upload, finished a transfer, or hung up (the status bar says which). Only the call on screen plays music, though a bell off screen still beeps. Each call keeps its own place in the scrollback, and <kbd>Alt-X</kbd> asks before hanging them all up.</p>
 
       <h2 id="login">Logging in</h2>
       <p>With <b>Auto-login</b> on, BadTerm answers a BBS's login and password questions with the entry's user name and password. <kbd>Alt-L</kbd> sends them by hand: the name the first time, the password the next. Passwords are kept in your system's keychain (Keychain on macOS, Credential Manager on Windows, the Secret Service on Linux); where there is none, they stay in the directory file.</p>

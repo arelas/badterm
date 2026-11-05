@@ -45,6 +45,9 @@ mod mouse;
 mod prefs;
 mod script;
 mod shape;
+mod tabs;
+
+use tabs::Tab;
 
 const COLS: usize = 80;
 const ROWS: usize = 25;
@@ -75,8 +78,8 @@ pub enum UserEvent {
     OpenUrl(String),
     /// The update check found this newer version.
     UpdateAvailable(String),
-    /// The script has something to do.
-    Script,
+    /// The script of the call with this id has something to do.
+    Script(u64),
 }
 
 /// A busy call waiting to be dialed again.
@@ -193,8 +196,6 @@ pub struct App {
     art_picker: Option<FilePicker>,
     /// The picker is choosing a script to run, not art to view.
     picking_script: bool,
-    /// The script running, if any.
-    script: Option<badterm_core::script::Script>,
     art: Option<ArtView>,
     art_dir: PathBuf,
     /// A file to view at start (given on the command line).
@@ -211,15 +212,9 @@ pub struct App {
     status: Screen,
     /// The terminal with a dialog drawn over it.
     overlay: Screen,
-    upload_prompt: Option<UploadPrompt>,
-    /// Alt-G: starting an XMODEM or YMODEM download.
-    download_prompt: Option<DownloadPrompt>,
-    /// Where the last upload came from, and its protocol, for the next.
-    upload_dir: PathBuf,
+    /// The protocols last chosen for an upload and a download, for the next.
     upload_protocol: usize,
     download_protocol: usize,
-    /// Alt-S: where to save the scrollback.
-    save_prompt: Option<SavePrompt>,
     /// Terminal text selected with the mouse.
     selection: Option<Selection>,
     /// The left button is down, extending `selection`.
@@ -237,28 +232,17 @@ pub struct App {
     view_rect: (usize, usize, usize, usize),
     /// "Fit, keep shape": the window follows the picture's shape.
     shape: shape::WindowShape,
-    /// The SSH login's question, while one is waiting.
-    login: Option<LoginPrompt>,
-    /// A typed password to remember once the login succeeds.
-    remember: Option<String>,
     secrets: Rc<dyn Store>,
     /// False once the keychain has failed; passwords then stay in the file.
     keychain_ok: bool,
-    /// Direction of the transfer in progress, for reporting its outcome.
-    transfer_direction: Option<Direction>,
-    session: Option<Session>,
-    session_id: u64,
-    /// Directory index of the entry the session was dialed from.
-    session_index: Option<usize>,
-    /// A keyboard macro being sent: what is left, and when to go on after
-    /// a pause.
-    macro_steps: std::collections::VecDeque<crate::macros::Step>,
-    macro_at: Instant,
-    /// How many times the current call has been redialed.
-    redials: u32,
-    redial: Option<Redial>,
-    /// Lines scrolled back from the live screen; 0 when live.
-    scroll: usize,
+    /// The calls, each in a tab, and which of them is on screen.
+    tabs: Vec<Tab>,
+    active: usize,
+    /// The id the last call was given (each call's network events and
+    /// script come with its own).
+    last_id: u64,
+    /// The dialer was opened with Alt-N: what is dialed goes in a new tab.
+    new_tab_dial: bool,
     mods: ModifiersState,
     tick: u64,
     next_tick: Instant,
@@ -311,7 +295,6 @@ impl App {
             update: None,
             art_picker: None,
             picking_script: false,
-            script: None,
             art: None,
             art_dir: PathBuf::new(),
             view_at_start: view,
@@ -322,12 +305,8 @@ impl App {
             page_screen: Screen::new(settings_ui::COLS, settings_ui::ROWS, 0),
             status: Screen::new(COLS, 1, 0),
             overlay: Screen::new(COLS, ROWS, 0),
-            upload_prompt: None,
-            download_prompt: None,
-            upload_dir: PathBuf::new(),
             upload_protocol: 0,
             download_protocol: 0,
-            save_prompt: None,
             selection: None,
             dragging: false,
             mouse: (0.0, 0.0),
@@ -337,19 +316,12 @@ impl App {
             shape: shape::WindowShape::default(),
             settings,
             player: Player::default(),
-            login: None,
-            remember: None,
             secrets,
             keychain_ok: true,
-            transfer_direction: None,
-            session: None,
-            session_id: 0,
-            session_index: None,
-            redials: 0,
-            macro_steps: std::collections::VecDeque::new(),
-            macro_at: Instant::now(),
-            redial: None,
-            scroll: 0,
+            tabs: Vec::new(),
+            active: 0,
+            last_id: 0,
+            new_tab_dial: false,
             mods: ModifiersState::empty(),
             tick: 0,
             next_tick: Instant::now() + TICK,
@@ -418,6 +390,34 @@ impl App {
 
     fn notify(&mut self, msg: impl Into<String>) {
         self.notice = Some((msg.into(), Instant::now() + NOTICE_TIME));
+    }
+
+    /// The call on screen, if there is one.
+    fn tab(&self) -> Option<&Tab> {
+        self.tabs.get(self.active)
+    }
+
+    fn tab_mut(&mut self) -> Option<&mut Tab> {
+        self.tabs.get_mut(self.active)
+    }
+
+    fn session(&self) -> Option<&Session> {
+        self.tab().map(|t| &t.session)
+    }
+
+    /// The tab of the call with this id.
+    fn tab_of(&self, id: u64) -> Option<usize> {
+        self.tabs.iter().position(|t| t.id == id)
+    }
+
+    /// How far back the call on screen is scrolled.
+    fn scroll(&self) -> usize {
+        self.tab().map_or(0, |t| t.scroll)
+    }
+
+    /// Whether any call is connected.
+    fn in_call(&self) -> bool {
+        self.tabs.iter().any(|t| t.session.state == State::Connected)
     }
 
     fn save_directory(&mut self) {
@@ -504,7 +504,7 @@ impl ApplicationHandler<UserEvent> for App {
     fn user_event(&mut self, _: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Net(id, ev) => self.on_net(id, ev),
-            UserEvent::Script => self.poll_script(),
+            UserEvent::Script(id) => self.poll_script(id),
             UserEvent::UpdateAvailable(version) => {
                 let msg = format!("BadTerm {version} is out: {}", badterm_core::update::DOWNLOAD_PAGE);
                 self.notice = Some((msg, Instant::now() + UPDATE_NOTICE_TIME));
@@ -534,8 +534,7 @@ impl ApplicationHandler<UserEvent> for App {
         match event {
             // Closing the window in a call asks first, as Alt-X does.
             WindowEvent::CloseRequested => {
-                let in_call = self.session.as_ref().is_some_and(|s| s.state == State::Connected);
-                if in_call && !self.confirm_exit {
+                if self.in_call() && !self.confirm_exit {
                     self.confirm_exit = true;
                     self.request_redraw();
                 } else {
@@ -564,14 +563,12 @@ impl ApplicationHandler<UserEvent> for App {
             }
             // Art dropped while not in a call opens the viewer.
             WindowEvent::DroppedFile(path)
-                if self.session.as_ref().is_none_or(|s| s.state != State::Connected)
-                    && !self.dialer_open
-                    && is_art(&path) =>
+                if self.session().is_none_or(|s| s.state != State::Connected) && !self.dialer_open && is_art(&path) =>
             {
                 self.view_art(&path);
                 self.request_redraw();
             }
-            WindowEvent::DroppedFile(path) if self.session.is_none() || self.dialer_open => {
+            WindowEvent::DroppedFile(path) if self.tabs.is_empty() || self.dialer_open => {
                 // Dropping a directory file onto the dialer (or the idle
                 // screen) imports it, and shows the dialer with the result.
                 self.dialer_open = true;
@@ -587,7 +584,9 @@ impl ApplicationHandler<UserEvent> for App {
             }
             // Dropping files onto a connected session uploads them.
             WindowEvent::DroppedFile(path) => {
-                self.upload_prompt = None;
+                if let Some(t) = self.tab_mut() {
+                    t.upload_prompt = None;
+                }
                 self.start_upload(vec![path]);
                 self.request_redraw();
             }
@@ -600,12 +599,13 @@ impl ApplicationHandler<UserEvent> for App {
         if now >= self.next_tick {
             self.tick += 1;
             self.next_tick = now + TICK;
-            if let Some(s) = self.session.as_mut() {
-                s.tick();
-                self.session_events();
-            }
-            if self.redial.as_ref().is_some_and(|r| now >= r.at) {
-                self.redial_now();
+            // Every call, on screen or not.
+            for t in 0..self.tabs.len() {
+                self.tabs[t].session.tick();
+                self.session_events(t);
+                if self.tabs[t].redial.as_ref().is_some_and(|r| now >= r.at) {
+                    self.redial_now(t);
+                }
             }
             self.request_redraw();
         }
@@ -634,32 +634,35 @@ impl ApplicationHandler<UserEvent> for App {
                 wake = wake.min(at);
             }
         }
-        if !self.macro_steps.is_empty() {
-            self.run_macro();
-            if !self.macro_steps.is_empty() {
-                wake = wake.min(self.macro_at);
-            }
-        }
-        // Sound reports and waits for sounds (SyncTERM's audio).
-        if let Some(at) = self.session.as_ref().and_then(|s| s.next_tick()) {
-            if now >= at {
-                if let Some(s) = self.session.as_mut() {
-                    s.tick();
+        for t in 0..self.tabs.len() {
+            if !self.tabs[t].macro_steps.is_empty() {
+                self.run_macro(t);
+                let tab = &self.tabs[t];
+                if !tab.macro_steps.is_empty() {
+                    wake = wake.min(tab.macro_at);
                 }
-                self.session_events();
-                self.request_redraw();
-            } else {
-                wake = wake.min(at);
             }
+            // Sound reports and waits for sounds (SyncTERM's audio).
+            if let Some(at) = self.tabs[t].session.next_tick() {
+                if now >= at {
+                    self.tabs[t].session.tick();
+                    self.session_events(t);
+                    self.request_redraw();
+                } else {
+                    wake = wake.min(at);
+                }
+            }
+            if self.tabs[t].session.pacing() {
+                self.tabs[t].session.pump();
+                self.session_events(t);
+                if t == self.active {
+                    self.request_redraw();
+                }
+                wake = wake.min(now + PACE_FRAME);
+            }
+            // What a script waits for may have come in any of the above.
+            self.feed_script(t);
         }
-        if let Some(s) = self.session.as_mut().filter(|s| s.pacing()) {
-            s.pump();
-            self.session_events();
-            self.request_redraw();
-            wake = wake.min(now + PACE_FRAME);
-        }
-        // What a script waits for may have come in any of the above.
-        self.feed_script();
         event_loop.set_control_flow(ControlFlow::WaitUntil(wake));
     }
 }

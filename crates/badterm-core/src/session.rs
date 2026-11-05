@@ -695,6 +695,11 @@ impl Session {
         }
     }
 
+    /// Whether the call got through (it may have ended since).
+    pub fn was_connected(&self) -> bool {
+        self.connected_at.is_some()
+    }
+
     /// Time since connecting (or since dialing, while still connecting).
     pub fn elapsed(&self) -> Duration {
         self.connected_at.unwrap_or(self.started).elapsed()

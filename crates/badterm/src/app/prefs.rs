@@ -105,7 +105,9 @@ impl App {
     /// Put changed settings into effect, and save them.
     pub(super) fn apply_settings(&mut self) {
         // The pickers start in the chosen folders again.
-        self.upload_dir = PathBuf::new();
+        for t in &mut self.tabs {
+            t.upload_dir = PathBuf::new();
+        }
         self.art_dir = PathBuf::new();
         self.check_for_updates();
         self.load_bezel();
@@ -115,9 +117,9 @@ impl App {
         if self.settings.music == Music::Off {
             self.player.stop();
         }
-        if let Some(s) = self.session.as_mut() {
-            s.term.music_on_csi_m = self.settings.music == Music::All;
-            s.term.music_enabled = self.settings.music != Music::Off;
+        for t in &mut self.tabs {
+            t.session.term.music_on_csi_m = self.settings.music == Music::All;
+            t.session.term.music_enabled = self.settings.music != Music::Off;
         }
         if let Err(e) = self.settings.save(&self.paths.settings) {
             log::warn!("saving settings: {e:#}");

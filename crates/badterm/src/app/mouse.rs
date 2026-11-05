@@ -5,11 +5,10 @@ use super::*;
 impl App {
     /// The terminal cell under the mouse, if the terminal is what is shown.
     pub(super) fn mouse_cell(&self) -> Option<(usize, usize)> {
-        let s = self.session.as_ref()?;
-        let overlay = self.login.is_some()
-            || self.save_prompt.is_some()
-            || self.upload_prompt.is_some()
-            || s.transfer().is_some();
+        let tab = self.tab()?;
+        let s = &tab.session;
+        let overlay =
+            tab.login.is_some() || tab.save_prompt.is_some() || tab.upload_prompt.is_some() || s.transfer().is_some();
         if self.dialer_open || overlay {
             return None;
         }
@@ -26,11 +25,11 @@ impl App {
     /// keeps the mouse for selecting): the cell, and the pixel on the
     /// terminal's own pixel grid.
     fn mouse_report_at(&self) -> Option<((usize, usize), (usize, usize))> {
-        if self.scroll != 0 || self.mods.shift_key() {
+        if self.scroll() != 0 || self.mods.shift_key() {
             return None;
         }
         let cell = self.mouse_cell()?;
-        let s = self.session.as_ref().filter(|s| s.state == State::Connected && s.term.mouse.tracking())?;
+        let s = self.session().filter(|s| s.state == State::Connected && s.term.mouse.tracking())?;
         let (ox, oy, w, h) = self.view_rect;
         let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
         let nx = mx.saturating_sub(ox) * self.renderer.native_width() / w.max(1);
@@ -48,7 +47,7 @@ impl App {
         let Some((cell, pixel)) = self.mouse_report_at() else { return false };
         let mods =
             badterm_core::mouse::MouseMods { shift: false, alt: self.mods.alt_key(), ctrl: self.mods.control_key() };
-        let Some(session) = self.session.as_mut() else { return false };
+        let Some(session) = self.tab_mut().map(|t| &mut t.session) else { return false };
         if let Some(bytes) = session.term.mouse.report(event, cell, pixel, mods) {
             session.send(&bytes);
             self.mouse_reported = Some((cell, pixel));
@@ -81,9 +80,16 @@ impl App {
         if button != MouseButton::Left {
             return;
         }
+        // A tab's chip in the status bar shows its call.
+        if state == ElementState::Pressed
+            && let Some(t) = self.chip_under_mouse()
+        {
+            self.show_tab(t);
+            return self.request_redraw();
+        }
         match state {
             // A RIPscrip button or mouse region sends its command.
-            ElementState::Pressed if self.scroll == 0 && (self.rip_click() || self.igs_click()) => {}
+            ElementState::Pressed if self.scroll() == 0 && (self.rip_click() || self.igs_click()) => {}
             ElementState::Pressed => {
                 self.selection = self.mouse_cell().map(Selection::at);
                 self.dragging = self.selection.is_some();
@@ -100,12 +106,38 @@ impl App {
         self.request_redraw();
     }
 
+    /// The tab whose chip in the status bar is under the mouse, if the
+    /// chips are showing (more than one call, the terminal on screen).
+    fn chip_under_mouse(&self) -> Option<usize> {
+        let covered = self.dialer_open
+            || self.settings_open
+            || self.help_open
+            || self.confirm_exit
+            || self.art.is_some()
+            || self.art_picker.is_some();
+        if self.tabs.len() < 2 || covered || self.tab()?.session.entry.hide_status {
+            return None;
+        }
+        let (ox, oy, w, h) = self.view_rect;
+        let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
+        if mx < ox || my < oy || mx >= ox + w || my >= oy + h {
+            return None;
+        }
+        let (cols, rows) = (self.renderer.cols(), self.renderer.rows());
+        let (x, y) = ((mx - ox) * cols / w.max(1), (my - oy) * rows / h.max(1));
+        let t = x / tabs::CHIP_W;
+        (y + 1 == rows && t < self.tabs.len()).then_some(t)
+    }
+
     /// Click a RIP mouse region under the mouse, if there is one.
     fn rip_click(&mut self) -> bool {
         if self.mouse_cell().is_none() {
             return false;
         }
-        let Some(session) = self.session.as_mut().filter(|s| s.state == State::Connected) else { return false };
+        let t = self.active;
+        let Some(session) = self.tabs.get_mut(t).map(|t| &mut t.session).filter(|s| s.state == State::Connected) else {
+            return false;
+        };
         if session.term.rip().is_none() {
             return false;
         }
@@ -121,7 +153,7 @@ impl App {
         };
         let sent = session.rip_press(gx, gy);
         // A question it raised shows now.
-        self.session_events();
+        self.session_events(t);
         sent
     }
 
@@ -134,7 +166,10 @@ impl App {
         let (mx, my) = (self.mouse.0.max(0.0) as usize, self.mouse.1.max(0.0) as usize);
         let x = mx.saturating_sub(ox) * self.renderer.native_width() / w.max(1);
         let y = my.saturating_sub(oy) * self.renderer.native_height() / h.max(1);
-        let Some(session) = self.session.as_mut().filter(|s| s.state == State::Connected) else { return false };
+        let t = self.active;
+        let Some(session) = self.tabs.get_mut(t).map(|t| &mut t.session).filter(|s| s.state == State::Connected) else {
+            return false;
+        };
         let rows = session.term.screen.rows();
         // SkyPix reports every click.
         if let Some(sky) = session.term.skypix() {
@@ -159,7 +194,7 @@ impl App {
         if !self.dragging
             && let Some((cell, pixel)) = self.mouse_report_at()
         {
-            let pixels = self.session.as_ref().is_some_and(|s| s.term.mouse.pixels);
+            let pixels = self.session().is_some_and(|s| s.term.mouse.pixels);
             let moved = self.mouse_reported.is_none_or(|(c, p)| if pixels { p != pixel } else { c != cell });
             if moved {
                 self.mouse_report(badterm_core::mouse::MouseEvent::Move(self.mouse_held));
@@ -177,8 +212,9 @@ impl App {
     }
 
     pub(super) fn copy_selection(&mut self, sel: Selection, as_ansi: bool) {
-        let Some(session) = &self.session else { return };
-        let rows = terminal_rows(session, self.scroll);
+        let Some(tab) = self.tab() else { return };
+        let session = &tab.session;
+        let rows = terminal_rows(session, tab.scroll);
         let lines = sel.lines(&rows);
         let text = if as_ansi {
             let opts =
@@ -204,10 +240,12 @@ impl App {
         if lines != 0 && !self.dialer_open && self.mouse_report(badterm_core::mouse::MouseEvent::Wheel(lines > 0)) {
             return;
         }
-        if let Some(s) = self.session.as_ref().filter(|_| !self.dialer_open) {
+        if !self.dialer_open
+            && let Some(tab) = self.tabs.get_mut(self.active)
+        {
+            let max = tab.session.term.screen.scrollback_len() as isize;
+            tab.scroll = (tab.scroll as isize + lines).clamp(0, max) as usize;
             self.selection = None;
-            let max = s.term.screen.scrollback_len() as isize;
-            self.scroll = (self.scroll as isize + lines).clamp(0, max) as usize;
             self.request_redraw();
         }
     }

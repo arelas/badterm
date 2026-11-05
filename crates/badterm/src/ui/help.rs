@@ -15,11 +15,12 @@ struct Group {
     keys: &'static [(&'static str, &'static str)],
 }
 
-const LEFT: [Group; 3] = [
+const LEFT: [Group; 2] = [
     Group {
         heading: "Calling",
         keys: &[
             ("@-D", "Dialing directory"),
+            ("@-N / T", "Call in new tab / next tab"),
             ("@-R", "Call again, or redial now"),
             ("@-L", "Send login (name, password)"),
             ("@-1..0", "Send a keyboard macro"),
@@ -28,7 +29,7 @@ const LEFT: [Group; 3] = [
         ],
     },
     Group {
-        heading: "Files",
+        heading: "Files, scrollback, clipboard",
         keys: &[
             ("@-U", "Upload: Z/Y/XMODEM, Kermit"),
             ("@-G", "Download: Y/XMODEM, Kermit"),
@@ -36,11 +37,6 @@ const LEFT: [Group; 3] = [
             ("@-C", "Capture session to a file"),
             ("@-S", "Save scrollback or screen"),
             ("@-F", "View ANSI art"),
-        ],
-    },
-    Group {
-        heading: "Scrollback and clipboard",
-        keys: &[
             ("@-B", "Scrollback (or Shift-PgUp)"),
             ("Drag", "Copy (Shift: as ANSI)"),
             ("@-V", "Paste (or Shift-Ins)"),

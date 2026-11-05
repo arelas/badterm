@@ -1401,7 +1401,7 @@ mod tests {
         r.draw(&Frame::plain(rows, cursor, true), true, true);
         write_ppm(&mut r, &dir.join("edit.ppm"));
 
-        ui.confirm_hang_up("Example BBS", "another.example.com");
+        ui.confirm_hang_up("Example BBS", "another.example.com", true);
         ui.draw(&mut s, &d);
         let rows: Vec<&[Cell]> = (0..25).map(|y| s.row(y)).collect();
         r.draw(&Frame::plain(rows, None, true), true, true);

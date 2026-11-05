@@ -14,87 +14,91 @@ impl App {
         if p.is_absolute() { p } else { self.paths.scripts.join(p) }
     }
 
-    pub(super) fn run_script(&mut self, path: &Path) {
-        let Some(session) = self.session.as_mut().filter(|s| s.state == State::Connected) else {
+    /// Run a script in tab `t`'s call.
+    pub(super) fn run_script(&mut self, t: usize, path: &Path) {
+        let Some(tab) = self.tabs.get_mut(t).filter(|tab| tab.session.state == State::Connected) else {
             return self.notify("Not connected");
         };
         let source = match std::fs::read_to_string(path) {
             Ok(s) => s,
-            Err(e) => return self.notify(format!("Script {}: {e}", path.display())),
+            Err(e) => return self.notify_from(t, format!("Script {}: {e}", path.display())),
         };
         let name = path.file_name().map_or_else(|| "script".into(), |n| n.to_string_lossy().into_owned());
-        let e = &session.entry;
+        let e = &tab.session.entry;
         let info = CallInfo { bbs: e.name.clone(), user: e.username.clone(), password: e.password.clone() };
-        session.tap = Some(Vec::new());
-        let proxy = self.proxy.clone();
-        self.script = Some(Script::start(&name, source, info, move || {
+        tab.session.tap = Some(Vec::new());
+        let (proxy, id) = (self.proxy.clone(), tab.id);
+        tab.script = Some(Script::start(&name, source, info, move || {
             // Fails only once the event loop has exited.
-            let _ = proxy.send_event(UserEvent::Script);
+            let _ = proxy.send_event(UserEvent::Script(id));
         }));
-        self.notify(format!("Running {name} ({} stops it)", crate::hotkeys::label("J")));
+        self.notify_from(t, format!("Running {name} ({} stops it)", crate::hotkeys::label("J")));
     }
 
-    /// Stop the script running, if any, saying why.
-    pub(super) fn stop_script(&mut self, why: Option<&str>) {
-        let Some(script) = self.script.take() else { return };
+    /// Stop tab `t`'s script, if it has one running, saying why.
+    pub(super) fn stop_script(&mut self, t: usize, why: Option<&str>) {
+        let Some(tab) = self.tabs.get_mut(t) else { return };
+        let Some(script) = tab.script.take() else { return };
         script.stop();
-        if let Some(s) = self.session.as_mut() {
-            s.tap = None;
-        }
+        tab.session.tap = None;
         if let Some(why) = why {
-            self.notify(format!("{}: {why}", script.name));
+            self.notify_from(t, format!("{}: {why}", script.name));
         }
     }
 
-    /// Pass the script what the BBS sent.
-    pub(super) fn feed_script(&mut self) {
-        if let (Some(script), Some(session)) = (&self.script, self.session.as_mut())
-            && let Some(tap) = session.tap.as_mut()
+    /// Pass tab `t`'s script what its BBS sent.
+    pub(super) fn feed_script(&mut self, t: usize) {
+        if let Some(tab) = self.tabs.get_mut(t)
+            && let Some(script) = &tab.script
+            && let Some(tap) = tab.session.tap.as_mut()
             && !tap.is_empty()
         {
             script.feed(&std::mem::take(tap));
         }
     }
 
-    /// Do what the script asks.
-    pub(super) fn poll_script(&mut self) {
-        let Some(script) = self.script.as_mut() else { return };
-        for m in script.poll() {
+    /// Do what the script of the call with this id asks.
+    pub(super) fn poll_script(&mut self, id: u64) {
+        let Some(t) = self.tab_of(id) else { return };
+        let Some(messages) = self.tabs[t].script.as_mut().map(|s| s.poll()) else { return };
+        for m in messages {
+            let tab = &mut self.tabs[t];
             match m {
                 FromScript::Send(text) => {
-                    if let Some(s) = self.session.as_mut().filter(|s| s.state == State::Connected) {
-                        let bytes = s.term.encode_text(&text);
-                        s.send(&bytes);
+                    if tab.session.state == State::Connected {
+                        let bytes = tab.session.term.encode_text(&text);
+                        tab.session.send(&bytes);
                     }
                 }
-                FromScript::Notify(msg) => self.notify(msg),
+                FromScript::Notify(msg) => self.notify_from(t, msg),
                 FromScript::WantScreen => {
-                    if let (Some(script), Some(s)) = (&self.script, &self.session) {
-                        let sc = &s.term.screen;
+                    if let Some(script) = &tab.script {
+                        let sc = &tab.session.term.screen;
                         let rows: Vec<String> =
                             (0..sc.rows()).map(|y| Screen::row_text(sc.row(y)).trim_end().to_string()).collect();
                         script.screen(rows.join("\n"));
                     }
                 }
-                FromScript::HangUp => self.hang_up(),
+                // The tab goes with its call (as Alt-H): nothing more to do.
+                FromScript::HangUp => {
+                    self.close_tab(t);
+                    return self.request_redraw();
+                }
                 FromScript::Done(result) => {
-                    let name = self.script.as_ref().map_or_else(String::new, |s| s.name.clone());
-                    self.script = None;
-                    if let Some(s) = self.session.as_mut() {
-                        s.tap = None;
-                    }
+                    let name = tab.script.take().map_or_else(String::new, |s| s.name.clone());
+                    tab.session.tap = None;
                     match result {
-                        Ok(()) => self.notify(format!("{name} finished")),
-                        Err(e) => self.notify(format!("{name}: {e}")),
+                        Ok(()) => self.notify_from(t, format!("{name} finished")),
+                        Err(e) => self.notify_from(t, format!("{name}: {e}")),
                     }
                     break;
                 }
             }
-            if self.script.is_none() {
+            if self.tabs[t].script.is_none() {
                 break;
             }
         }
-        self.session_events();
+        self.session_events(t);
         self.request_redraw();
     }
 

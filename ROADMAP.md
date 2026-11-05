@@ -143,7 +143,7 @@ The next things to do, in order.
 - [x] Groups in the directory (`G`)
 - [x] Import more formats: qodem
 - [x] More in the settings screen: default font and screen mode, hotkeys
-- [ ] Multiple simultaneous sessions (tabs)
+- [x] Multiple simultaneous sessions (tabs): up to nine, `Alt-N` / `Alt-T`
 - [x] Scripting (Rhai); per-entry macros
 - [ ] More themes and bezels in `extras/`, from others
 - [ ] Optional curses/TUI front end built on `badterm-core`

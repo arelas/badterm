@@ -1,7 +1,9 @@
 //! The keyboard: BadTerm's hotkeys, and keys for whichever screen or
 //! dialog is in front.
 
+use super::call::Slot;
 use super::*;
+use crate::hotkeys::label as hk;
 
 /// The font files in the fonts folder, by name, in order.
 fn font_files(dir: &std::path::Path) -> Vec<String> {
@@ -55,25 +57,28 @@ impl App {
             }
         } else if self.dialer_open {
             self.dialer_key(key, mods);
-        } else if self.login.is_some() {
-            self.login_key(key, mods);
-        } else if self.save_prompt.is_some() {
-            self.save_key(key, mods);
-        } else if self.upload_prompt.is_some() {
-            self.prompt_key(key, mods);
-        } else if self.download_prompt.is_some() {
-            self.download_key(key, mods);
-        } else if self.session.as_ref().is_some_and(|s| s.transfer().is_some()) {
-            if key == Key::Escape
-                && let Some(s) = self.session.as_mut()
-            {
-                s.cancel_transfer();
-                self.session_events();
+        } else if let Some(tab) = self.tab() {
+            // The call on screen, or the question it is asking.
+            if tab.login.is_some() {
+                self.login_key(key, mods);
+            } else if tab.save_prompt.is_some() {
+                self.save_key(key, mods);
+            } else if tab.upload_prompt.is_some() {
+                self.prompt_key(key, mods);
+            } else if tab.download_prompt.is_some() {
+                self.download_key(key, mods);
+            } else if tab.session.transfer().is_some() {
+                if key == Key::Escape
+                    && let Some(tab) = self.tab_mut()
+                {
+                    tab.session.cancel_transfer();
+                    self.session_events(self.active);
+                }
+            } else {
+                self.terminal_key(key, mods);
             }
-        } else if self.session.is_some() {
-            self.terminal_key(key, mods);
         }
-        // With no session and the dialer closed (the idle screen), only the
+        // With no call and the dialer closed (the idle screen), only the
         // hotkeys do anything.
         self.request_redraw();
     }
@@ -94,14 +99,19 @@ impl App {
             Action::Changed => self.save_directory(),
             Action::HangUpAndDial => {
                 if let Some((e, i)) = self.pending_dial.take() {
-                    self.hang_up();
-                    self.connect(e, i);
+                    self.open_call(e, i, Slot::Replace(self.active));
+                }
+            }
+            Action::NewTab => {
+                if let Some((e, i)) = self.pending_dial.take() {
+                    self.open_call(e, i, Slot::New);
                 }
             }
             Action::Settings => self.open_settings(),
             Action::Close => {
                 self.dialer_open = false;
                 self.pending_dial = None;
+                self.new_tab_dial = false;
             }
         }
     }
@@ -133,7 +143,7 @@ impl App {
             }
             // The stored login: the user name, then the password.
             KeyCode::KeyL => {
-                let msg = match self.session.as_mut().filter(|s| s.state == State::Connected) {
+                let msg = match self.tab_mut().map(|t| &mut t.session).filter(|s| s.state == State::Connected) {
                     None => Some("Not connected"),
                     Some(s) if !s.has_login() => Some("This entry has no user name or password"),
                     // The session reports what it sent.
@@ -142,7 +152,7 @@ impl App {
                 if let Some(m) = msg {
                     self.notify(m);
                 }
-                self.session_events();
+                self.session_events(self.active);
                 return true;
             }
             // Display settings, from anywhere.
@@ -150,14 +160,14 @@ impl App {
                 // A system with its own phosphor mode keeps the change.
                 if let Some(mode) = self.own_crt_mode() {
                     let next = mode.next();
-                    if let Some(s) = self.session.as_mut() {
-                        s.entry.crt = Some(next);
+                    if let Some(t) = self.tab_mut() {
+                        t.session.entry.crt = Some(next);
                     }
-                    if let Some(e) = self.session_entry_mut() {
+                    if let Some(e) = self.entry_mut(self.active) {
                         e.crt = Some(next);
                         self.save_directory();
                     }
-                    let name = self.session.as_ref().map_or("", |s| s.entry.name.as_str());
+                    let name = self.session().map_or("", |s| s.entry.name.as_str());
                     self.notify(format!("Phosphor mode for {name}: {}", next.name()));
                 } else {
                     self.settings.crt = self.settings.crt.next();
@@ -177,9 +187,9 @@ impl App {
                 if self.settings.music == Music::Off {
                     self.player.stop();
                 }
-                if let Some(s) = self.session.as_mut() {
-                    s.term.music_on_csi_m = self.settings.music == Music::All;
-                    s.term.music_enabled = self.settings.music != Music::Off;
+                for t in &mut self.tabs {
+                    t.session.term.music_on_csi_m = self.settings.music == Music::All;
+                    t.session.term.music_enabled = self.settings.music != Music::Off;
                 }
                 let msg = self.settings.music.name();
                 self.settings_changed(msg);
@@ -196,17 +206,33 @@ impl App {
             KeyCode::KeyD => {
                 self.dialer_open = !self.dialer_open;
                 self.pending_dial = None;
+                self.new_tab_dial = false;
                 self.settings_open = false;
                 self.help_open = false;
                 return true;
             }
+            // The dialing directory, to call a BBS in a tab of its own; the
+            // calls open stay connected.
+            KeyCode::KeyN => {
+                if self.tabs.len() >= tabs::MAX_TABS {
+                    self.notify(format!("{} calls are open, the most there can be", tabs::MAX_TABS));
+                } else {
+                    self.dialer_open = true;
+                    self.new_tab_dial = true;
+                    self.pending_dial = None;
+                    self.settings_open = false;
+                    self.help_open = false;
+                    self.notify("Choose a BBS to call in a new tab");
+                }
+                return true;
+            }
             // A script: choose one to run, or stop the one running.
             KeyCode::KeyJ => {
-                if self.script.is_some() {
-                    self.stop_script(Some("stopped"));
+                if self.tab().is_some_and(|t| t.script.is_some()) {
+                    self.stop_script(self.active, Some("stopped"));
                 } else if self.art_picker.is_some() && self.picking_script {
                     self.art_picker = None;
-                } else if self.session.as_ref().is_some_and(|s| s.state == State::Connected) {
+                } else if self.session().is_some_and(|s| s.state == State::Connected) {
                     self.art = None;
                     self.open_script_picker();
                 } else {
@@ -248,20 +274,38 @@ impl App {
             self.start_macro(i);
             return true;
         }
-        let Some(session) = self.session.as_mut() else { return false };
+        // The next call (Shift: the one before).
+        if code == KeyCode::KeyT {
+            match self.tabs.len() {
+                0 => self.notify("Not connected"),
+                1 => self.notify(format!("This is the only call: {} calls another in a new tab", hk("N"))),
+                n => {
+                    let t = tabs::cycle(self.active, n, self.mods.shift_key());
+                    self.show_tab(t);
+                    let name = self.tabs[t].session.entry.name.clone();
+                    self.notify(format!("Tab {} of {n}: {name}", t + 1));
+                }
+            }
+            return true;
+        }
+        let t = self.active;
+        let Some(session) = self.tabs.get_mut(t).map(|tab| &mut tab.session) else { return false };
         match code {
             KeyCode::KeyH => self.hang_up(),
             // Call again: now, if a redial is waiting, or after a hang-up.
             KeyCode::KeyR if session.state == State::Closed => {
-                if self.redial.is_none() {
-                    let (entry, index) = (session.entry.clone(), self.session_entry_index());
-                    self.redial = Some(Redial { entry, index, attempt: 0, at: Instant::now() });
+                if self.tabs[t].redial.is_none() {
+                    let entry = self.tabs[t].session.entry.clone();
+                    let index = self.entry_index(t);
+                    self.tabs[t].redial = Some(Redial { entry, index, attempt: 0, at: Instant::now() });
                 }
-                self.redial_now();
+                self.redial_now(t);
             }
             KeyCode::KeyB => {
-                let page = session.term.screen.rows();
-                self.scroll = self.scroll.max(1).max(page.min(session.term.screen.scrollback_len()));
+                let tab = &mut self.tabs[t];
+                let sc = &tab.session.term.screen;
+                let page = sc.rows().min(sc.scrollback_len());
+                tab.scroll = tab.scroll.max(1).max(page);
             }
             // A teletext page's concealed text (Viewdata, Mode 7).
             KeyCode::KeyK => {
@@ -284,7 +328,7 @@ impl App {
                 if session.entry.ice.is_some() {
                     session.entry.ice = Some(on);
                     session.term.screen.base_ice = on;
-                    if let Some(e) = self.session_entry_mut() {
+                    if let Some(e) = self.entry_mut(t) {
                         e.ice = Some(on);
                         msg = format!("{msg} for {}", e.name);
                         self.save_directory();
@@ -303,13 +347,14 @@ impl App {
                 let msg = format!("Encoding: {}", t.encoding.name());
                 self.notify(msg);
             }
-            KeyCode::KeyC => self.toggle_capture(),
+            KeyCode::KeyC => self.toggle_capture(t),
             KeyCode::KeyS => {
                 let now = dialer::now();
                 let name = format!("{}-{}.ans", file_stem(&session.entry.name), stamp(now));
                 let path = self.folder(Folders::SAVES).join(name);
-                self.upload_prompt = None;
-                self.save_prompt = Some(SavePrompt::new(&path));
+                let tab = &mut self.tabs[t];
+                tab.upload_prompt = None;
+                tab.save_prompt = Some(SavePrompt::new(&path));
             }
             KeyCode::KeyV => self.paste(),
             // During an upload, the prompt adds files to the batch.
@@ -318,11 +363,13 @@ impl App {
                     && session.transfer().is_none_or(|t| t.progress().direction == Direction::Upload) =>
             {
                 let requested = session.upload_requested();
-                self.open_upload(requested);
+                self.open_upload(t, requested);
             }
             KeyCode::KeyG if session.state == State::Connected && session.transfer().is_none() => {
-                self.upload_prompt = None;
-                self.download_prompt = Some(DownloadPrompt::new(self.download_protocol));
+                let prompt = DownloadPrompt::new(self.download_protocol);
+                let tab = &mut self.tabs[t];
+                tab.upload_prompt = None;
+                tab.download_prompt = Some(prompt);
             }
             _ => return false,
         }
@@ -330,18 +377,18 @@ impl App {
     }
 
     pub(super) fn login_key(&mut self, key: Key, mods: Mods) {
-        let Some(login) = self.login.as_mut() else { return };
+        let t = self.active;
+        let Some(tab) = self.tabs.get_mut(t) else { return };
+        let Some(login) = tab.login.as_mut() else { return };
         if login.rip {
             let answer = match login.handle_key(key, mods) {
                 LoginAction::None => return,
                 LoginAction::Answer(a) => Some(a),
                 LoginAction::Cancel => None,
             };
-            self.login = None;
-            if let Some(s) = self.session.as_mut() {
-                s.answer_rip(answer);
-            }
-            return self.session_events();
+            tab.login = None;
+            tab.session.answer_rip(answer);
+            return self.session_events(t);
         }
         let answer = match login.handle_key(key, mods) {
             LoginAction::None => return,
@@ -349,29 +396,27 @@ impl App {
                 // A later question (say, a one-time code) leaves the
                 // password's choice alone.
                 if login.can_remember {
-                    self.remember = login.remember.then(|| a.clone());
+                    tab.remember = login.remember.then(|| a.clone());
                 }
                 Some(a)
             }
             LoginAction::Cancel => None,
         };
-        self.login = None;
-        if let Some(s) = self.session.as_mut() {
-            s.answer_prompt(answer);
-        }
+        tab.login = None;
+        tab.session.answer_prompt(answer);
     }
 
     pub(super) fn terminal_key(&mut self, key: Key, mods: Mods) {
-        let Some(session) = self.session.as_mut() else { return };
+        let Some(tab) = self.tab_mut() else { return };
         // A finished call stays on screen to be read (and scrolled back)
         // until Alt-H clears it or another call is dialed.
-        let max = session.term.screen.scrollback_len();
-        if self.scroll > 0 {
-            self.scroll = match key {
-                Key::Up => self.scroll + 1,
-                Key::Down => self.scroll - 1,
-                Key::PageUp => self.scroll + session.term.screen.rows(),
-                Key::PageDown => self.scroll.saturating_sub(session.term.screen.rows()),
+        let (rows, max) = (tab.session.term.screen.rows(), tab.session.term.screen.scrollback_len());
+        if tab.scroll > 0 {
+            tab.scroll = match key {
+                Key::Up => tab.scroll + 1,
+                Key::Down => tab.scroll - 1,
+                Key::PageUp => tab.scroll + rows,
+                Key::PageDown => tab.scroll.saturating_sub(rows),
                 Key::Home => max,
                 _ => 0,
             }
@@ -379,14 +424,15 @@ impl App {
             return;
         }
         match key {
-            Key::PageUp if mods.shift => self.scroll = session.term.screen.rows().min(max),
-            Key::Escape if self.redial.is_some() => {
-                self.redial = None;
+            Key::PageUp if mods.shift => tab.scroll = rows.min(max),
+            Key::Escape if tab.redial.is_some() => {
+                tab.redial = None;
                 self.notify("Redial cancelled");
             }
-            _ if session.state == State::Closed => {}
+            _ if tab.session.state == State::Closed => {}
             Key::Insert if mods.shift => self.paste(),
             _ => {
+                let session = &mut tab.session;
                 let bytes = input::encode(key, mods, session.term.encoding, session.term.codepage());
                 if !bytes.is_empty() {
                     session.term.interrupt();
@@ -410,7 +456,7 @@ impl App {
             }
             self.art_picker = None;
             match paths.first() {
-                Some(path) if script => self.run_script(path),
+                Some(path) if script => self.run_script(self.active, path),
                 Some(path) => self.view_art(path),
                 None => {}
             }
@@ -418,12 +464,13 @@ impl App {
     }
 
     pub(super) fn save_key(&mut self, key: Key, mods: Mods) {
-        let Some(prompt) = self.save_prompt.as_mut() else { return };
+        let Some(tab) = self.tab_mut() else { return };
+        let Some(prompt) = tab.save_prompt.as_mut() else { return };
         match key {
-            Key::Escape => self.save_prompt = None,
+            Key::Escape => tab.save_prompt = None,
             Key::Enter => {
                 let path = prompt.path();
-                self.save_prompt = None;
+                tab.save_prompt = None;
                 let msg = match self.save(&path) {
                     Ok(what) => format!("Saved {what} to {}", path.display()),
                     Err(e) => format!("Save failed: {e:#}"),
@@ -437,22 +484,21 @@ impl App {
     }
 
     pub(super) fn prompt_key(&mut self, key: Key, mods: Mods) {
-        let Some(prompt) = self.upload_prompt.as_mut() else { return };
+        let Some(tab) = self.tabs.get_mut(self.active) else { return };
+        let Some(prompt) = tab.upload_prompt.as_mut() else { return };
         match prompt.handle_key(key, mods) {
             UploadAction::None => {}
             UploadAction::Cancel => {
-                self.upload_prompt = None;
+                tab.upload_prompt = None;
                 // A BBS waiting for the upload is told to give up.
-                if let Some(s) = self.session.as_mut() {
-                    s.decline_upload();
-                }
+                tab.session.decline_upload();
             }
             UploadAction::Send(protocol, paths) => {
-                self.upload_dir = prompt.picker.dir().to_path_buf();
+                tab.upload_dir = prompt.picker.dir().to_path_buf();
                 if !prompt.requested {
                     self.upload_protocol = prompt.protocol;
                 }
-                self.upload_prompt = None;
+                tab.upload_prompt = None;
                 match protocol {
                     Proto::Zmodem => self.start_upload(paths),
                     Proto::Xy(p) => self.start_xy_upload(p, paths),
@@ -463,14 +509,15 @@ impl App {
     }
 
     pub(super) fn download_key(&mut self, key: Key, mods: Mods) {
-        let Some(prompt) = self.download_prompt.as_mut() else { return };
+        let Some(tab) = self.tabs.get_mut(self.active) else { return };
+        let Some(prompt) = tab.download_prompt.as_mut() else { return };
         match prompt.handle_key(key, mods) {
             DownloadAction::None => {}
-            DownloadAction::Cancel => self.download_prompt = None,
+            DownloadAction::Cancel => tab.download_prompt = None,
             DownloadAction::Receive(protocol, name) => {
                 self.download_protocol = prompt.protocol;
-                self.download_prompt = None;
-                let Some(session) = self.session.as_mut() else { return };
+                tab.download_prompt = None;
+                let session = &mut tab.session;
                 let started = match protocol {
                     Proto::Xy(p) => session.start_xy_download(p, name),
                     Proto::Kermit | Proto::Zmodem => session.start_kermit_download(),
@@ -478,7 +525,7 @@ impl App {
                 if let Err(e) = started {
                     self.notify(format!("Download failed: {e:#}"));
                 }
-                self.session_events();
+                self.session_events(self.active);
             }
         }
     }
@@ -514,14 +561,18 @@ impl App {
         }
     }
 
-    pub(super) fn open_upload(&mut self, requested: bool) {
-        self.download_prompt = None;
-        if self.upload_dir.as_os_str().is_empty() {
-            self.upload_dir = match &self.session {
-                Some(s) => self.entry_folder(&s.entry, Folders::UPLOADS),
-                None => self.folder(Folders::UPLOADS),
-            };
-        }
-        self.upload_prompt = Some(UploadPrompt::new(requested, self.upload_dir.clone(), self.upload_protocol));
+    /// The upload prompt, in tab `t`'s call.
+    pub(super) fn open_upload(&mut self, t: usize, requested: bool) {
+        let Some(tab) = self.tabs.get(t) else { return };
+        let dir = match tab.upload_dir.as_os_str().is_empty() {
+            // It starts in this BBS's folder.
+            true => self.entry_folder(&tab.session.entry, Folders::UPLOADS),
+            false => tab.upload_dir.clone(),
+        };
+        let prompt = UploadPrompt::new(requested, dir.clone(), self.upload_protocol);
+        let tab = &mut self.tabs[t];
+        tab.upload_dir = dir;
+        tab.download_prompt = None;
+        tab.upload_prompt = Some(prompt);
     }
 }
