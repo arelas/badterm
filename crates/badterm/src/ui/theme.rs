@@ -288,15 +288,16 @@ pub const SCHEMES: [(&str, Theme); 14] = [
     (
         // The logo's colors (assets/logo/badterm.ans): the letters' cyan
         // ground for the bars, their light blue for the frames and light
-        // green for the headings, and the gold of the ki around them for
-        // what is chosen and what to press. On black, in the VGA's own colors.
+        // green for the headings, light cyan on their deep blue for what is
+        // chosen, and the gold of the ki around them for what to press. On
+        // black, in the VGA's own colors.
         "BadTerm",
         Theme {
             title_bar: a(BLACK, CYAN),
             border: a(LIGHT_BLUE, BLACK),
             headings: a(LIGHT_GREEN, BLACK),
             entries: a(GRAY, BLACK),
-            selected: a(BLACK, YELLOW),
+            selected: a(LIGHT_CYAN, BLUE),
             info: a(CYAN, BLACK),
             help: a(GRAY, BLACK),
             help_key: a(YELLOW, BLACK),
