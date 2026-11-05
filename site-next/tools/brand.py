@@ -106,11 +106,13 @@ def kit(out):
 
 
 def favicons(img_dir):
-    """The site's tab icon (SVG, with a 64 px PNG for the rest) and the
+    """The site's tab icon (SVG, with a crisp 32 px PNG for the rest) and the
     home-screen icon (180 px, opaque: phones round it themselves)."""
     with open(os.path.join(img_dir, "favicon.svg"), "w", encoding="utf-8") as f:
         f.write(icon_svg())
-    shutil.copy(os.path.join(ICON, "badterm-64.png"), os.path.join(img_dir, "favicon.png"))
+    # the PNG fallback (non-SVG browsers) is the crisp small master, not the 64 px
+    # gradient, so it stays legible when scaled to the 16 px tab.
+    shutil.copy(os.path.join(ICON, "badterm-32.png"), os.path.join(img_dir, "favicon.png"))
     shutil.copy(os.path.join(ICON, "badterm-256.png"), os.path.join(img_dir, "icon.png"))
     tile = Image.open(os.path.join(ICON, "badterm-256.png")).convert("RGBA")
     square = Image.new("RGBA", tile.size, (0, 0, 0, 255))
