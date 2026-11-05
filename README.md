@@ -363,8 +363,9 @@ scaling (fit keeping the shape; auto, which is whole numbers in a window
 and fit in full screen; always whole numbers; or stretch to fill),
 character cells, sound and music, the bell (a beep, a flash of the screen, both
 or neither; an entry can have its own), redialing, the modem (see "Dialing
-with a modem" below), and the colors of BadTerm's own screens. Pick one of the color schemes (Midnight, the
-default; Classic blue, Gray windows, Green phosphor, Amber, Monochrome,
+with a modem" below), and the colors of BadTerm's own screens. Pick one of the color schemes (BadTerm, the
+default, in the colors of its logo: cyan, light blue and gold on black;
+Midnight, Classic blue, Gray windows, Green phosphor, Amber, Monochrome,
 Ocean, Crimson, Plum, Dark blue and Dark cyan, which have no colored
 backgrounds, Bad Cluster, in the copper and teal of badcluster.dev, or Dark
 Dracula, Dracula's colors on black), or,

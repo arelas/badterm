@@ -284,7 +284,36 @@ const fn unfilled(dark: u8, bright: u8) -> Theme {
 }
 
 /// The built-in schemes, by name; the first is the default.
-pub const SCHEMES: [(&str, Theme); 13] = [
+pub const SCHEMES: [(&str, Theme); 14] = [
+    (
+        // The logo's colors (assets/logo/badterm.ans): the letters' cyan
+        // ground for the bars, their light blue for the frames and light
+        // green for the headings, and the gold of the ki around them for
+        // what is chosen and what to press. On black, in the VGA's own colors.
+        "BadTerm",
+        Theme {
+            title_bar: a(BLACK, CYAN),
+            border: a(LIGHT_BLUE, BLACK),
+            headings: a(LIGHT_GREEN, BLACK),
+            entries: a(GRAY, BLACK),
+            selected: a(BLACK, YELLOW),
+            info: a(CYAN, BLACK),
+            help: a(GRAY, BLACK),
+            help_key: a(YELLOW, BLACK),
+            status: a(BLACK, CYAN),
+            status_alt: a(BLACK, YELLOW),
+            window: a(LIGHT_BLUE, BLACK),
+            window_title: a(YELLOW, BLACK),
+            window_text: a(GRAY, BLACK),
+            field_name: a(CYAN, BLACK),
+            field_value: a(WHITE, BLACK),
+            input: a(WHITE, BLUE),
+            keys: a(YELLOW, BLACK),
+            note: a(DARK_GRAY, BLACK),
+            error: a(LIGHT_RED, BLACK),
+            palette: None,
+        },
+    ),
     (
         "Midnight",
         Theme {
@@ -687,7 +716,7 @@ mod tests {
         t.set(4, Attr::new(14, 4));
         assert_eq!(t.selected, Attr::new(14, 4));
         assert_eq!(t.scheme_name(), None);
-        assert_eq!(Theme::default().scheme_name(), Some("Midnight"));
+        assert_eq!(Theme::default().scheme_name(), Some("BadTerm"));
         // Every scheme is distinct, so its name can be shown.
         for (i, (_, a)) in SCHEMES.iter().enumerate() {
             for (_, b) in &SCHEMES[i + 1..] {
