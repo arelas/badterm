@@ -62,8 +62,8 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   carries a SAUCE-style record for each page.
 - **The logo kit is made by `tools/brand.py`** from the files the app ships:
   the logo (`crates/badterm/assets/logo/`) and the icon
-  (`crates/badterm/assets/icon/`, made by its `make_icon.py`: the logo's B in
-  its ki, an ANSI piece of 32x16 cells). The build publishes it at `brand/`.
+  (`crates/badterm/assets/icon/`, made by its `make_icon.py`: the logo's B on a
+  slate tile, without the ki, an ANSI piece of 32x16 cells). The build publishes it at `brand/`.
   The kit has:
   - the logo, as `.ans` and PNG, and as a poster with its own caption
   - the wordmark on one line, `src/img/badterm-line.svg`, made by

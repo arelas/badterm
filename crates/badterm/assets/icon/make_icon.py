@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Draw BadTerm's application icon: the B of its logo, powering up.
+"""Draw BadTerm's application icon: the B of its logo.
 
-The icon is an ANSI piece, as the logo is (../logo/badterm.ans). It is the
-logo's own B, drawn with the same pen (site-next/tools/letterpen.py) a little
-wider, and shaded and set in its gold ki by the same code
-(site-next/tools/powerup.py):
-- the negative-land stroke: a cyan ground, light green and light blue worked
-  over it in vertical streaks
-- a black keyline and a grey ghost shadow
-- the ki, white-hot at the keyline and gold outside, crackling
-The canvas is 32 x 16 text cells, which in the VGA's 8 x 16 font is 256 x 256
-pixels. It is written here as badterm-icon.ans.
+The icon is the logo's own B (../logo/badterm.ans), drawn with the same pen
+(site-next/tools/letterpen.py), larger, and shaded by the same code
+(site-next/tools/powerup.py): the negative-land stroke (a cyan ground, light
+green and light blue worked over it in vertical streaks), a black keyline and
+a grey ghost shadow. There is no ki: at icon sizes it crowds the letter, as it
+did the website's header. The B sits on a slate tile, so its black keyline
+outlines it. The canvas is 32 x 16 text cells, which in the VGA's 8 x 16 font
+is 256 x 256 pixels. It is also written as an ANSI piece, badterm-icon.ans, on
+black.
 
 Every size is made from that one picture:
 - 256 px is the piece at 1:1, 512 and 1024 px at 2:1 and 4:1, so every pixel
@@ -23,11 +22,12 @@ from 64 up sit on Apple's icon grid: an 824-in-1024 squircle with room for its
 shadow.
 
 Writes these next to this script:
-- badterm-<size>.png for each size (the full tile)
+- badterm-<size>.png for each size (the full tile), and badterm-mac-1024.png
 - badterm.ico (Windows)
 - badterm.icns (macOS, on Apple's grid)
 - badterm-64.rgba (raw pixels for the window icon, so the app needs no PNG
   decoder)
+- badterm.svg (the 32 px picture, a unit a half-cell, for favicons)
 - badterm-icon.ans
 
 Needs Pillow and numpy:
@@ -35,7 +35,6 @@ Needs Pillow and numpy:
     python3 -I crates/badterm/assets/icon/make_icon.py
 """
 
-import random
 import sys
 from pathlib import Path
 
@@ -50,64 +49,93 @@ from ansi import VGA, Screen  # noqa: E402
 
 SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024]
 COLS, ROWS = 32, 16          # 256 x 256 pixels in the 8 x 16 font
-SEED = 23                    # the build of the ki chosen
-SX = 1.35                    # the logo's B is 1.2: the icon's is a little wider, to sit in a square
-CAP = 6                      # the B's cap line, in half-cells: its claw reaches the top
-RIM = (54, 64, 86)           # a hairline round the tile, so a black tile holds its edge on black
+SX, SY = 1.75, 1.05          # the logo's B is 1.2 x 1.0: the icon's fills its square
+TILE = ((52, 58, 76), (24, 27, 36))   # slate, lighter at the top: the keyline shows against it
+RIM = (70, 80, 104)          # a hairline round the tile, lit a little
 LIGHT, MEDIUM, DARK, FULL, UPPER, LOWER = 0xB0, 0xB1, 0xB2, 0xDB, 0xDF, 0xDC
 
 
 def piece():
-    """The icon as a Screen: the B, its keyline, shadow, stroke and ki."""
+    """The icon as a Screen (the B, its keyline, shadow and stroke, on
+    black), and the half-cells that are the tile's ground."""
     pu.W, pu.H, pu.QH = COLS, ROWS, ROWS * 2
-    cells, _ = letterpen.mask_of("B", letterpen.letters(), sx=SX)
-    xs = [x for x, _ in cells]
+    cells, _ = letterpen.mask_of("B", letterpen.letters(), sx=SX, sy=SY)
+    xs, ys = [x for x, _ in cells], [y for _, y in cells]
     ox = (COLS - (max(xs) - min(xs) + 1)) // 2 - min(xs)
-    mask = {(ox + x, CAP + y): 0 for x, y in cells if 0 <= ox + x < COLS and 0 <= CAP + y < pu.QH}
-    rng = random.Random(SEED)
+    oy = (pu.QH - (max(ys) - min(ys) + 1)) // 2 - min(ys)
+    mask = {(ox + x, oy + y): 0 for x, y in cells if 0 <= ox + x < COLS and 0 <= oy + y < pu.QH}
+    keyline = {(x, qy) for qy in range(pu.QH) for x in range(COLS)
+               if (x, qy) not in mask and any((x + a, qy + b) in mask for a in (-1, 0, 1) for b in (-1, 0, 1))}
     cv = pu.Canvas()
-
-    def never(x, qy):
-        return False
-    # A fuller ki than the logo's, so it fills the square round the letter.
-    d, heat = pu.ki(cv, mask, rng, never, side=5.5, down=3.0, base=6.0)
-    pu.arcs(cv, rng, d, heat, never, n=1)
-    for qy in range(pu.QH):
-        for x in range(COLS):
-            if (x, qy) not in mask and any((x + a, qy + b) in mask for a in (-1, 0, 1) for b in (-1, 0, 1)):
-                cv.set(x, qy, None)
-                cv.fixed.pop((x, qy // 2), None)
-    reached = pu.outside(mask)
-    for qy in range(pu.QH):
-        for x in range(COLS):
-            if not reached[qy, x] and (x, qy) not in mask:
-                cv.set(x, qy, None)
     pu.shadow(cv, mask)
-    pu.shade_letters(cv, mask, {0: CAP})
+    pu.shade_letters(cv, mask, {0: oy})
     s = Screen(COLS, ROWS)
     cv.onto(s)
-    return s
+    reached = pu.outside(mask)
+    ground = set()
+    for qy in range(pu.QH):
+        for x in range(COLS):
+            if (x, qy) in mask or (x, qy) in keyline or not reached[qy, x]:
+                continue
+            if halves_of(s, x, qy) == 0:       # black there, and not the shadow
+                ground.add((x, qy))
+    return s, ground
 
 
-def full(s):
-    """The piece in the VGA font, 256 x 256."""
+def halves_of(s, x, qy):
+    """The VGA color half-cell (x, qy) mostly shows."""
+    ch, fg, bg = s.cells[qy // 2][x]
+    top, bottom = {FULL: (fg, fg), UPPER: (fg, bg), LOWER: (bg, fg), DARK: (fg, fg), MEDIUM: (fg, fg)}.get(ch, (bg, bg))
+    return bottom if qy % 2 else top
+
+
+def tile_at(qy):
+    t = qy / (ROWS * 2 - 1)
+    return tuple(round(TILE[0][i] + (TILE[1][i] - TILE[0][i]) * t) for i in range(3))
+
+
+def full(s, ground):
+    """The piece in the VGA font, 256 x 256, on its tile."""
     path = HERE / ".icon-1x.png"
     s.png(str(path), scale=1)
     img = Image.open(path).convert("RGB")
     path.unlink()
+    px = img.load()
+    for x, qy in ground:
+        c = tile_at(qy)
+        for y in range(qy * 8, qy * 8 + 8):
+            for xx in range(x * 8, x * 8 + 8):
+                if px[xx, y] == (0, 0, 0):
+                    px[xx, y] = c
     return img
 
 
-def halves(s):
+def halves(s, ground):
     """32 x 32: a pixel per half-cell, the color it mostly shows."""
     img = Image.new("RGB", (COLS, ROWS * 2))
     px = img.load()
-    for y in range(ROWS):
+    for qy in range(ROWS * 2):
         for x in range(COLS):
-            ch, fg, bg = s.cells[y][x]
-            top, bottom = {FULL: (fg, fg), UPPER: (fg, bg), LOWER: (bg, fg), DARK: (fg, fg), MEDIUM: (fg, fg)}.get(ch, (bg, bg))
-            px[x, y * 2], px[x, y * 2 + 1] = VGA[top], VGA[bottom]
+            px[x, qy] = tile_at(qy) if (x, qy) in ground else tuple(VGA[halves_of(s, x, qy)])
     return img
+
+
+def svg(small):
+    """The 32 px picture as SVG, a unit a pixel, on a rounded tile."""
+    w, h = small.size
+    px = small.load()
+    rects = []
+    for y in range(h):
+        x = 0
+        while x < w:
+            c, n = px[x, y], 1
+            while x + n < w and px[x + n, y] == c:
+                n += 1
+            rects.append('<rect x="%d" y="%d" width="%d" height="1" fill="#%02X%02X%02X"/>' % ((x, y, n) + c))
+            x += n
+    return ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" shape-rendering="crispEdges">'
+            '<title>BadTerm</title><clipPath id="t"><rect width="%d" height="%d" rx="%g"/></clipPath>'
+            '<g clip-path="url(#t)">%s</g></svg>\n' % (w, h, w, h, w, h, w * 0.18, "".join(rects)))
 
 
 def picture(base, small, n):
@@ -153,7 +181,7 @@ def draw(base, small, n, apple=False):
         sh.putalpha(outline.point(lambda v: v * 0.45))
         sh = sh.transform((n, n), Image.AFFINE, (1, 0, 0, 0, 1, -round(n * 0.012)))
         img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(n * 0.014)))
-    art = Image.new("RGBA", (n, n), (0, 0, 0, 255))
+    art = Image.new("RGBA", (n, n), TILE[1] + (255,))
     art.paste(picture(base, small, b - a), (a, a))
     img.paste(art, (0, 0), outline)
     if n >= 32:   # a hairline rim
@@ -165,10 +193,11 @@ def draw(base, small, n, apple=False):
 
 
 def main():
-    s = piece()
+    s, ground = piece()
     (HERE / "badterm-icon.ans").write_bytes(
         s.ans(sauce=dict(title="BadTerm icon", author="Bad Cluster", group="", date="20261105")))
-    base, small = full(s), halves(s)
+    base, small = full(s, ground), halves(s, ground)
+    (HERE / "badterm.svg").write_text(svg(small), encoding="utf-8")
     images = {n: draw(base, small, n) for n in SIZES}
     for n, img in images.items():
         img.save(HERE / f"badterm-{n}.png")
@@ -179,7 +208,8 @@ def main():
     mac = {n: (draw(base, small, n, apple=True) if n >= 64 else images[n]) for n in (16, 32, 64, 128, 256, 512, 1024)}
     mac[1024].save(HERE / "badterm.icns", append_images=[mac[n] for n in (16, 32, 64, 128, 256, 512)])
     mac[1024].save(HERE / "badterm-mac-1024.png")
-    print("wrote", ", ".join(f"badterm-{n}.png" for n in SIZES), "badterm.ico badterm.icns badterm-64.rgba badterm-icon.ans")
+    print("wrote", ", ".join(f"badterm-{n}.png" for n in SIZES),
+          "badterm-mac-1024.png badterm.ico badterm.icns badterm-64.rgba badterm.svg badterm-icon.ans")
 
 
 if __name__ == "__main__":

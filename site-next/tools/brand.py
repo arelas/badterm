@@ -29,25 +29,15 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 ICON = os.path.join(REPO, "crates", "badterm", "assets", "icon")
 LINE = os.path.join(os.path.dirname(HERE), "src", "img", "badterm-line.svg")
 sys.path.insert(0, HERE)
-import ansiparse  # noqa: E402
 import art  # noqa: E402
 import letterpen  # noqa: E402
-from ansi import FONT, VGA, Screen, quads_svg  # noqa: E402
-
-
-def icon_screen():
-    """The icon's ANSI piece, 32 x 16 cells."""
-    rows = ansiparse.parse(open(os.path.join(ICON, "badterm-icon.ans"), "rb").read(), cols=32)
-    s = Screen(32, 16)
-    for y, row in enumerate(rows[:16]):
-        for x, cell in enumerate(row[:32]):
-            s.put(x, y, *cell)
-    return s
+from ansi import FONT, VGA  # noqa: E402
 
 
 def icon_svg():
-    """The icon as an SVG of its half-cells, on its rounded black tile."""
-    return quads_svg(icon_screen(), title="BadTerm", clip=32 * 0.18)
+    """The icon as SVG: its 32 px picture, a unit a pixel, on its rounded
+    slate tile (crates/badterm/assets/icon/badterm.svg, from make_icon.py)."""
+    return open(os.path.join(ICON, "badterm.svg"), encoding="utf-8").read()
 
 
 def letters_svg(fill):
@@ -146,7 +136,7 @@ def sheet(out):
     text((40, 28), "BadTerm logo kit", (255, 255, 255), 3)
     poster = Image.open(os.path.join(out, "badterm-poster.png")).convert("RGB")
     img.paste(poster, (40, 90))
-    text((40, 500), "The logo, an 80x25 ANSI piece; the icon, its B.", (140, 148, 163))
+    text((40, 500), "The logo, an 80x25 ANSI piece; the icon, its B on slate.", (140, 148, 163))
     mac = Image.open(os.path.join(out, "badterm-icon-1024.png")).convert("RGBA").resize((380, 380), Image.LANCZOS)
     img.paste(mac, (720, 80), mac)
     x, y = 720, 480
