@@ -72,12 +72,12 @@ def raster(strokes, w, h=H, ox=0.0, oy=0.0):
 # Each letter: (width in cells, strokes). y runs 0 (cap top) to 18 (baseline);
 # claws may rise above 0 and drips fall below 18.
 
-def claw(x, top=0.6, reach=4.6, rise=4.6, lean=1.0):
+def claw(x, top=0.6, reach=5.4, rise=5.4, lean=1.0):
     """A blade off the top of a stem: it leaves the stem thick, curls up and to
     the right (lean -1 for the left), and comes to a point, like a tongue of
     the aura caught in the metal."""
-    return [(x, top + 3.0, 3.0), (x + 0.2 * lean, top + 0.6, 2.7), (x + 0.9 * lean, top - 1.2, 2.2), (x + 1.9 * lean, top - rise * 0.6, 1.6),
-            (x + reach * 0.75 * lean, top - rise * 0.92, 0.9), (x + reach * lean, top - rise, 0.25)]
+    return [(x, top + 3.0, 3.4), (x + 0.2 * lean, top + 0.6, 3.1), (x + 0.9 * lean, top - 1.4, 2.6), (x + 2.0 * lean, top - rise * 0.62, 1.9),
+            (x + reach * 0.74 * lean, top - rise * 0.9, 1.1), (x + reach * lean, top - rise, 0.3)]
 
 
 def stem(x, top=0.6, foot=18.0, drip=True):
@@ -103,7 +103,7 @@ def letters():
         [(0.6, 20.4, 0.5), (1.0, 18.6, 2.0), (1.4, 16.4, 3.6), (2.2, 9.0, 3.2), (3.8, 3.0, 2.6), (5.4, 0.8, 2.2),
          (7.0, -1.6, 1.5), (8.6, -3.6, 0.8), (9.6, -4.4, 0.25)],
         [(5.2, 1.0, 2.0), (7.2, 3.6, 2.8), (8.2, 10.0, 3.3), (8.6, 17.2, 3.8), (8.7, 19.4, 1.4), (8.6, 20.8, 0.4)],
-        [(2.4, 11.2, 1.3), (5.0, 10.6, 1.7), (7.8, 11.0, 1.3)],
+        [(2.2, 11.4, 1.8), (5.0, 10.8, 2.3), (7.8, 11.0, 2.0), (9.8, 11.8, 0.4)],
     ])
     # D: a clawed stem and one deep bowl, hairline at its joins, full at its belly.
     L["D"] = (10, [
@@ -113,23 +113,23 @@ def letters():
     # T: the bar flares to blades at both ends, the left curling back; the
     # stem tapers to a drip.
     L["T"] = (11, [
-        [(0.4, -3.6, 0.25), (0.8, -1.8, 1.0), (1.6, 0.4, 2.0), (5.5, 1.4, 2.6), (9.4, 0.4, 2.0), (10.6, -1.8, 1.0), (11.6, -4.0, 0.25)],
+        [(0.2, -4.4, 0.3), (0.6, -2.2, 1.4), (1.6, 0.4, 2.6), (5.5, 1.6, 3.2), (8.8, 0.6, 2.4), (9.8, -1.8, 1.3), (10.8, -4.4, 0.3)],
         stem(5.5, top=1.4),
     ])
     # E: a clawed stem, a top arm that sweeps up to a point, a short middle
     # arm, a foot that kicks out and up.
-    L["E"] = (9, [
-        stem(1.8, drip=False), claw(1.8, reach=3.4, rise=3.6),
-        [(3.0, 1.2, 2.2), (6.0, 1.0, 2.2), (8.2, 0.0, 1.4), (9.0, -2.4, 0.3)],
-        [(3.0, 9.0, 1.8), (5.6, 8.8, 1.8), (7.0, 8.0, 0.7)],
-        [(3.0, 17.2, 2.6), (6.0, 17.6, 2.6), (8.6, 16.6, 1.8), (9.6, 14.2, 0.3)],
+    L["E"] = (9.5, [
+        stem(1.8, drip=False), claw(1.8, reach=3.6, rise=4.4),
+        [(3.0, 1.4, 3.0), (5.8, 1.2, 3.0), (7.8, 0.6, 2.2), (8.8, -0.6, 1.2), (9.2, -1.8, 0.3)],
+        [(3.0, 9.2, 2.6), (5.4, 9.0, 2.4), (7.4, 8.4, 1.4), (8.6, 7.6, 0.3)],
+        [(3.0, 17.0, 3.2), (6.0, 17.4, 3.2), (8.4, 16.6, 2.4), (9.6, 14.6, 1.2), (10.0, 12.6, 0.3)],
     ])
     # R: B's stem and upper bowl; the leg leaves the bowl thin, thickens and
     # kicks out to a point past the baseline.
     L["R"] = (10, [
-        stem(1.8), claw(1.8),
+        stem(1.8, top=0.2),
         [(3.0, 1.2, 1.4), (5.8, 0.6, 2.4), (8.4, 2.6, 3.0), (8.2, 6.4, 2.6), (5.4, 9.0, 1.9), (3.0, 9.4, 1.3)],
-        [(4.8, 9.6, 1.4), (6.6, 12.0, 2.8), (8.2, 15.6, 3.4), (9.6, 18.4, 2.0), (11.2, 20.4, 0.3)],
+        [(4.6, 9.6, 1.6), (6.4, 11.6, 2.8), (7.8, 14.6, 3.6), (9.0, 17.6, 3.0), (10.6, 19.4, 1.4), (12.0, 20.0, 0.3)],
     ])
     # M: two clawed stems; the inner strokes hairline at the tops, swelling as
     # they fall to the point of the V.
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     rows = [("BAD", 0.4), ("TERM", 0.4)]
     imgs = []
     for word, gap in rows:
-        m, w = mask_of(word, L, gap=gap, sx=1.2, sy=20 / 18)
+        m, w = mask_of(word, L, gap=-0.2, sx=1.2, sy=1.0)
         xs = [x for x, _ in m]; ys = [y for _, y in m]
         x0, y0 = min(xs) - 1, min(ys) - 1
         im = Image.new("RGB", ((max(xs) - x0 + 2) * S, (max(ys) - y0 + 2) * S), (0, 0, 0))
@@ -171,7 +171,7 @@ if __name__ == "__main__":
         for x, y in m:
             d.rectangle([(x - x0) * S, (y - y0) * S, (x - x0) * S + S - 1, (y - y0) * S + S - 1], fill=(85, 255, 255))
         # the cap lines, faintly
-        for yy in (0, 20):
+        for yy in (0, 18):
             d.line([(0, (yy - y0) * S), (im.width, (yy - y0) * S)], fill=(60, 60, 90))
         imgs.append(im)
     W = max(i.width for i in imgs)

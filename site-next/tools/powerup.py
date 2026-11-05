@@ -78,7 +78,7 @@ def layout():
     L = letterpen.letters()
     sx = 1.2
     bad, bw = letterpen.mask_of("BAD", L, gap=-0.2, sx=sx)
-    term, tw = letterpen.mask_of("TERM", L, gap=-0.2, sx=sx)
+    term, tw = letterpen.mask_of("TERM", L, gap=0.3, sx=sx)
     bx, by = 4, 6                     # BAD's cap line at quad 6: its claws reach up into the aura
     tx, ty = 79 - tw - 1, by + 20     # TERM under BAD's right half; its claws rise into BAD's drips
     mask = {}
@@ -203,8 +203,8 @@ def aura(cv, mask, rng):
     # crosses 0.45, the split wobbling; a single shade cell of transition at
     # the split; the rim a light shade of brown on black. Shading only where
     # two colours meet, as the tutorials say, never as the fill.
-    STEPS = [(0.40, (FULL, YELLOW, BROWN)), (0.50, (DARK, YELLOW, BROWN)), (0.80, (FULL, BROWN, BROWN)),
-             (0.88, (MEDIUM, BROWN, RED)), (1.00, (LIGHT, BROWN, BLACK))]
+    STEPS = [(0.24, (FULL, YELLOW, BROWN)), (0.44, (DARK, YELLOW, BROWN)), (0.54, (MEDIUM, YELLOW, BROWN)),
+             (0.78, (FULL, BROWN, BROWN)), (0.88, (MEDIUM, BROWN, RED)), (1.00, (LIGHT, BROWN, BLACK))]
 
     def step(t):
         for edge, cell in STEPS:
@@ -349,7 +349,7 @@ def shade_letters(cv, mask, tops, palette):
             i = x - a0
             lit = i < max(1, (n + 1) // 2)                 # the left half of a stroke faces the light
             right_flank = i == n - 1 and n > 1
-            streak = (x * 5 + w * 3) % 4 if n >= 3 else 3  # a thin stroke stays plain; streaks need room
+            streak = (x * 5 + w * 3) % 4 if n >= 2 else 3  # a one-cell stroke stays plain; streaks need room
             above_open = (x, top_q - 1) not in mask
             if r == 0 or above_open:
                 if lit and streak in (0, 2):
@@ -401,7 +401,7 @@ def shadow(cv, mask):
     for (x, qy) in list(mask):
         p = (x + 1, qy + 1)
         if p not in mask and 0 <= p[0] < W and 0 <= p[1] < QH and reached[p[1], p[0]] \
-                and (p[0], p[1] + 1) not in mask and (p[0] + 1, p[1]) not in mask:
+                and (p[0], p[1] + 1) not in mask and (p[0] + 1, p[1]) not in mask and not pocket(mask, p[0], p[1]):
             cv.set(p[0], p[1], DGRAY)
 
 
