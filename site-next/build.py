@@ -244,8 +244,8 @@ def build():
     # This site's own pictures (src/img), such as The Vortex's welcome screen (tools/vortex.py).
     for name in os.listdir(os.path.join(SRC, "img")):
         shutil.copy(os.path.join(SRC, "img", name), os.path.join(DIST, "img", name))
-    # The icon and logo kit (tools/brand.py, from the app icon's own drawing):
-    # the tab and home-screen icons, and the kit itself at brand/.
+    # The icon and logo kit (tools/brand.py, from the logo and icon the app
+    # ships): the tab and home-screen icons, and the kit itself at brand/.
     brand.favicons(os.path.join(DIST, "img"))
     brand.kit(os.path.join(DIST, "brand"))
 

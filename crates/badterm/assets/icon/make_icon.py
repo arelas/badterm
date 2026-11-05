@@ -1,105 +1,122 @@
 #!/usr/bin/env python3
-"""Draw BadTerm's application icon: its mark, "B▄", on a dark tile.
+"""Draw BadTerm's application icon: the B of its logo, powering up.
 
-The mark is the first letter of the BADTERM▄ logo and its cursor. The B is
-the splash screen's own (crates/badterm/src/ui/splash.rs): 9 x 12 blocks in
-its ice ramp, as if lit from above (a white highlight, light cyan, cyan, deep
-blue). The cursor is a copper bar at its baseline, a block's gap after it, in
-VGA yellow over brown. Both cast a drop shadow down and to the right. On the
-big sizes the shadow is drawn with the CP437 "▒" dither, as TheDraw-era logos
-drew theirs, and the tile has a faint "░" texture, so it reads as a text-mode
-screen.
+The icon is an ANSI piece, as the logo is (../logo/badterm.ans). It is the
+logo's own B, drawn with the same pen (site-next/tools/letterpen.py) a little
+wider, and shaded and set in its gold ki by the same code
+(site-next/tools/powerup.py):
+- the negative-land stroke: a cyan ground, light green and light blue worked
+  over it in vertical streaks
+- a black keyline and a grey ghost shadow
+- the ki, white-hot at the keyline and gold outside, crackling
+The canvas is 32 x 16 text cells, which in the VGA's 8 x 16 font is 256 x 256
+pixels. It is written here as badterm-icon.ans.
 
-Every size draws whole blocks of whole pixels, so the mark stays crisp:
-  - 16 and 24 px use the splash B a pixel a block (without its shadow at 16).
-  - 32 and 48 px use a compact B (6 x 8 blocks, the same shape), so the mark
-    neither crowds the tile nor shrinks to half of it.
-  - 64 px and up use the splash B again, larger.
-macOS sizes from 64 up sit on Apple's icon grid (an 824-in-1024 squircle with
-room for its shadow). Windows' and Linux's fill the tile, as taskbars and tabs
-expect.
+Every size is made from that one picture:
+- 256 px is the piece at 1:1, 512 and 1024 px at 2:1 and 4:1, so every pixel
+  stays whole
+- 128, 64 and 48 px average it down, so its shades mix as they do on a CRT
+- 32 px is a pixel per half-cell, each the color its cell mostly shows (a
+  shade, its main ink); 24 and 16 px average that down
+Windows' and Linux's sizes fill a rounded tile, as taskbars expect. macOS sizes
+from 64 up sit on Apple's icon grid: an 824-in-1024 squircle with room for its
+shadow.
 
-Writes badterm-<size>.png for each size (the full tile), badterm.ico
-(Windows), badterm.icns (macOS, on Apple's grid) and badterm-64.rgba (raw
-pixels for the window icon, so the app needs no PNG decoder) next to this
-script. Needs Pillow:
+Writes these next to this script:
+- badterm-<size>.png for each size (the full tile)
+- badterm.ico (Windows)
+- badterm.icns (macOS, on Apple's grid)
+- badterm-64.rgba (raw pixels for the window icon, so the app needs no PNG
+  decoder)
+- badterm-icon.ans
 
-    python3 make_icon.py
+Needs Pillow and numpy:
+
+    python3 -I crates/badterm/assets/icon/make_icon.py
 """
 
+import random
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 HERE = Path(__file__).resolve().parent
-FONT8 = (HERE.parent / "fonts" / "vga_8x8.bin").read_bytes()
+TOOLS = HERE.parents[3] / "site-next" / "tools"
+sys.path.insert(0, str(TOOLS))
+import letterpen  # noqa: E402
+import powerup as pu  # noqa: E402
+from ansi import VGA, Screen  # noqa: E402
+
 SIZES = [16, 24, 32, 48, 64, 128, 256, 512, 1024]
-
-VGA = {15: (255, 255, 255), 11: (85, 255, 255), 3: (0, 170, 170), 1: (0, 0, 170), 8: (85, 85, 85),
-       14: (255, 255, 85), 6: (170, 85, 0)}
-
-# The splash's B, 9 x 12 blocks, and its ramp by row.
-SPLASH_B = [
-    "#######..", "########.", "###...###", "###...###", "###..###.", "#######..",
-    "########.", "###...###", "###...###", "###...###", "########.", "#######..",
-]
-SPLASH_RAMP = [15, 11, 11, 11, 11, 11, 3, 3, 3, 1, 1, 1]
-# The same B at 6 x 8, for 32 and 48 px: two-block strokes, the corners cut
-# the same way, the ramp in the same proportions.
-COMPACT_B = ["#####.", "######", "##..##", "#####.", "######", "##..##", "######", "#####."]
-COMPACT_RAMP = [15, 11, 11, 11, 3, 3, 1, 1]
+COLS, ROWS = 32, 16          # 256 x 256 pixels in the 8 x 16 font
+SEED = 23                    # the build of the ki chosen
+SX = 1.35                    # the logo's B is 1.2: the icon's is a little wider, to sit in a square
+CAP = 6                      # the B's cap line, in half-cells: its claw reaches the top
+RIM = (54, 64, 86)           # a hairline round the tile, so a black tile holds its edge on black
+LIGHT, MEDIUM, DARK, FULL, UPPER, LOWER = 0xB0, 0xB1, 0xB2, 0xDB, 0xDF, 0xDC
 
 
-def mark(compact=False):
-    """The mark as (rows, color_at): the B, a block's gap, the cursor."""
-    letter, ramp = (COMPACT_B, COMPACT_RAMP) if compact else (SPLASH_B, SPLASH_RAMP)
-    w, h = len(letter[0]), len(letter)
-    cw, ch = (3, 1) if compact else (4, 2)          # the cursor: under a third of the letter's height
-    rows = [r + "." + ("#" * cw if y >= h - ch else "." * cw) for y, r in enumerate(letter)]
-    cursor_x = w + 1
+def piece():
+    """The icon as a Screen: the B, its keyline, shadow, stroke and ki."""
+    pu.W, pu.H, pu.QH = COLS, ROWS, ROWS * 2
+    cells, _ = letterpen.mask_of("B", letterpen.letters(), sx=SX)
+    xs = [x for x, _ in cells]
+    ox = (COLS - (max(xs) - min(xs) + 1)) // 2 - min(xs)
+    mask = {(ox + x, CAP + y): 0 for x, y in cells if 0 <= ox + x < COLS and 0 <= CAP + y < pu.QH}
+    rng = random.Random(SEED)
+    cv = pu.Canvas()
 
-    def color_at(x, y):
-        if x >= cursor_x:
-            return VGA[14] if (ch == 2 and y == h - 2) else VGA[6] if ch == 2 else VGA[14]
-        return VGA[ramp[y]]
-    return rows, color_at
-
-
-TILE_TOP, TILE_BOTTOM = (24, 28, 38), (9, 11, 16)
-TEXTURE = (30, 36, 50)
-RIM = (54, 64, 86)
-SHADOW = VGA[8]
-
-
-# ---------------------------------------------------------------- drawing
-
-def lit(rows, x, y):
-    return 0 <= y < len(rows) and 0 <= x < len(rows[0]) and rows[y][x] == "#"
-
-
-def outside(rows):
-    """The blocks the outside reaches (not the letter's counters): only these
-    take the shadow, so the holes stay clean."""
-    w, h = len(rows[0]) + 2, len(rows) + 2
-    seen, todo = set(), [(-1, -1)]
-    while todo:
-        x, y = todo.pop()
-        if (x, y) in seen or not (-1 <= x <= w and -1 <= y <= h) or lit(rows, x, y):
-            continue
-        seen.add((x, y))
-        todo += [(x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)]
-    return seen
+    def never(x, qy):
+        return False
+    # A fuller ki than the logo's, so it fills the square round the letter.
+    d, heat = pu.ki(cv, mask, rng, never, side=5.5, down=3.0, base=6.0)
+    pu.arcs(cv, rng, d, heat, never, n=1)
+    for qy in range(pu.QH):
+        for x in range(COLS):
+            if (x, qy) not in mask and any((x + a, qy + b) in mask for a in (-1, 0, 1) for b in (-1, 0, 1)):
+                cv.set(x, qy, None)
+                cv.fixed.pop((x, qy // 2), None)
+    reached = pu.outside(mask)
+    for qy in range(pu.QH):
+        for x in range(COLS):
+            if not reached[qy, x] and (x, qy) not in mask:
+                cv.set(x, qy, None)
+    pu.shadow(cv, mask)
+    pu.shade_letters(cv, mask, {0: CAP})
+    s = Screen(COLS, ROWS)
+    cv.onto(s)
+    return s
 
 
-def dither(d, x0, y0, w, h, ch, color, step=1):
-    """Fill a rectangle with the 8x8 VGA glyph `ch`'s pattern, tiled from its
-    top left, each of its pixels `step` wide."""
-    rows = FONT8[ch * 8: ch * 8 + 8]
-    for y in range(y0, y0 + h):
-        bits = rows[((y - y0) // step) % 8]
-        for x in range(x0, x0 + w):
-            if bits & (0x80 >> (((x - x0) // step) % 8)):
-                d.point((x, y), fill=color)
+def full(s):
+    """The piece in the VGA font, 256 x 256."""
+    path = HERE / ".icon-1x.png"
+    s.png(str(path), scale=1)
+    img = Image.open(path).convert("RGB")
+    path.unlink()
+    return img
+
+
+def halves(s):
+    """32 x 32: a pixel per half-cell, the color it mostly shows."""
+    img = Image.new("RGB", (COLS, ROWS * 2))
+    px = img.load()
+    for y in range(ROWS):
+        for x in range(COLS):
+            ch, fg, bg = s.cells[y][x]
+            top, bottom = {FULL: (fg, fg), UPPER: (fg, bg), LOWER: (bg, fg), DARK: (fg, fg), MEDIUM: (fg, fg)}.get(ch, (bg, bg))
+            px[x, y * 2], px[x, y * 2 + 1] = VGA[top], VGA[bottom]
+    return img
+
+
+def picture(base, small, n):
+    """The piece at n pixels square: whole pixels up, averaged down."""
+    if n >= 256:
+        return base.resize((n, n), Image.NEAREST)
+    if n > 32:
+        return base.resize((n, n), Image.BOX)
+    return small.resize((n, n), Image.BOX) if n < 32 else small
 
 
 def shape(n, box, apple, ss=4):
@@ -122,23 +139,12 @@ def shape(n, box, apple, ss=4):
     return big.resize((n, n), Image.LANCZOS)
 
 
-def layout(n, apple):
-    """The tile's box, and which B and block size the mark is drawn at."""
+def draw(base, small, n, apple=False):
     if apple:
         m = round(n * 100 / 1024)
         box = (m, n - m, round(n * 185 / 1024))
-        k = max(1, round((n - 2 * m) * 0.6 / 15))
-        return box, False, k
-    m = round(n * 0.03)
-    box = (m, n - m, round(n * 0.2))
-    compact, k = {16: (False, 1), 24: (False, 1), 32: (True, 2), 48: (True, 3)}.get(n, (False, None))
-    if k is None:
-        k = max(1, round((n - 2 * m) * 0.66 / 15))
-    return box, compact, k
-
-
-def draw(n, apple=False):
-    box, compact, k = layout(n, apple)
+    else:
+        box = (0, n, round(n * 0.18))
     a, b, _ = box
     img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
     outline = shape(n, box, apple)
@@ -147,55 +153,33 @@ def draw(n, apple=False):
         sh.putalpha(outline.point(lambda v: v * 0.45))
         sh = sh.transform((n, n), Image.AFFINE, (1, 0, 0, 0, 1, -round(n * 0.012)))
         img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(n * 0.014)))
-    surface = Image.new("RGBA", (n, n))
-    sd = ImageDraw.Draw(surface)
-    for y in range(n):
-        t = min(1, max(0, (y - a) / max(1, b - a)))
-        sd.line([(0, y), (n, y)], fill=tuple(round(TILE_TOP[i] + (TILE_BOTTOM[i] - TILE_TOP[i]) * t) for i in range(3)))
-    if n >= 128:
-        dither(sd, 0, 0, n, n, 0xB0, TEXTURE, step=max(1, n // 256))
-    img.paste(surface, (0, 0), outline)
-    if n >= 32:   # a hairline rim, lit from above
+    art = Image.new("RGBA", (n, n), (0, 0, 0, 255))
+    art.paste(picture(base, small, b - a), (a, a))
+    img.paste(art, (0, 0), outline)
+    if n >= 32:   # a hairline rim
         width = max(1, n // 128)
         inner = shape(n, (a + width, b - width, max(0, box[2] - width)), apple)
         ring = ImageChops.subtract(outline, inner)
         img.paste(Image.new("RGBA", (n, n), RIM + (255,)), (0, 0), ring)
-
-    rows, color_at = mark(compact)
-    shadowed = n > 16                                 # at 16 px the shadow is only noise, and crowds the corners
-    w, h = len(rows[0]) + shadowed, len(rows) + shadowed
-    span = b - a
-    x0 = a + (span - w * k) // 2
-    y0 = a + (span - h * k) // 2
-    d = ImageDraw.Draw(img)
-    reach = outside(rows)
-    for y in range(len(rows) + 1):
-        for x in range(len(rows[0]) + 1):
-            if not shadowed or lit(rows, x, y) or not lit(rows, x - 1, y - 1) or (x, y) not in reach:
-                continue
-            bx, by = x0 + x * k, y0 + y * k
-            if k >= 6:
-                dither(d, bx, by, k, k, 0xB1, SHADOW, step=max(1, k // 8))
-            else:
-                d.rectangle([bx, by, bx + k - 1, by + k - 1], fill=SHADOW)
-    for y, row in enumerate(rows):
-        for x, c in enumerate(row):
-            if c == "#":
-                bx, by = x0 + x * k, y0 + y * k
-                d.rectangle([bx, by, bx + k - 1, by + k - 1], fill=color_at(x, y))
     return img
 
 
 def main():
-    images = {n: draw(n) for n in SIZES}
+    s = piece()
+    (HERE / "badterm-icon.ans").write_bytes(
+        s.ans(sauce=dict(title="BadTerm icon", author="Bad Cluster", group="", date="20261105")))
+    base, small = full(s), halves(s)
+    images = {n: draw(base, small, n) for n in SIZES}
     for n, img in images.items():
         img.save(HERE / f"badterm-{n}.png")
     (HERE / "badterm-64.rgba").write_bytes(images[64].convert("RGBA").tobytes())
     images[256].save(HERE / "badterm.ico", sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)],
                      append_images=[images[n] for n in (16, 24, 32, 48, 64, 128)])
     # macOS: Apple's grid from 64 up; the list-view sizes fill their tile.
-    mac = {n: (draw(n, apple=True) if n >= 64 else images[n]) for n in (16, 32, 64, 128, 256, 512, 1024)}
+    mac = {n: (draw(base, small, n, apple=True) if n >= 64 else images[n]) for n in (16, 32, 64, 128, 256, 512, 1024)}
     mac[1024].save(HERE / "badterm.icns", append_images=[mac[n] for n in (16, 32, 64, 128, 256, 512)])
+    mac[1024].save(HERE / "badterm-mac-1024.png")
+    print("wrote", ", ".join(f"badterm-{n}.png" for n in SIZES), "badterm.ico badterm.icns badterm-64.rgba badterm-icon.ans")
 
 
 if __name__ == "__main__":

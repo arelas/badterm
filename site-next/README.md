@@ -28,10 +28,15 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   scaling, so pixels stay crisp at any size. Phosphor on is a restrained CRT:
   glow onto darker neighbours, scanlines only at 2x and up, a slight curve,
   in color, green or amber. Without WebGL the screen is a plain canvas.
-- **The art is ANSI, made by `tools/art.py`.** The logo is the app's splash
-  letters, read from `crates/badterm/src/ui/splash.rs`, so the two can't drift
-  apart. It's drawn the scene's way:
-  - half-block pixels
+- **The art is ANSI, made by `tools/art.py`.** The front page's screen is
+  BadTerm's logo, `crates/badterm/assets/logo/badterm.ans`, the same piece the
+  app's splash screen shows, so the two can't drift apart. It is BAD over TERM
+  in a gold ki aura, drawn by `tools/powerup.py` with the letters from
+  `tools/letterpen.py` (numpy, run by hand; the build only reads the file). The
+  corner the logo leaves free holds the tagline, the menu whose hotkeys the page
+  makes clickable, and the prompt. The HELP and EXTRAS banners are drawn the
+  older way:
+  - block letters in half-block pixels
   - one short ramp per object: ice (white, light cyan, cyan, blue) for BadTerm,
     gold (white, yellow, brown) for The Vortex BBS
   - a dark-gray drop shadow, and rules that fade out to dots
@@ -59,22 +64,22 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   comes from `site/extras.html`. The page is topped by a gold EXTRAS banner.
 - **The three pages share** `src/_nav.html` and `src/_footer.html`. The footer
   carries a SAUCE-style record for each page.
-- **The logo kit is made by `tools/brand.py`** from the app icon's own drawing
-  (`crates/badterm/assets/icon/make_icon.py`), and the build publishes it at
-  `brand/`. The mark is B▄: the splash B and the logo's copper cursor. The
-  wordmark is BADTERM▄. The kit has:
-  - SVGs on a grid of 8 units a block, with crispEdges and the CP437 ▒ shadow
-    as a pattern
-  - an on-light wordmark, using the ramp's darker half
-  - one-color white and black versions
-  - horizontal and stacked lockups, the stacked one with the tagline in VGA
-    pixels
+- **The logo kit is made by `tools/brand.py`** from the files the app ships:
+  the logo (`crates/badterm/assets/logo/`) and the icon
+  (`crates/badterm/assets/icon/`, made by its `make_icon.py`: the logo's B in
+  its ki, an ANSI piece of 32x16 cells). The build publishes it at `brand/`.
+  The kit has:
+  - the logo, as `.ans` and PNG, and as a poster with its own caption
+  - the wordmark on one line, `src/img/badterm-line.svg`, made by
+    `powerup.py --line`: a unit a half-cell, with crispEdges
+  - the icon: macOS's, the square tile, its `.ans`, and as SVG
+  - BAD over TERM in one color, white or black, for print
   - a 1200x630 card for shared links
 
   The site uses the kit for its favicon (SVG, a 64 px PNG and a 180 px
-  home-screen icon), its link previews and the header's wordmark (26 px,
-  two pixels a block). `tools/iconlab.py` is the sheet of the four directions
-  the mark was chosen from.
+  home-screen icon), its link previews and the header's wordmark (31 px, a
+  pixel a half-cell). `tools/iconlab.py` is the sheet of the directions the
+  first icon (B▄, retired) was chosen from.
 
 ## Serving
 
