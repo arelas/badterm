@@ -230,10 +230,6 @@ def build():
     still.text(0, 25, status.ljust(80), ansi.BLACK, ansi.CYAN)
     still.png(os.path.join(DIST, "art", "hero.png"))
     still.png(os.path.join(DIST, "art", "hero-2x.png"), scale=2)
-    vortex, _ = art.vortex()
-    with open(os.path.join(DIST, "art", "vortex.ans"), "wb") as f:
-        f.write(vortex.ans(sauce={**sauce, "title": "The Vortex BBS"}))
-    vortex.png(os.path.join(DIST, "art", "vortex.png"))
     for stem, screen, title in (("help", art.help_banner(), "BadTerm help"), ("extras", art.extras_banner(), "BadTerm extras")):
         with open(os.path.join(DIST, "art", f"{stem}.ans"), "wb") as f:
             f.write(screen.ans(sauce={**sauce, "title": title}))
@@ -242,6 +238,9 @@ def build():
     # Screenshots from the current site.
     for name in os.listdir(os.path.join(OLD, "img")):
         shutil.copy(os.path.join(OLD, "img", name), os.path.join(DIST, "img", name))
+    # This site's own pictures (src/img), such as The Vortex's welcome screen (tools/vortex.py).
+    for name in os.listdir(os.path.join(SRC, "img")):
+        shutil.copy(os.path.join(SRC, "img", name), os.path.join(DIST, "img", name))
     # The icon and logo kit (tools/brand.py, from the app icon's own drawing):
     # the tab and home-screen icons, and the kit itself at brand/.
     brand.favicons(os.path.join(DIST, "img"))

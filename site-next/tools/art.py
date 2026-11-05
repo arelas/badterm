@@ -6,7 +6,7 @@ tag in the corner.
   hero: the BADTERM logo (the app's own splash letters, read from
         crates/badterm/src/ui/splash.rs), the tagline, and a BBS-style menu
         whose hotkeys the page makes clickable. 80x25, iCE.
-  vortex: an ad for The Vortex BBS, BadTerm's home board, in gold.
+  banner: a page's title in the same letters (HELP in ice, EXTRAS in gold).
 
 Each is returned as (Screen, hotspots), where a hotspot is a clickable run of
 cells: {"row", "c0", "c1", "key", "href"}.
@@ -148,23 +148,6 @@ def hero(version):
     return s, hotspots, {"row": 21, "col": end}
 
 
-def vortex():
-    s = Screen(80, 14)
-    p = Pixels(80, 28)
-    x0 = (80 - word_width("VORTEX")) // 2
-    logo(p, "VORTEX", x0, 4, GOLD)
-    p.onto(s)
-    rule(s, 0, GOLD_RULE)
-    rule(s, 9, GOLD_RULE)
-    s.centered(11, [("t h e   ", GRAY), ("v o r t e x", WHITE), ("   b b s", GRAY), ("   ∙   ", DGRAY),
-                    ("badterm's home board", BROWN)])
-    addr = "telnet://vortexbbs.com"
-    start = (80 - len(addr)) // 2
-    s.text(start, 13, addr, YELLOW)
-    s.parts(76, 13, [("bc", DGRAY), ("!", DGRAY)])
-    return s, [{"row": 13, "c0": start, "c1": start + len(addr) - 1, "key": "", "href": "telnet://vortexbbs.com"}]
-
-
 def banner(word, ramp, rule_steps, tagline):
     """A page's title as a logo: the word in block letters with its ramp and
     shadow between two fading rules, a spaced-out line under it, and the tag.
@@ -193,8 +176,6 @@ if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "."
     h, spots, cur = hero("0.4.2")
     h.png(os.path.join(out, "hero-test.png"), scale=1)
-    v, _ = vortex()
-    v.png(os.path.join(out, "vortex-test.png"), scale=1)
     help_banner().png(os.path.join(out, "help-test.png"), scale=2)
     extras_banner().png(os.path.join(out, "extras-test.png"), scale=2)
     for row in h.cells:

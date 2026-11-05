@@ -223,8 +223,12 @@ figcaption b { color: var(--v-lcyan); margin-right: 6px; }
 
 /* Call in */
 .ad { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 40px; align-items: center; }
-.ad-art { display: block; background: #000; border: 1px solid var(--line); border-radius: var(--r); padding: 24px 0; }
-.ad-art img { width: 100%; }
+.ad-art { margin: 0; display: grid; gap: 12px; }
+.ad-screen { display: block; background: #000; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden;
+  box-shadow: 0 40px 100px -40px rgba(0, 0, 0, .9), 0 0 0 1px rgba(255, 255, 255, .02) inset; transition: border-color .2s, box-shadow .2s; }
+.ad-screen:hover { border-color: #2C3448; box-shadow: 0 40px 100px -40px rgba(0, 0, 0, .9), 0 0 90px -30px rgba(85, 255, 255, .25); }
+.ad-screen img { width: 100%; aspect-ratio: 16 / 10; }
+.ad-art figcaption { color: var(--v-gray); }
 .ad-copy { display: grid; gap: 18px; justify-items: start; }
 .ad-copy p { color: var(--muted); font-size: 18px; }
 @media (max-width: 900px) { .ad { grid-template-columns: 1fr; } }
