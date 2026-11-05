@@ -35,6 +35,14 @@ EXTRA = {
           "###...###", "###...###", "###...###", "###...###", ".#######.", "..#####.."],
     "X": ["###...###", "###...###", ".###.###.", ".#######.", "..#####..", "...###...",
           "...###...", "..#####..", ".#######.", ".###.###.", "###...###", "###...###"],
+    "H": ["###...###", "###...###", "###...###", "###...###", "###...###", "#########",
+          "#########", "###...###", "###...###", "###...###", "###...###", "###...###"],
+    "L": ["###......", "###......", "###......", "###......", "###......", "###......",
+          "###......", "###......", "###......", "###......", "#########", "#########"],
+    "P": ["########.", "#########", "###...###", "###...###", "###...###", "#########",
+          "########.", "###......", "###......", "###......", "###......", "###......"],
+    "S": [".########", "#########", "###......", "###......", "########.", ".########",
+          "......###", "......###", "......###", "......###", "#########", "########."],
 }
 
 # Color ramps by pixel row, top to bottom (VGA indices). Ice is the app's
@@ -149,12 +157,38 @@ def vortex():
     return s, [{"row": 13, "c0": start, "c1": start + len(addr) - 1, "key": "", "href": "telnet://vortexbbs.com"}]
 
 
+def banner(word, ramp, rule_steps, tagline):
+    """A page's title as a logo: the word in block letters with its ramp and
+    shadow between two fading rules, a spaced-out line under it, and the tag.
+    80x12."""
+    s = Screen(80, 12)
+    p = Pixels(80, 24)
+    logo(p, word, (80 - word_width(word)) // 2, 4, ramp)
+    p.onto(s)
+    rule(s, 0, rule_steps)
+    rule(s, 9, rule_steps)
+    s.centered(11, tagline)
+    s.parts(76, 11, [("bc", DGRAY), ("!", DGRAY)])
+    return s
+
+
+def help_banner():
+    return banner("HELP", ICE, ICE_RULE, [("e v e r y t h i n g   ", GRAY), ("b a d t e r m", WHITE), ("   d o e s", GRAY)])
+
+
+def extras_banner():
+    return banner("EXTRAS", GOLD, GOLD_RULE, [("t h e m e s", WHITE), ("   \u2219   ", DGRAY), ("b e z e l s", WHITE),
+                                                ("   \u2219   ", DGRAY), ("f r o m   y o u", BROWN)])
+
+
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "."
     h, spots, cur = hero("0.4.2")
     h.png(os.path.join(out, "hero-test.png"), scale=1)
     v, _ = vortex()
     v.png(os.path.join(out, "vortex-test.png"), scale=1)
+    help_banner().png(os.path.join(out, "help-test.png"), scale=2)
+    extras_banner().png(os.path.join(out, "extras-test.png"), scale=2)
     for row in h.cells:
         print("".join(bytes([c[0]]).decode("cp437") for c in row).rstrip())
     print(spots, cur)

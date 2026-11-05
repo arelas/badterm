@@ -552,22 +552,34 @@ void main() {
     }
   }
 
-  function navSpy() {
-    const links = $$(".nav ul a[href^='#']");
-    const map = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
-    if (!("IntersectionObserver" in window)) return;
+  // Light up the link to whichever section is in view: the header's links
+  // to this page's sections, and the help menu's to the guide's.
+  function spy(links, margin) {
+    if (!("IntersectionObserver" in window) || !links.length) return;
+    const here = location.pathname;
+    const map = new Map();
+    for (const a of links) {
+      const u = new URL(a.getAttribute("href"), location.href);
+      if (u.pathname === here && u.hash) map.set(decodeURIComponent(u.hash.slice(1)), a);
+    }
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) {
         const a = map.get(e.target.id);
-        if (!a) continue;
-        if (e.isIntersecting) { for (const l of links) l.removeAttribute("aria-current"); a.setAttribute("aria-current", "true"); }
+        if (!a || !e.isIntersecting) continue;
+        for (const l of map.values()) l.removeAttribute("aria-current");
+        a.setAttribute("aria-current", "true");
+        if (a.closest(".toc") && a.scrollIntoView) {
+          const box = a.closest(".toc"), r = a.getBoundingClientRect(), br = box.getBoundingClientRect();
+          if (r.top < br.top || r.bottom > br.bottom) box.scrollTop += r.top - br.top - br.height / 2;
+        }
       }
-    }, { rootMargin: "-40% 0px -55% 0px" });
+    }, { rootMargin: margin });
     for (const id of map.keys()) { const el = document.getElementById(id); if (el) io.observe(el); }
   }
 
   hero();
   downloads();
   compare();
-  navSpy();
+  spy($$(".nav ul a"), "-40% 0px -55% 0px");
+  spy($$(".toc a"), "-15% 0px -75% 0px");
 })();

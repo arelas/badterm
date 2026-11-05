@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>BadTerm help</title>
+<meta name="description" content="How to use BadTerm: calling BBSes, the dialing directory, file transfers, RIPscrip, PETSCII and ATASCII, modems, themes, bezels and the keys.">
+<meta name="theme-color" content="#06070A">
+<link rel="icon" href="img/favicon.png">
+<link rel="preload" href="fonts/badterm-vga.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+{{nav}}
+
+<main id="main" class="doc-page">
+  <div class="banner">
+    <img class="px" src="art/help.png" width="640" height="192" alt="HELP in ice-blue ANSI block letters, over the words: everything BadTerm does">
+  </div>
+
+  <div class="doc">
+    <nav class="toc vga" aria-label="Contents">
+      <p class="toc-title"><span>Help menu</span><span class="dim">{{toc_count}} topics</span></p>
+      <ol>
+{{toc}}
+      </ol>
+      <p class="toc-foot dim">In BadTerm, <kbd>Alt-Z</kbd> shows every key.</p>
+    </nav>
+
+    <article class="prose">
+      <p class="eyebrow vga"><span class="ramp" aria-hidden="true">░▒▓█</span> The guide</p>
+      <h1 class="vga x4 doc-title"><span class="ice">BadTerm help</span></h1>
+{{lede}}
+{{article}}
+    </article>
+  </div>
+</main>
+
+{{footer}}
+</body>
+</html>

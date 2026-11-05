@@ -44,6 +44,18 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   IBM Plex Sans.
 - **Features are a BBS file area,** with real hotkeys and a blue lightbar on
   hover and focus. The phosphor section is a drag-to-compare slider.
+- **The help page keeps one copy of its text:** the article and lede in
+  `site/help.html`. `build.py` takes them from there, numbers the sections and
+  builds the contents menu from those headings, in their order. The menu is
+  sticky, and its lightbar follows the section in view. The layout adds VGA
+  keycaps, the key lists as panels, and code as terminal panels. The page is
+  topped by an ANSI HELP banner in the logo's ice ramp.
+- **The extras page is built from `extras/`:** a card per theme
+  (`themes/*.toml` plus its preview) and per bezel (`bezels/bezels.toml`), each
+  with the real file name and size, BBS-listing style. The "share yours" text
+  comes from `site/extras.html`. The page is topped by a gold EXTRAS banner.
+- **The three pages share** `src/_nav.html` and `src/_footer.html`. The footer
+  carries a SAUCE-style record for each page.
 
 ## Serving
 

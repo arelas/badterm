@@ -170,6 +170,7 @@ kbd { font: inherit; color: var(--v-yellow); }
 .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 28px 24px; }
 figure { margin: 0; display: grid; gap: 12px; align-content: start; }
 .frame { background: #000; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: grid; place-items: center;
+         grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
          aspect-ratio: 16 / 10; transition: border-color .2s, transform .2s, box-shadow .2s; }
 .frame img { width: 100%; height: 100%; object-fit: contain; }
 .shots figure:hover .frame { border-color: #2C3448; transform: translateY(-2px); box-shadow: 0 20px 50px -25px rgba(85, 255, 255, .18); }
@@ -246,3 +247,105 @@ figcaption b { color: var(--v-lcyan); margin-right: 6px; }
   .nav { padding: 10px 16px; gap: 12px; }
   .hero, .sec, .foot { padding-left: 16px; padding-right: 16px; }
 }
+
+/* ================================================================== help and extras */
+
+/* A page's ANSI banner, at exactly 1x or 2x so its pixels stay whole. */
+.banner { display: flex; justify-content: center; padding: 48px 24px 0; }
+.banner img { width: 640px; max-width: 100%; }
+@media (min-width: 1340px) { .banner img { width: 1280px; } }
+.sec.first { padding-top: 56px; }
+.sec h1 { font-size: clamp(36px, 5vw, 60px); line-height: 1.05; letter-spacing: -0.02em; color: var(--v-white); }
+
+/* Keycaps, for keys named in running text. */
+.prose kbd, kbd.cap { font: 16px/16px var(--vga); -webkit-font-smoothing: none; color: var(--v-yellow); background: #12151D;
+  border: 1px solid #262C3B; border-bottom-width: 3px; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+.prose code, .sec-lede code { overflow-wrap: anywhere; font: 16px/16px var(--vga); -webkit-font-smoothing: none; color: var(--v-lcyan); background: #0D1016;
+  border-radius: 3px; padding: 1px 4px; }
+
+/* Help: a menu beside the guide. */
+.doc { max-width: var(--wrap); margin: 0 auto; padding: 56px 24px 0; display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 56px; align-items: start; }
+.toc { position: sticky; top: 84px; background: #000; border: 1px solid var(--line); border-radius: var(--r); padding: 16px 0 14px;
+  max-height: calc(100vh - 104px); overflow-y: auto; }
+.toc-title { display: flex; justify-content: space-between; padding: 0 16px 12px; color: var(--v-lcyan); border-bottom: 1px solid #101420; }
+.toc ol { list-style: none; margin: 8px 0; padding: 0; }
+.toc a { display: block; padding: 6px 16px; color: var(--v-gray); text-decoration: none; }
+.toc a .n { color: var(--v-dgray); margin-right: 6px; }
+.toc a:hover { color: var(--v-white); }
+.toc a[aria-current="true"] { background: var(--v-blue); color: var(--v-white); }
+.toc a[aria-current="true"] .n { color: var(--v-yellow); }
+.toc-foot { padding: 10px 16px 0; border-top: 1px solid #101420; line-height: 20px; }
+@media (max-width: 960px) {
+  .doc { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .toc { position: static; max-height: none; }
+  .toc ol { columns: 2; column-gap: 0; }
+}
+@media (max-width: 520px) { .toc ol { columns: 1; } .doc { padding-left: 16px; padding-right: 16px; } }
+
+.prose { max-width: 74ch; min-width: 0; font-size: 17px; line-height: 1.7; overflow-wrap: break-word; }
+.prose > * + * { margin-top: 18px; }
+.prose .eyebrow { color: var(--v-gray); }
+.prose .doc-title { margin-top: 16px; }
+.prose .doc-title .ice { background: linear-gradient(180deg, var(--v-white) 0 25%, var(--v-lcyan) 25% 56.25%, var(--v-cyan) 56.25% 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.prose .lede { font-size: 19px; color: var(--ink); margin-top: 24px; }
+.prose h2 { margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 32px; line-height: 1.15;
+  letter-spacing: -0.01em; color: var(--v-white); display: flex; align-items: baseline; gap: 16px; scroll-margin-top: 84px; }
+.prose h2 .n { font-size: 16px; color: var(--teal); flex: none; }
+.prose h3 { font: 16px/16px var(--vga); -webkit-font-smoothing: none; color: var(--v-lcyan); margin-top: 32px; }
+.prose p, .prose li { color: #C6CBD4; }
+.prose b { color: var(--v-white); }
+.prose ul, .prose ol { padding-left: 24px; }
+.prose li + li { margin-top: 8px; }
+.prose ol > li::marker { font-family: var(--vga); color: var(--v-yellow); }
+.prose ul > li::marker { color: var(--teal); content: "► "; font-family: var(--vga); }
+.prose pre { background: #000; border: 1px solid var(--line); border-radius: var(--r); padding: 18px 20px; overflow-x: auto;
+  font: 16px/20px var(--vga); -webkit-font-smoothing: none; color: var(--v-gray); }
+.prose pre code { background: none; padding: 0; color: inherit; font: inherit; }
+
+/* The guide's key tables: panels of key, dotted leader, action. */
+/* Columns, not a grid: the panels are of different heights, so they stack without gaps. */
+.prose .keys { columns: 2 300px; column-gap: 16px; margin-top: 24px; }
+.prose .keys section { background: #000; border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px;
+  break-inside: avoid; margin: 0 0 16px; }
+.prose .keys h3 { margin: 0 0 12px; }
+.prose .keys dl { margin: 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 12px; align-items: baseline; }
+.prose .keys dt { font: 16px/20px var(--vga); -webkit-font-smoothing: none; color: var(--v-yellow); }
+.prose .keys dt kbd { background: none; border: none; padding: 0; }
+.prose .keys dd { margin: 0; color: var(--v-gray); font: 16px/20px var(--vga); -webkit-font-smoothing: none; }
+
+/* The guide's field lists: name, then what it does. */
+.prose dl.fields { display: grid; grid-template-columns: minmax(160px, 30%) minmax(0, 1fr); gap: 0; border-top: 1px solid var(--line); }
+.prose dl.fields dt, .prose dl.fields dd { padding: 14px 0; border-bottom: 1px solid var(--line); margin: 0; }
+.prose dl.fields dt { font: 16px/20px var(--vga); -webkit-font-smoothing: none; color: var(--v-lcyan); padding-right: 20px; }
+.prose dl.fields dd { color: #C6CBD4; }
+@media (max-width: 640px) {
+  .prose dl.fields { grid-template-columns: 1fr; }
+  .prose dl.fields dt { border-bottom: none; padding-bottom: 4px; }
+  .prose dl.fields dd { padding-top: 0; }
+}
+
+/* Extras: the page's sections as tabs, and a card per file. */
+.file-tabs { display: flex; flex-wrap: wrap; gap: 10px; }
+.file-tabs a { color: var(--v-gray); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; background: var(--panel); }
+.file-tabs a:hover { background: var(--v-blue); border-color: var(--v-blue); color: var(--v-white); }
+.file-tabs .n { color: var(--v-yellow); margin-right: 4px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 24px; }
+.cards.wide { grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr)); }
+.card { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; display: grid;
+  grid-template-rows: auto 1fr; transition: border-color .2s, transform .2s, box-shadow .2s; }
+.card:hover { border-color: #2C3448; transform: translateY(-2px); box-shadow: 0 24px 60px -30px rgba(85, 255, 255, .2); }
+@media (prefers-reduced-motion: reduce) { .card:hover { transform: none; } }
+.card .frame { border: none; border-radius: 0; border-bottom: 1px solid var(--line); }
+.cards.wide .frame { aspect-ratio: 8 / 7; }
+.card-body { padding: 20px; display: grid; gap: 12px; align-content: start; }
+.card-body header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+.card-body h3 { color: var(--v-white); }
+.card .by { color: var(--v-dgray); }
+.card-body p { color: var(--muted); font-size: 16px; }
+.card-dl { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; padding-top: 14px; border-top: 1px dashed #1F2432; }
+.card .file { color: var(--v-lcyan); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share { background: #000; border: 1px solid var(--line); border-radius: var(--r); padding: 36px 40px; display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 40px; }
+.share .sec-head { margin-bottom: 0; }
+@media (max-width: 860px) { .share { grid-template-columns: 1fr; padding: 28px 22px; gap: 12px; } }

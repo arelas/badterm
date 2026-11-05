@@ -16,26 +16,7 @@
 <script src="app.js" defer></script>
 </head>
 <body>
-<a class="skip" href="#main">Skip to the content</a>
-
-<div class="preview vga" role="note">
-  <span class="blk" aria-hidden="true">▐</span> Preview of the new badterm.com. The current site is at <a href="/">badterm.com</a>. <span class="blk" aria-hidden="true">▌</span>
-</div>
-
-<header class="bar" id="top">
-  <nav class="nav vga" aria-label="Site">
-    <a class="mark" href="#top" aria-label="BadTerm, to the top"><span class="r1">▄</span><span class="r2">▄</span><span class="r3">▄</span> BADTERM</a>
-    <ul>
-      <li><a href="#features"><kbd>F</kbd>eatures</a></li>
-      <li><a href="#systems"><kbd>S</kbd>ystems</a></li>
-      <li><a href="#phosphor"><kbd>P</kbd>hosphor</a></li>
-      <li><a href="#call"><kbd>C</kbd>all</a></li>
-      <li><a href="/help.html">Help</a></li>
-      <li><a href="/extras.html">Extras</a></li>
-    </ul>
-    <a class="btn primary small" href="#download"><kbd>D</kbd>ownload</a>
-  </nav>
-</header>
+{{nav}}
 
 <main id="main">
 
@@ -118,7 +99,7 @@
       <li tabindex="0"><span class="fn">COLORS.THM</span><span class="key">Alt-O</span>
         <p class="diz"><b>Your colors.</b> Thirteen color schemes for BadTerm's own screens, Bad Cluster's and Dark Dracula among them, or color every part yourself, as in QModem and Telix. Share yours as a theme file.</p></li>
     </ul>
-    <div class="fa-foot dim">Alt-Z shows every key · <a href="/help.html">the full guide</a></div>
+    <div class="fa-foot dim">Alt-Z shows every key · <a href="help.html">the full guide</a></div>
   </div>
 </section>
 
@@ -163,7 +144,7 @@
 
   <div class="split">
     <figure class="wide"><div class="frame"><img src="img/bezels.jpg" width="1200" height="960" loading="lazy" alt="The Vortex BBS on four monitor bezels: beige 1980s, platinum 1990s, charcoal late 1990s, and a green-screen terminal"></div>
-      <figcaption class="vga"><b>Pick your monitor</b> beige, platinum, charcoal, a terminal, <a href="/extras.html">more to download</a>, or a photo of your own</figcaption></figure>
+      <figcaption class="vga"><b>Pick your monitor</b> beige, platinum, charcoal, a terminal, <a href="extras.html#bezels">more to download</a>, or a photo of your own</figcaption></figure>
     <div class="stack">
       <h3 class="vga">Built in text mode</h3>
       <p>The dialing directory and dialogs are drawn with the same CP437 characters as the BBSes themselves.</p>
@@ -233,21 +214,6 @@
 
 </main>
 
-<footer class="foot">
-  <pre class="sauce vga" aria-label="SAUCE record for this page"><span class="k">SAUCE00</span> <span class="v">BadTerm</span>                    <span class="k">by</span> <span class="v">Bad Cluster</span>
-        <span class="k">TInfo</span> 80x25  <span class="k">Flags</span> iCE  <span class="k">Font</span> IBM VGA  <span class="k">Date</span> {{date}}</pre>
-  <div class="foot-cols">
-    <p>Free software under the GNU General Public License, version 3 or later. The VGA font, here and in BadTerm, comes from DOSBox Staging (GPL-2.0-or-later); the Amiga fonts from TrueSchool's collection (GPL with the font exception). IBM Plex is under the SIL Open Font License.</p>
-    <ul class="vga">
-      <li><a href="/help.html">Help</a></li>
-      <li><a href="/extras.html">Themes and bezels</a></li>
-      <li><a href="https://git.badcluster.dev/arelas/badterm">Source code</a></li>
-      <li><a href="https://git.badcluster.dev/arelas/badterm/releases">Releases</a></li>
-      <li><a href="https://crates.io/crates/badterm">crates.io</a></li>
-      <li><a href="https://git.badcluster.dev/arelas/badterm/issues">Report a problem</a></li>
-    </ul>
-  </div>
-  <p class="copyright vga">Copyright © 2026 Bad Cluster</p>
-</footer>
+{{footer}}
 </body>
 </html>
