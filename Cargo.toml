@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/badterm-core", "crates/badterm"]
 
 [workspace.package]
-version = "0.4.7"
+version = "0.4.8"
 edition = "2024"
 license = "GPL-3.0-or-later"
 authors = ["Bad Cluster"]
@@ -14,7 +14,7 @@ keywords = ["bbs", "telnet", "ansi", "terminal", "zmodem"]
 rust-version = "1.89"
 
 [workspace.dependencies]
-badterm-core = { path = "crates/badterm-core", version = "0.4.7" }
+badterm-core = { path = "crates/badterm-core", version = "0.4.8" }
 rhai = "1.27"
 ym2149 = { version = "0.9.1", default-features = false, features = ["emulator"] }
 ym2149-gist-replayer = "0.9.1"
