@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use badterm_core::screen::{Cell, Screen};
 
+use super::files::{FilePicker, PickerAction};
 use super::macro_edit::{EditAction, MacroEditor};
 use super::theme::{self, Attr, SCHEMES, Theme};
 use super::*;
@@ -13,7 +14,7 @@ use crate::crt::{CrtMode, Curvature, Glow, Scanlines};
 use crate::input::{Key, Mods};
 use badterm_core::modem::FlowControl;
 
-use crate::settings::{Aspect, BellMode, Music, ScaleMode, Settings};
+use crate::settings::{Aspect, BellMode, Folders, Music, ScaleMode, Settings};
 
 pub const COLS: usize = 80;
 pub const ROWS: usize = 25;
@@ -124,8 +125,10 @@ enum Mode {
     Grid {
         before: Attr,
     },
-    /// Asking for a theme file to import, or a name to save one as.
+    /// Asking for a name to save a theme as, or a modem setting.
     Prompt(usize, TextField),
+    /// Browsing for a folder, or a theme file to import.
+    Pick(usize, Box<FilePicker>),
     /// Editing the keyboard macros: which one, and its text.
     Macros(MacroEditor),
     /// Moving the hotkeys: which action, and whether the next key is its
@@ -230,6 +233,19 @@ impl SettingsUi {
                     *sel = (*sel).min(n - 1);
                 }
                 Action::None
+            }
+            Mode::Pick(item, picker) => {
+                if key == Key::Escape && !picker.is_typing() {
+                    self.mode = Mode::Menu;
+                    return Action::None;
+                }
+                let PickerAction::Chosen(paths) = picker.handle_key(key, mods) else { return Action::None };
+                let item = *item;
+                self.mode = Mode::Menu;
+                if item == I_IMPORT {
+                    return Action::Import(paths[0].clone());
+                }
+                self.set_folder(item, &paths[0].to_string_lossy(), settings)
             }
             Mode::Prompt(item, field) => match key {
                 Key::Escape => {
@@ -352,7 +368,7 @@ impl SettingsUi {
             Key::Escape => return Action::Close,
             Key::Enter if is_folder(self.item) => {
                 let (path, _) = self.folder(self.item, settings);
-                self.mode = Mode::Prompt(self.item, TextField::new(&path.to_string_lossy(), 1000));
+                self.mode = Mode::Pick(self.item, Box::new(FilePicker::folder(&path)));
             }
             Key::Delete | Key::Backspace if is_folder(self.item) => {
                 settings.folders.set(self.item - I_FOLDER, None);
@@ -389,7 +405,11 @@ impl SettingsUi {
                 self.mode = Mode::Macros(MacroEditor::new(&settings.macros));
             }
             Key::Enter if self.item == I_HOTKEYS => self.mode = Mode::Hotkeys(0, false),
-            Key::Enter if self.item == I_IMPORT => self.mode = Mode::Prompt(I_IMPORT, TextField::new("", 400)),
+            Key::Enter if self.item == I_IMPORT => {
+                // Theme files usually come from the website, so: the downloads.
+                let (downloads, _) = self.folder(I_FOLDER + Folders::DOWNLOADS, settings);
+                self.mode = Mode::Pick(I_IMPORT, Box::new(FilePicker::new(downloads, false, &[".toml"])));
+            }
             Key::Enter if self.item == I_EXPORT => {
                 let name = self.scheme_name(&settings.colors).unwrap_or("My colors").to_string();
                 let name = if settings.colors.scheme_name().is_some() { format!("My {name}") } else { name };
@@ -498,7 +518,7 @@ impl SettingsUi {
     /// `own_crt`: the connected BBS's own phosphor mode; `update`: a newer
     /// version, if a check found one.
     pub fn draw(
-        &self,
+        &mut self,
         s: &mut Screen,
         settings: &Settings,
         own_crt: Option<&str>,
@@ -509,7 +529,17 @@ impl SettingsUi {
         let title = format!(" BadTerm {} \u{2502} Settings", env!("CARGO_PKG_VERSION"));
         text(s, 0, 0, COLS, &title, t.title_bar.fg(), t.title_bar.bg());
         let mut cursor = None;
+        if matches!(self.mode, Mode::Pick(..)) {
+            self.draw_menu(s, settings, own_crt, update);
+            let Mode::Pick(item, picker) = &mut self.mode else { unreachable!() };
+            let (title, note, enter) = match *item {
+                I_IMPORT => ("Import a Theme", "A BadTerm theme file (.toml), from anywhere", "import"),
+                i => (ITEMS[i], "Made if it isn't there yet. Del in Settings goes back to the default.", "choose"),
+            };
+            cursor = picker.window(s, title, note, enter);
+        }
         match &self.mode {
+            Mode::Pick(..) => {}
             Mode::Menu => self.draw_menu(s, settings, own_crt, update),
             Mode::Parts | Mode::Grid { .. } => self.draw_colors(s, settings),
             Mode::Prompt(item, field) => {
@@ -545,6 +575,7 @@ impl SettingsUi {
             Mode::Parts => "\u{2191}\u{2193} Choose a part   Enter Pick its colors   Esc Back",
             Mode::Grid { .. } => "\u{2190}\u{2192} Foreground   \u{2191}\u{2193} Background   Enter Keep   Esc Undo",
             Mode::Prompt(..) => "Enter OK   Esc Cancel",
+            Mode::Pick(..) => "Enter Choose   Bksp Up   Esc Cancel",
             Mode::Macros(..) => "\u{2191}\u{2193} Choose   Type to change (saved as you go)   Esc Done",
             Mode::Hotkeys(_, true) => "Press a letter, or Enter, for it   Any other key keeps it",
             Mode::Hotkeys(..) => {
@@ -770,14 +801,25 @@ mod tests {
         ui.handle_key_test(Key::Tab, &mut s);
         ui.handle_key_test(Key::PageUp, &mut s);
         assert_eq!(ui.item, I_FOLDER + 1);
-        // Choose a folder (made if missing), then go back to the default.
+        // Choose a folder (made if missing), then go back to the default. The
+        // picker starts in the folder, even one not made yet ("/default"); Tab
+        // types a path in its place.
         ui.handle_key_test(Key::Enter, &mut s);
-        let Mode::Prompt(_, field) = &mut ui.mode else { panic!() };
-        *field = TextField::new(&dir.to_string_lossy(), 1000);
+        assert!(matches!(ui.mode, Mode::Pick(..)));
+        let mut screen = Screen::new(COLS, ROWS, 0);
+        ui.draw(&mut screen, &s, None, None);
+        let rows: Vec<String> = (0..ROWS).map(|y| Screen::row_text(screen.row(y))).collect();
+        assert!(rows.iter().any(|r| r.contains("Use this folder")), "{rows:#?}");
+        ui.handle_key_test(Key::Tab, &mut s);
+        for _ in 0.."/default/".len() {
+            ui.handle_key_test(Key::Backspace, &mut s);
+        }
+        for c in dir.to_string_lossy().chars() {
+            ui.handle_key_test(Key::Char(c), &mut s);
+        }
         assert_eq!(ui.handle_key_test(Key::Enter, &mut s), Action::Changed);
         assert_eq!(s.folders.captures.as_deref(), Some(dir.as_path()));
         assert!(dir.is_dir());
-        let mut screen = Screen::new(COLS, ROWS, 0);
         ui.draw(&mut screen, &s, None, None);
         assert_eq!(ui.handle_key_test(Key::Delete, &mut s), Action::Changed);
         assert_eq!(s.folders.captures, None);
@@ -823,18 +865,25 @@ mod tests {
         ui.handle_key_test(Key::Left, &mut s);
         assert_eq!(s.colors, mine);
         assert_eq!(ui.value(I_SCHEME, &s), "Mine");
-        // Export offers the theme's name; import takes a path.
+        // Export offers the theme's name; import browses for a theme file,
+        // starting in the downloads folder.
         ui.item = I_EXPORT;
         ui.handle_key_test(Key::Enter, &mut s);
         assert_eq!(ui.handle_key_test(Key::Enter, &mut s), Action::Export("Mine".into()));
+        let downloads = std::env::temp_dir().join(format!("badterm-theme-dl-{}", std::process::id()));
+        std::fs::create_dir_all(&downloads).unwrap();
+        std::fs::write(downloads.join("a.toml"), "name = \"A\"").unwrap();
+        std::fs::write(downloads.join("b.txt"), "not a theme").unwrap();
+        s.folders.set(Folders::DOWNLOADS, Some(downloads.clone()));
         ui.item = I_IMPORT;
         ui.handle_key_test(Key::Enter, &mut s);
-        for c in "a.toml".chars() {
-            ui.handle_key_test(Key::Char(c), &mut s);
-        }
         let mut screen = Screen::new(COLS, ROWS, 0);
-        assert!(ui.draw(&mut screen, &s, None, None).is_some());
-        assert_eq!(ui.handle_key_test(Key::Enter, &mut s), Action::Import("a.toml".into()));
+        ui.draw(&mut screen, &s, None, None);
+        let rows: Vec<String> = (0..ROWS).map(|y| Screen::row_text(screen.row(y))).collect();
+        assert!(rows.iter().any(|r| r.contains("a.toml")) && !rows.iter().any(|r| r.contains("b.txt")), "{rows:#?}");
+        ui.handle_key_test(Key::Char('a'), &mut s);
+        assert_eq!(ui.handle_key_test(Key::Enter, &mut s), Action::Import(downloads.join("a.toml")));
+        std::fs::remove_dir_all(&downloads).unwrap();
         ui.show_message("Imported".into());
         ui.draw(&mut screen, &s, None, None);
         assert_eq!(ui.handle_key_test(Key::Char('x'), &mut s), Action::None);

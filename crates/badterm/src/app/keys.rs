@@ -466,19 +466,16 @@ impl App {
     pub(super) fn save_key(&mut self, key: Key, mods: Mods) {
         let Some(tab) = self.tab_mut() else { return };
         let Some(prompt) = tab.save_prompt.as_mut() else { return };
-        match key {
-            Key::Escape => tab.save_prompt = None,
-            Key::Enter => {
-                let path = prompt.path();
+        match prompt.handle_key(key, mods) {
+            SaveAction::None => {}
+            SaveAction::Cancel => tab.save_prompt = None,
+            SaveAction::Save(path) => {
                 tab.save_prompt = None;
                 let msg = match self.save(&path) {
                     Ok(what) => format!("Saved {what} to {}", path.display()),
                     Err(e) => format!("Save failed: {e:#}"),
                 };
                 self.notify(msg);
-            }
-            _ => {
-                prompt.field.handle_key(key, mods);
             }
         }
     }

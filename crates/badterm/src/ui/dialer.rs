@@ -1,13 +1,15 @@
 //! The dialing directory screen: list, add/edit form, quick connect, and
-//! import/export.
+//! import/export. Files and folders are browsed for (see [`super::files`]):
+//! I and X, and F2 on an entry's script, key, capture and folder fields.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use badterm_core::Encoding;
 use badterm_core::dialer::{self, BellMode, CrtMode, Directory, Entry, Protocol};
 use badterm_core::screen::{Cell, Screen};
 
+use super::files::{FilePicker, PickerAction};
 use super::macro_edit::{EditAction, MacroEditor};
 use super::*;
 use crate::input::{Key, Mods};
@@ -91,6 +93,8 @@ const F_COMMENT: usize = 23;
 /// The fields changed with Space or the arrow keys rather than typed into.
 const OPTION_FIELDS: [usize; 11] =
     [F_PROTOCOL, F_ENCODING, F_ROWS, F_FONT, F_ICE, F_CRT, F_BELL, F_STATUS, F_BAUD, F_AUTO_LOGIN, F_CAPTURE];
+/// Fields that hold a file or folder: F2 browses for one.
+const PATH_FIELDS: [usize; 5] = [F_SCRIPT, F_KEY_FILE, F_CAPTURE_FILE, F_DOWNLOADS, F_UPLOADS];
 /// How many fields the form shows at once; it scrolls through the rest.
 const FORM_ROWS: usize = 19;
 
@@ -124,6 +128,8 @@ struct Form {
     /// The first field shown.
     top: usize,
     error: Option<String>,
+    /// Browsing for a file or folder for this field (F2).
+    browse: Option<(usize, FilePicker)>,
 }
 
 impl Form {
@@ -185,6 +191,7 @@ impl Form {
             hide_status: e.hide_status,
             focus: 0,
             top: 0,
+            browse: None,
             error: problem.clone(),
             base: e,
         };
@@ -266,6 +273,8 @@ enum Mode {
     List,
     Edit(Box<Form>),
     Prompt(PromptKind, TextField),
+    /// Choosing a file to import, or where to export.
+    Pick(PromptKind, FilePicker),
     ConfirmDelete,
     /// Editing an entry's own macros (by its index).
     Macros(usize, MacroEditor),
@@ -295,6 +304,8 @@ pub struct DialerUi {
     mode: Mode,
     /// Default directory offered for import/export paths.
     pub files_dir: PathBuf,
+    /// Where an entry's script is looked for (and browsed for).
+    pub scripts_dir: PathBuf,
     secrets: Rc<dyn Store>,
 }
 
@@ -310,6 +321,7 @@ impl DialerUi {
             font_files: Vec::new(),
             global_macros: Vec::new(),
             mode: Mode::List,
+            scripts_dir: files_dir.clone(),
             files_dir,
             secrets,
         }
@@ -336,8 +348,13 @@ impl DialerUi {
         match self.mode {
             Mode::List if self.finding => "Type to find  \u{2191}\u{2193} Select  Enter Dial  Esc Clear",
             Mode::List => "Enter Dial  Ins Add  E Edit  Del Remove  P Pin  M Macros  / Find  Esc Close",
+            Mode::Edit(ref f) if f.browse.is_some() => "Enter Choose  Bksp Up  Esc Back to the entry",
+            Mode::Edit(ref f) if PATH_FIELDS.contains(&f.focus) => {
+                "Enter Save  Esc Cancel  Tab/\u{2191}\u{2193} Field  F2 Browse"
+            }
             Mode::Edit(_) => "Enter Save  Esc Cancel  Tab/\u{2191}\u{2193} Field  Space/\u{2190}\u{2192} Change option",
             Mode::Prompt(..) => "Enter OK  Esc Cancel",
+            Mode::Pick(..) => "Enter Choose  Bksp Up  Esc Cancel",
             Mode::ConfirmDelete => "Y Remove  N Keep",
             Mode::ConfirmHangUp(_, true) => "T New tab  Y Hang up and dial  N Stay connected",
             Mode::ConfirmHangUp(_, false) => "Y Hang up and dial  N Stay connected",
@@ -415,12 +432,11 @@ impl DialerUi {
                     self.mode = Mode::Prompt(PromptKind::QuickConnect, TextField::new("", 200));
                 }
                 Key::Char('i') | Key::Char('I') => {
-                    let p = self.files_dir.join("syncterm.lst");
-                    self.mode = Mode::Prompt(PromptKind::Import, TextField::new(&p.to_string_lossy(), 400));
+                    self.mode = Mode::Pick(PromptKind::Import, FilePicker::new(self.files_dir.clone(), false, &[]));
                 }
                 Key::Char('x') | Key::Char('X') => {
                     let p = self.files_dir.join("badterm-export.lst");
-                    self.mode = Mode::Prompt(PromptKind::Export, TextField::new(&p.to_string_lossy(), 400));
+                    self.mode = Mode::Pick(PromptKind::Export, FilePicker::save(&p, &[]));
                 }
                 // Esc first clears a filter, then closes.
                 Key::Escape if !self.filter.value.is_empty() => self.clear_filter(dir, current),
@@ -436,6 +452,48 @@ impl DialerUi {
                 }
                 _ => {}
             },
+            Mode::Edit(form) if form.browse.is_some() => {
+                let Some((field, picker)) = &mut form.browse else { unreachable!() };
+                let field = *field;
+                if key == Key::Escape && !picker.is_typing() {
+                    form.browse = None;
+                } else if let PickerAction::Chosen(paths) = picker.handle_key(key, mods) {
+                    let value = match field {
+                        F_SCRIPT => tidy_path_in(&paths[0], &self.scripts_dir),
+                        _ => tidy_path(&paths[0]),
+                    };
+                    form.text[field] = TextField::new(&value, 400);
+                    form.browse = None;
+                    form.error = None;
+                }
+            }
+            Mode::Edit(form)
+                if (key == Key::F(2) || (key == Key::Char('o') && mods.ctrl)) && PATH_FIELDS.contains(&form.focus) =>
+            {
+                let value = form.text[form.focus].value.trim().to_string();
+                let current = (!value.is_empty()).then(|| match form.focus {
+                    F_SCRIPT => self.scripts_dir.join(expand_home(&value)),
+                    _ => expand_home(&value),
+                });
+                let home = expand_home("~");
+                let picker = match form.focus {
+                    F_SCRIPT => {
+                        let start = current.and_then(|p| p.parent().map(Path::to_path_buf));
+                        FilePicker::new(start.unwrap_or_else(|| self.scripts_dir.clone()), false, &[".rhai"])
+                    }
+                    F_KEY_FILE => {
+                        let start = current.and_then(|p| p.parent().map(Path::to_path_buf));
+                        let ssh = home.join(".ssh");
+                        FilePicker::new(start.unwrap_or(if ssh.is_dir() { ssh } else { home }), false, &[])
+                    }
+                    F_CAPTURE_FILE => {
+                        let start = current.unwrap_or_else(|| self.files_dir.join("{name} {date} {time}.ans"));
+                        FilePicker::save(&start, &[])
+                    }
+                    _ => FilePicker::folder(&current.unwrap_or(home)),
+                };
+                form.browse = Some((form.focus, picker));
+            }
             Mode::Edit(form) => match key {
                 Key::Escape => self.mode = Mode::List,
                 Key::Enter => match form.to_entry() {
@@ -542,6 +600,15 @@ impl DialerUi {
                     }
                 }
             },
+            Mode::Pick(kind, picker) => {
+                if key == Key::Escape && !picker.is_typing() {
+                    self.mode = Mode::List;
+                } else if let PickerAction::Chosen(paths) = picker.handle_key(key, mods) {
+                    let kind = *kind;
+                    self.mode = Mode::List;
+                    return self.run_prompt(kind, &paths[0].to_string_lossy(), dir);
+                }
+            }
             Mode::Prompt(kind, field) => match key {
                 Key::Escape => self.mode = Mode::List,
                 Key::Enter => {
@@ -787,9 +854,41 @@ impl DialerUi {
             text(s, 1, 24, COLS - 2, &keys, t.help.fg(), t.help.bg());
         }
 
-        match &self.mode {
+        match &mut self.mode {
             Mode::List => cursor,
-            Mode::Edit(form) => Some(draw_form(s, form)),
+            Mode::Edit(form) => {
+                let cursor = draw_form(s, form);
+                match &mut form.browse {
+                    Some((field, picker)) => {
+                        let (title, note, enter) = match *field {
+                            F_SCRIPT => ("Script", "A .rhai script, run once connected", "choose"),
+                            F_KEY_FILE => ("SSH Key File", "The private key to log in with", "choose"),
+                            F_CAPTURE_FILE => (
+                                "Capture File",
+                                "{name} {date} {time} in the name are filled in; .txt for text only",
+                                "use this name",
+                            ),
+                            F_DOWNLOADS => ("Downloads", "Where this BBS's downloads go", "choose"),
+                            _ => ("Uploads", "Where uploads to this BBS start from", "choose"),
+                        };
+                        picker.window(s, title, note, enter)
+                    }
+                    None => Some(cursor),
+                }
+            }
+            Mode::Pick(kind, picker) => {
+                let (title, note, enter) = match kind {
+                    PromptKind::Export => {
+                        ("Export Directory", "The format follows the extension: .lst .csv .json .toml", "export")
+                    }
+                    _ => (
+                        "Import Directory",
+                        "SyncTERM .lst, NetRunner .phn, Qodem fonebook.txt, .csv, .xml...",
+                        "import",
+                    ),
+                };
+                picker.window(s, title, note, enter)
+            }
             Mode::Prompt(kind, field) => {
                 let (title, hint) = match kind {
                     PromptKind::QuickConnect => {
@@ -1196,5 +1295,52 @@ mod tests {
         assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(0)));
         key(&mut ui, &mut d, Key::Home);
         assert!(matches!(key(&mut ui, &mut d, Key::Enter), Action::Connect(1)));
+    }
+
+    /// X exports through a save-as picker, I imports through an open one,
+    /// and F2 on an entry's folder field browses for a folder.
+    #[test]
+    fn browse_to_import_export_and_fill_fields() {
+        let files = std::env::temp_dir().join(format!("badterm-dialer-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&files);
+        std::fs::create_dir_all(files.join("dl")).unwrap();
+        let (mut ui, mut d) = (DialerUi::new(files.clone(), Rc::new(Memory::default())), dir());
+        // Export: Enter saves under the offered name, in the files folder.
+        key(&mut ui, &mut d, Key::Char('x'));
+        assert!(matches!(ui.mode, Mode::Pick(PromptKind::Export, _)));
+        key(&mut ui, &mut d, Key::Enter);
+        assert!(files.join("badterm-export.lst").is_file());
+        assert!(matches!(&ui.mode, Mode::Message(m) if m.starts_with("Exported 2")));
+        key(&mut ui, &mut d, Key::Escape);
+        // Import: find the file in the list (b jumps to it) and choose it.
+        key(&mut ui, &mut d, Key::Char('i'));
+        let mut s = Screen::new(COLS, ROWS, 0);
+        ui.draw(&mut s, &d);
+        let rows: Vec<String> = (0..ROWS).map(|y| Screen::row_text(s.row(y))).collect();
+        assert!(rows.iter().any(|r| r.contains("badterm-export.lst")), "{rows:#?}");
+        key(&mut ui, &mut d, Key::Char('b'));
+        key(&mut ui, &mut d, Key::Enter);
+        assert!(matches!(&ui.mode, Mode::Message(m) if m.contains("Imported 0 new")), "{:?}", ui.status_help());
+        key(&mut ui, &mut d, Key::Escape);
+        // An entry's downloads folder, browsed for.
+        key(&mut ui, &mut d, Key::Char('e'));
+        let Mode::Edit(form) = &mut ui.mode else { panic!() };
+        form.focus = F_DOWNLOADS;
+        form.text[F_DOWNLOADS] = TextField::new(&files.join("dl").to_string_lossy(), 400);
+        assert!(ui.status_help().contains("F2 Browse"));
+        key(&mut ui, &mut d, Key::F(2));
+        let Mode::Edit(form) = &ui.mode else { panic!() };
+        assert!(form.browse.is_some());
+        ui.draw(&mut s, &d);
+        // It opened on the folder already there: its first line chooses it.
+        key(&mut ui, &mut d, Key::Enter);
+        let Mode::Edit(form) = &ui.mode else { panic!() };
+        assert!(form.browse.is_none());
+        assert_eq!(expand_home(&form.text[F_DOWNLOADS].value), files.join("dl"));
+        // Esc in the picker goes back to the entry, not out of it.
+        key(&mut ui, &mut d, Key::F(2));
+        key(&mut ui, &mut d, Key::Escape);
+        assert!(matches!(&ui.mode, Mode::Edit(f) if f.browse.is_none()));
+        std::fs::remove_dir_all(&files).unwrap();
     }
 }

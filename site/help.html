@@ -145,7 +145,8 @@
         <dt>Downloads, Uploads</dt><dd>This BBS's own folders for files it sends and for choosing files to send it; empty for the folders in Settings.</dd>
         <dt>Script</dt><dd>A script to run once the call connects; see <a href="#scripts">scripts</a>.</dd>
       </dl>
-      <p><kbd>I</kbd> imports a directory from SyncTERM (<code>.lst</code>), NetRunner (<code>.phn</code>), Qodem (<code>fonebook.txt</code>), EtherTerm (<code>.xml</code>), MagiTerm (<code>magiterm.ini</code>), CSV (including the Telnet BBS Guide's list), JSON or TOML. You can also drop the file on BadTerm's window. <kbd>X</kbd> exports one; the file name's extension picks the format.</p>
+      <p>On a field that holds a file or a folder (Script, SSH key file, Capture file, Downloads, Uploads), <kbd>F2</kbd> or <kbd>Ctrl-O</kbd> browses for one: <kbd>Enter</kbd> opens a folder or chooses, <kbd>Backspace</kbd> goes up, <kbd>F7</kbd> makes a folder, and <kbd>Tab</kbd> types a path instead.</p>
+      <p><kbd>I</kbd> imports a directory from SyncTERM (<code>.lst</code>), NetRunner (<code>.phn</code>), Qodem (<code>fonebook.txt</code>), EtherTerm (<code>.xml</code>), MagiTerm (<code>magiterm.ini</code>), CSV (including the Telnet BBS Guide's list), JSON or TOML: pick the file from its folder. You can also drop the file on BadTerm's window. <kbd>X</kbd> exports one: choose the folder and the name; the name's extension picks the format.</p>
       <p>A BBS that answers busy, or doesn't answer, is called again every 15 seconds, up to ten times. <kbd>Alt-R</kbd> calls at once; <kbd>Esc</kbd> stops.</p>
 
       <h2 id="tabs">Several calls at once</h2>
@@ -201,7 +202,7 @@
         <li><kbd>Alt-W</kbd> switches between 8- and 9-dot characters (a VGA's 9th column joins up the line drawing). <kbd>Alt-A</kbd> picks the shape: square pixels, or 4:3 as on a CRT, or 16:10 or 16:9.</li>
         <li>Settings, <b>Scaling</b>: fit, the default, keeps the picture's shape, and the window settles into that shape when you resize it, so there are no borders; or whole-number steps for exact pixels, or stretch to fill. <kbd>Alt-Enter</kbd> is full screen. BadTerm opens at the size and place you left it.</li>
         <li>Settings, <b>Monitor bezel</b>: draw a monitor around the screen. There are four built in; more are in the <a href="extras.html#bezels">extras</a>, and you can use a photo of your own (a PNG whose screen is see-through), put in the <code>bezels</code> folder.</li>
-        <li>Settings, Colors: thirteen <b>color schemes</b> for BadTerm's own screens, or color each part yourself. More are in the <a href="extras.html#themes">extras</a>. "Import a theme" brings one in; "Save as a theme" writes yours to a file to share.</li>
+        <li>Settings, Colors: fourteen <b>color schemes</b> for BadTerm's own screens (BadTerm, the default, is in its logo's colors), or color each part yourself. More are in the <a href="extras.html#themes">extras</a>. "Import a theme" brings one in; "Save as a theme" writes yours to a file to share.</li>
         <li>Settings, General, <b>Bell</b>: beep, flash the screen, both, or nothing. A directory entry can have its own.</li>
       </ul>
 
@@ -209,7 +210,7 @@
       <ul>
         <li><kbd>Alt-C</kbd> starts and stops capturing everything the BBS sends to an <code>.ans</code> file, to view later in any ANSI viewer, or in BadTerm with <kbd>Alt-F</kbd>.</li>
         <li>An entry's <b>Capture</b> setting records each call to that BBS from the start. Its <b>Capture file</b> names the file: <code>{name}</code>, <code>{date}</code> and <code>{time}</code> are filled in, and a name ending in <code>.txt</code> keeps only the text, as a log.</li>
-        <li><kbd>Alt-S</kbd> saves the scrollback as <code>.ans</code> or <code>.txt</code>, or the screen as <code>.png</code>.</li>
+        <li><kbd>Alt-S</kbd> saves the scrollback as <code>.ans</code> or <code>.txt</code>, or the screen as <code>.png</code>: choose the folder, and the name (<kbd>Tab</kbd> moves between them).</li>
         <li><kbd>Alt-F</kbd> views ANSI art files with their SAUCE title, artist and group (<kbd>I</kbd> shows them).</li>
       </ul>
 

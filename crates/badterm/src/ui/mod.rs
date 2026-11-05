@@ -14,7 +14,7 @@ pub mod theme;
 pub mod transfer;
 
 use badterm_core::cp437;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use badterm_core::screen::{Cell, Color, Screen};
 
@@ -219,12 +219,34 @@ pub fn truncate(s: &str, n: usize) -> String {
 
 /// Expand a leading `~/` to the home directory.
 pub fn expand_home(p: &str) -> PathBuf {
-    if let Some(rest) = p.strip_prefix("~/")
-        && let Some(home) = directories::BaseDirs::new()
-    {
-        return home.home_dir().join(rest);
+    if let Some(home) = directories::BaseDirs::new() {
+        if p == "~" {
+            return home.home_dir().to_path_buf();
+        }
+        if let Some(rest) = p.strip_prefix("~/") {
+            return home.home_dir().join(rest);
+        }
     }
     PathBuf::from(p)
+}
+
+/// A path as someone would type it: `~/...` under the home folder.
+pub fn tidy_path(p: &Path) -> String {
+    if let Some(home) = directories::BaseDirs::new()
+        && let Ok(rest) = p.strip_prefix(home.home_dir())
+        && !rest.as_os_str().is_empty()
+    {
+        return format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display());
+    }
+    p.display().to_string()
+}
+
+/// [`tidy_path`], or just the part after `base`, for a path inside it.
+pub fn tidy_path_in(p: &Path, base: &Path) -> String {
+    match p.strip_prefix(base) {
+        Ok(rest) if !rest.as_os_str().is_empty() => rest.display().to_string(),
+        _ => tidy_path(p),
+    }
 }
 
 /// Format a Unix timestamp as YYYY-MM-DD (UTC).

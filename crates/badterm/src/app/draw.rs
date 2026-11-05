@@ -140,8 +140,8 @@ impl App {
                 }
                 if let Some(login) = &tab.login {
                     overlay_cursor = Some(login.draw(&mut self.overlay));
-                } else if let Some(prompt) = &tab.save_prompt {
-                    overlay_cursor = Some(prompt.draw(&mut self.overlay));
+                } else if let Some(prompt) = &mut tab.save_prompt {
+                    overlay_cursor = prompt.draw(&mut self.overlay);
                 } else if let Some(prompt) = &mut tab.upload_prompt {
                     overlay_cursor = prompt.draw(&mut self.overlay);
                 } else if let Some(prompt) = &tab.download_prompt {

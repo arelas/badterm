@@ -32,7 +32,7 @@ use crate::ui::art::{self as art_ui, ArtAction, ArtView};
 use crate::ui::dialer::{self as dialer_ui, Action, DialerUi};
 use crate::ui::files::{FilePicker, PickerAction};
 use crate::ui::login::{LoginAction, LoginPrompt};
-use crate::ui::save::{SaveFormat, SavePrompt};
+use crate::ui::save::{SaveAction, SaveFormat, SavePrompt};
 use crate::ui::settings::{self as settings_ui, SettingsUi};
 use crate::ui::theme::{self, ThemeFile};
 use crate::ui::transfer::{self as transfer_ui, DownloadAction, DownloadPrompt, Proto, UploadAction, UploadPrompt};
@@ -270,6 +270,7 @@ impl App {
         ui::theme::set_current(settings.colors);
         let secrets: Rc<dyn Store> = Rc::new(Keychain);
         let mut dialer = DialerUi::new(paths.files.clone(), secrets.clone());
+        dialer.scripts_dir = paths.scripts.clone();
         // The app starts on the idle screen; the dialer opens only to show a
         // problem with the directory file.
         let dialer_open = load_error.is_some();

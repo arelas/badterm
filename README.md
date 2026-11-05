@@ -70,8 +70,12 @@ fonts and colors of a host terminal.
   and file sizes, as C-Kermit and G-Kermit speak it: a download starts by
   itself when the BBS's Kermit sends; to upload, start the BBS's Kermit
   receiving, then `Alt-U` and choose Kermit.
-- **A file picker** for uploads: browse folders, mark several files with
-  `Space`, or press `Tab` to type a path
+- **A file picker** wherever BadTerm asks for a file or a folder: uploads,
+  importing and exporting the directory, saving the scrollback, an entry's
+  script, SSH key, capture file and folders, and the settings' folders and
+  theme import. Browse folders, mark several files with `Space` (uploads),
+  make a folder with `F7`, or press `Tab` to type a path. In an entry's form,
+  `F2` (or `Ctrl-O`) browses for the field
 - **An ANSI viewer** (`Alt-F`, `badterm file.ans`, or drop a file on the
   window when not in a call): scroll through art in its own width, font and
   colors, with its SAUCE title, artist, group, date and comments (`I`)
@@ -375,8 +379,8 @@ changes that BBS's setting too.
 `Alt-O` (or `O` in the dialing directory) opens the settings, on five
 tabs (`Tab` and `Shift-Tab`, or `PgUp`/`PgDn`, move between them).
 **Folders** sets where downloads, captures and saved screens go and where
-the upload and ANSI-art pickers start (`Enter` to change, `Del` for the
-default). The others: phosphor
+the upload and ANSI-art pickers start (`Enter` to choose a folder, `Del` for
+the default). The others: phosphor
 mode, its glow (off, light, medium or strong: how much bright text lights
 the dark around it), its scanlines (off, light, medium or strong) and the
 curve of its glass (off for a flat screen, slight, medium or strong), the aspect ratio,
