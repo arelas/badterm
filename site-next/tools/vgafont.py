@@ -106,7 +106,16 @@ def main():
     fb.setupGlyphOrder(names)
     fb.setupCharacterMap(cmap)
     fb.setupGlyf(glyphs)
-    fb.setupHorizontalMetrics({n: (W * PX, 0) for n in names})
+    # Every cell is 8 pixels wide; each glyph's left side bearing must be where
+    # its first pixel really is. Renderers place the outline by it, so a 0 for
+    # all would push narrow glyphs (i, l, !) to the cell's left edge.
+    glyf = fb.font["glyf"]
+    metrics = {}
+    for n in names:
+        g = glyf[n]
+        g.recalcBounds(glyf)
+        metrics[n] = (W * PX, g.xMin if g.numberOfContours else 0)
+    fb.setupHorizontalMetrics(metrics)
     asc, desc = ASCENT * PX, (H - ASCENT) * PX
     fb.setupHorizontalHeader(ascent=asc, descent=-desc, lineGap=0)
     fb.setupOS2(sTypoAscender=asc, sTypoDescender=-desc, sTypoLineGap=0, usWinAscent=asc, usWinDescent=desc,
