@@ -223,20 +223,24 @@ pub fn expand_home(p: &str) -> PathBuf {
         if p == "~" {
             return home.home_dir().to_path_buf();
         }
-        if let Some(rest) = p.strip_prefix("~/") {
+        // ~\ too on Windows, whose own separator it is.
+        let rest = p.strip_prefix("~/").or_else(|| if cfg!(windows) { p.strip_prefix("~\\") } else { None });
+        if let Some(rest) = rest {
             return home.home_dir().join(rest);
         }
     }
     PathBuf::from(p)
 }
 
-/// A path as someone would type it: `~/...` under the home folder.
+/// A path as someone would type it: `~/...` under the home folder (on
+/// Windows, where no one types that, the whole path).
 pub fn tidy_path(p: &Path) -> String {
-    if let Some(home) = directories::BaseDirs::new()
+    if !cfg!(windows)
+        && let Some(home) = directories::BaseDirs::new()
         && let Ok(rest) = p.strip_prefix(home.home_dir())
         && !rest.as_os_str().is_empty()
     {
-        return format!("~{}{}", std::path::MAIN_SEPARATOR, rest.display());
+        return format!("~/{}", rest.display());
     }
     p.display().to_string()
 }
@@ -267,6 +271,20 @@ pub fn format_date(ts: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A tidied path reads back as the same path, on every system.
+    #[test]
+    fn tidy_paths_expand_back() {
+        let home = expand_home("~");
+        assert_ne!(home, PathBuf::from("~"), "a bare ~ is the home folder");
+        let p = home.join("Downloads").join("BadTerm");
+        let tidy = tidy_path(&p);
+        assert_eq!(expand_home(&tidy), p, "{tidy}");
+        if !cfg!(windows) {
+            assert_eq!(tidy, "~/Downloads/BadTerm");
+        }
+        assert_eq!(tidy_path_in(&home.join("s").join("login.rhai"), &home.join("s")), "login.rhai");
+    }
 
     #[test]
     fn dates() {
