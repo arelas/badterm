@@ -69,7 +69,9 @@ kbd { font: inherit; color: var(--v-yellow); }
 .nav a:hover, .nav a[aria-current="true"] { color: var(--v-white); }
 .nav a[aria-current="true"] kbd { color: var(--v-lcyan); }
 .mark { color: var(--v-white) !important; white-space: nowrap; }
-.mark .r1 { color: var(--v-blue); } .mark .r2 { color: var(--v-cyan); } .mark .r3 { color: var(--v-lcyan); }
+/* The wordmark at 26 px: two pixels a block, so it stays sharp. */
+.mark { display: block; line-height: 0; }
+.mark img { display: block; width: 154px; height: 26px; }
 @media (max-width: 860px) { .nav ul { display: none; } .nav .btn { margin-left: auto; } }
 
 /* Buttons */

@@ -73,21 +73,29 @@ def splash_letters():
 LETTERS = {**EXTRA, **splash_letters()}
 
 
-def logo(p, word, x0, y0, ramp):
+# The logo's cursor: a copper bar, 4 pixels by 2, at the baseline a pixel
+# after the last letter (VGA yellow over brown). The app icon is B and this.
+CURSOR = [YELLOW, BROWN]
+
+
+def logo(p, word, x0, y0, ramp, cursor=False):
     lit = []
     for i, ch in enumerate(word):
         for y, row in enumerate(LETTERS[ch]):
             for x, b in enumerate(row):
                 if b == "#":
-                    lit.append((x0 + i * STEP + x, y0 + y, y))
+                    lit.append((x0 + i * STEP + x, y0 + y, ramp[y]))
+    if cursor:
+        cx = x0 + len(word) * STEP
+        lit += [(cx + x, y0 + LH - 2 + y, CURSOR[y]) for y in range(2) for x in range(4)]
     for x, y, _ in lit:              # the shadow first, then the letters over it
         p.set(x + 1, y + 1, SHADOW)
-    for x, y, ry in lit:
-        p.set(x, y, ramp[ry])
+    for x, y, c in lit:
+        p.set(x, y, c)
 
 
-def word_width(word):
-    return len(word) * STEP - 1
+def word_width(word, cursor=False):
+    return len(word) * STEP - 1 + (5 if cursor else 0)
 
 
 def rule(s, y, steps, x0=0, width=80):
@@ -104,8 +112,8 @@ def rule(s, y, steps, x0=0, width=80):
 def hero(version):
     s = Screen(80, 25)
     p = Pixels(80, 50)
-    x0 = (80 - word_width("BADTERM")) // 2
-    logo(p, "BADTERM", x0, 6, ICE)          # pixel row 6 = the top of text row 3
+    x0 = (80 - word_width("BADTERM", cursor=True)) // 2
+    logo(p, "BADTERM", x0, 6, ICE, cursor=True)   # pixel row 6 = the top of text row 3
     p.onto(s)
 
     rule(s, 1, ICE_RULE)

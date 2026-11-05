@@ -34,6 +34,7 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(HERE, "tools"))
 import ansi  # noqa: E402
 import art  # noqa: E402
+import brand  # noqa: E402
 
 SRC = os.path.join(HERE, "src")
 DIST = os.path.join(HERE, "dist")
@@ -87,7 +88,7 @@ def fingerprint(text, base):
         with open(full, "rb") as f:
             digest = hashlib.sha256(f.read()).hexdigest()[:10]
         return f"{attr}{path}?v={digest}{end}"
-    return re.sub(r'((?:src|href|data-src|data-art)="|url\(")((?:img|fonts|art|extras)/[^"?#]+|style\.css|app\.js)(")', tag, text)
+    return re.sub(r'((?:src|href|data-src|data-art)="|url\(")((?:img|fonts|art|extras|brand)/[^"?#]+|style\.css|app\.js)(")', tag, text)
 
 
 def inner(text, start_re, end_tag):
@@ -241,6 +242,10 @@ def build():
     # Screenshots from the current site.
     for name in os.listdir(os.path.join(OLD, "img")):
         shutil.copy(os.path.join(OLD, "img", name), os.path.join(DIST, "img", name))
+    # The icon and logo kit (tools/brand.py, from the app icon's own drawing):
+    # the tab and home-screen icons, and the kit itself at brand/.
+    brand.favicons(os.path.join(DIST, "img"))
+    brand.kit(os.path.join(DIST, "brand"))
 
     # Script: the VGA glyphs go in with it.
     with open(os.path.join(SRC, "app.js"), encoding="utf-8") as f:

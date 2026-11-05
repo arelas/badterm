@@ -56,6 +56,22 @@ Needs Python 3.11+, Pillow, fontTools and brotli
   comes from `site/extras.html`. The page is topped by a gold EXTRAS banner.
 - **The three pages share** `src/_nav.html` and `src/_footer.html`. The footer
   carries a SAUCE-style record for each page.
+- **The logo kit is made by `tools/brand.py`** from the app icon's own drawing
+  (`crates/badterm/assets/icon/make_icon.py`), and the build publishes it at
+  `brand/`. The mark is B▄: the splash B and the logo's copper cursor. The
+  wordmark is BADTERM▄. The kit has:
+  - SVGs on a grid of 8 units a block, with crispEdges and the CP437 ▒ shadow
+    as a pattern
+  - an on-light wordmark, using the ramp's darker half
+  - one-color white and black versions
+  - horizontal and stacked lockups, the stacked one with the tagline in VGA
+    pixels
+  - a 1200x630 card for shared links
+
+  The site uses the kit for its favicon (SVG, a 64 px PNG and a 180 px
+  home-screen icon), its link previews and the header's wordmark (26 px,
+  two pixels a block). `tools/iconlab.py` is the sheet of the four directions
+  the mark was chosen from.
 
 ## Serving
 
