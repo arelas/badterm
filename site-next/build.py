@@ -9,9 +9,9 @@ site/deploy.py does), draws its ANSI art (tools/art.py), makes its VGA web font
 from BadTerm's own glyphs (tools/vgafont.py), and adds ?v=<hash> to every file
 it links, so Cloudflare's week- and month-long caches never serve a stale one.
 
-It deploys to BADTERM_NEXT_DEST, by default the preview at
-https://badterm.com/newsitedemo/ (/var/www/badterm-newsitedemo on oracle1:
-outside /var/www/badterm, which the release job's rsync --delete owns).
+It deploys to BADTERM_SITE_DEST, by default /var/www/badterm on oracle1,
+which nginx serves as https://badterm.com/. The release job runs it with
+--deploy after each release.
 Needs Python 3.11+, Pillow, fontTools and brotli.
 """
 
@@ -42,15 +42,10 @@ OLD = os.path.join(REPO, "site")
 EXTRAS = os.path.join(REPO, "extras")
 API = "https://git.badcluster.dev/api/v1/repos/arelas/badterm/releases?limit=1"
 RELEASES = "https://git.badcluster.dev/arelas/badterm/releases"
-# Where it goes: the site itself, or (--preview) the preview at /newsitedemo/,
-# which keeps a "preview" banner and asks search engines to leave it out.
-TARGETS = {
-    "main": {"url": "https://badterm.com/", "dest": "ubuntu@oracle1.badcluster.dev:/var/www/badterm/", "preview": False},
-    "preview": {"url": "https://badterm.com/newsitedemo/", "dest": "ubuntu@oracle1.badcluster.dev:/var/www/badterm-newsitedemo/",
-                "preview": True},
-}
-TARGET = TARGETS["preview" if "--preview" in sys.argv[1:] else "main"]
-DEST = os.environ.get("BADTERM_SITE_DEST", TARGET["dest"])
+URL = "https://badterm.com/"
+# Where --deploy sends it (an rsync destination). CI sets it to the root of
+# the folder its deploy key may write, ubuntu@oracle1.badcluster.dev:.
+DEST = os.environ.get("BADTERM_SITE_DEST", "ubuntu@oracle1.badcluster.dev:/var/www/badterm/")
 
 
 def latest_release():
@@ -193,16 +188,13 @@ def page(name, fields, sauce_title):
         with open(os.path.join(SRC, n), encoding="utf-8") as f:
             return f.read()
     nav = read("_nav.html")
-    if not TARGET["preview"]:
-        nav = re.sub(r'<div class="preview vga" role="note">.*?</div>\s*', "", nav, flags=re.S)
     stem = name[: -len(".html")]
     nav = nav.replace(f'data-page="{stem}"', 'aria-current="page"')
     nav = re.sub(r' data-page="\w+"', "", nav)
     footer = read("_footer.html").replace("{{sauce_title}}", html.escape(sauce_title)).replace(
         "{{sauce_pad}}", " " * max(1, 28 - len(sauce_title)))
     text = read(name).replace("{{nav}}", nav.rstrip()).replace("{{footer}}", footer.rstrip())
-    fields = {"date": datetime.date.today().isoformat(), "url": TARGET["url"],
-              "robots": '<meta name="robots" content="noindex">\n' if TARGET["preview"] else "", **fields}
+    fields = {"date": datetime.date.today().isoformat(), "url": URL, **fields}
     for k, v in fields.items():
         text = text.replace("{{" + k + "}}", v)
     leftover = re.findall(r"\{\{\w+\}\}", text)
@@ -300,7 +292,7 @@ def deploy():
     cmd = ["rsync", "-rlt", "--delete", "--chmod=D755,F644", DIST + "/", DEST]
     print(" ".join(cmd))
     subprocess.run(cmd, check=True)
-    print(f"Published: {TARGET['url']}")
+    print(f"Published: {URL}")
 
 
 if __name__ == "__main__":

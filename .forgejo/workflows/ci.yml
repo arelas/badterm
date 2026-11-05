@@ -619,8 +619,9 @@ jobs:
           sha: ${{ github.sha }}
           release-notes-assistant: ''
 
-      # badterm.com, from site/deploy.py, which stamps the download links
-      # from the release just made. SITE_DEPLOY_KEY can only rsync into
+      # badterm.com, built by site-next/build.py, which stamps the download
+      # links from the release just made (and needs Pillow, fontTools and
+      # brotli, for the art, the VGA web font and the icons). SITE_DEPLOY_KEY can only rsync into
       # /var/www/badterm on oracle1 (rrsync in its authorized_keys), so the
       # destination is that folder's root.
       - name: Publish the website
@@ -629,10 +630,14 @@ jobs:
         run: |
           set -e
           command -v rsync >/dev/null || sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq rsync
+          if ! python3 -c 'import PIL, fontTools, brotli' 2>/dev/null; then
+            sudo apt-get -o DPkg::Lock::Timeout=300 update -qq
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y -qq python3-pil python3-fonttools python3-brotli
+          fi
           umask 077
           ssh_dir=$(mktemp -d)
           trap 'rm -rf "$ssh_dir"' EXIT
           printf '%s\n' "$SITE_DEPLOY_KEY" > "$ssh_dir/key"
           echo 'oracle1.badcluster.dev ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJJ08VfdW8Vgx8oSsD2kptTc5f/Cub+x8VsXqcOOMXgF' > "$ssh_dir/known_hosts"
           export RSYNC_RSH="ssh -i $ssh_dir/key -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=$ssh_dir/known_hosts -o StrictHostKeyChecking=yes"
-          BADTERM_SITE_DEST=ubuntu@oracle1.badcluster.dev: python3 -I site/deploy.py
+          BADTERM_SITE_DEST=ubuntu@oracle1.badcluster.dev: python3 -I site-next/build.py --deploy

@@ -55,11 +55,6 @@ kbd { font: inherit; color: var(--v-yellow); }
 .skip { position: absolute; left: -9999px; top: 8px; z-index: 10; background: var(--v-yellow); color: #000; padding: 8px 12px; }
 .skip:focus { left: 8px; }
 
-/* Preview note */
-.preview { background: var(--v-blue); color: var(--v-white); text-align: center; padding: 8px 16px; }
-.preview a { color: var(--v-yellow); }
-.preview .blk { color: var(--v-lcyan); }
-
 /* Header: a status line */
 .bar { position: sticky; top: 0; z-index: 5; background: rgba(6, 7, 10, 0.86); backdrop-filter: blur(10px);
        -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }

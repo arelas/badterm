@@ -1,11 +1,14 @@
-# The new badterm.com (preview)
+# badterm.com
 
-A rethink of the website: the 1990s ANSI scene in a modern page. Live as a
-preview at <https://badterm.com/newsitedemo/>; the current site in `site/`
-is untouched.
+The website: the 1990s ANSI scene in a modern page, live at
+<https://badterm.com/> since 4 November 2026. The pages' text and pictures
+come from [`site/`](../site/README.md) and [`extras/`](../extras/README.md);
+this folder draws and builds them.
 
     python3 -I site-next/build.py            # build into site-next/dist
-    python3 -I site-next/build.py --deploy   # build, then rsync to the preview
+    python3 -I site-next/build.py --deploy   # build, then rsync to badterm.com
+
+The release job runs the second after each release.
 
 Needs Python 3.11+, Pillow, fontTools and brotli
 (`apt install python3-pil python3-fonttools python3-brotli`).
@@ -80,14 +83,7 @@ a week and images for a month) and stamps the download buttons from the newest
 release, as `site/deploy.py` does. The page has no inline script or style, so
 badterm.com's CSP (`script-src 'self'; style-src 'self'`) applies unchanged.
 
-The preview lives outside `/var/www/badterm`, because the release job's
-`rsync --delete` owns that folder. On oracle1, in
-`/etc/nginx/sites-available/badterm.com` (backup in
-`/etc/nginx/badterm.com.bak-20261105-020118`):
-
-    location = /newsitedemo { return 301 /newsitedemo/; }
-    location ^~ /newsitedemo/ { alias /var/www/badterm-newsitedemo/; }
-
-`^~` keeps the site's `.css`, `.js` and image rules from catching the preview's
-files. The block adds no headers of its own, so it inherits the server's
-security headers. The page is marked `noindex`.
+The site is served from `/var/www/badterm` on oracle1 by nginx
+(`/etc/nginx/sites-available/badterm.com`). Its pages have no inline script
+or style, so the server's CSP applies unchanged. The old site is backed up
+there in `~/backups/badterm-site-20261104-223338.tar.gz`.

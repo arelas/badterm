@@ -1,18 +1,22 @@
-# Website
+# Website content
 
-A static site published at <https://badterm.com/>:
+badterm.com is built by [`site-next/build.py`](../site-next/README.md), which
+draws the pages in their ANSI-scene style. This folder holds what it builds
+them from:
 
-- `index.html`: the home page;
-- `help.html`: how to use BadTerm (keep it in step with the app's keys and
-  settings, and the README);
-- `extras.html`: the themes and bezels to download, listed by `deploy.py`
-  from the repository's [`extras/`](../extras/README.md) folder (in place of
-  its `<!-- themes -->` and `<!-- bezels -->`);
-- `style.css`, `img/`, and `fonts/` (IBM Plex, served from the site itself
-  because its Content-Security-Policy allows nothing else; see
-  `fonts/OFL.txt`).
-
-Its look follows badcluster.dev: the void, copper and teal.
+- `help.html`: the guide. Only its `<article>` is used. The build takes the
+  text from there, numbers the sections and makes the help menu from their
+  headings, so the guide's text lives in this one place. Keep it in step with
+  the app's keys and settings, and with the README.
+- `extras.html`: only its "Add to the collection" text is used. The themes
+  and bezels themselves come from the repository's
+  [`extras/`](../extras/README.md) folder.
+- `img/`: the screenshots (see below) and the old icons. The build replaces
+  `favicon.png` and `icon.png` with the current icon.
+- `fonts/`: IBM Plex Sans, served from the site itself because its
+  Content-Security-Policy allows nothing else; see `fonts/OFL.txt`. The VGA
+  web font is made by the build from BadTerm's own glyphs.
+- `samples/`: the sample screens some screenshots are drawn from.
 
 ## Publishing
 
@@ -20,17 +24,21 @@ CI publishes the site after each release (the last step of the release
 job in `.forgejo/workflows/ci.yml`). By hand:
 
 ```sh
-site/deploy.py            # or --dry-run to build without uploading
+python3 -I site-next/build.py            # build into site-next/dist
+python3 -I site-next/build.py --deploy   # build and publish
 ```
 
-It points the download buttons at the newest release's files, leaving out
-any that release lacks (along with text marked `data-needs` for them),
-fills in the version, builds the extras page, adds `?v=` and a hash of the
-file to every link to a stylesheet, image, font or extra (Cloudflare and
-browsers keep those for a week or more, so a changed file needs a new
-address), and rsyncs the result to `/var/www/badterm` on oracle1, where nginx serves it
-as badterm.com (`/etc/nginx/sites-available/badterm.com`, behind
-Cloudflare). The old address, badcluster.dev/phosphor/, redirects there.
+The build needs Python 3.11+, Pillow, fontTools and brotli. It does these
+things:
+- points the download buttons at the newest release's files
+- fills in the version
+- builds the help and extras pages
+- adds `?v=` and a hash of the file to every link to a file. Cloudflare and
+  browsers keep those for a week or more, so a changed file needs a new
+  address.
+- rsyncs the result to `/var/www/badterm` on oracle1, where nginx serves it
+  as badterm.com (`/etc/nginx/sites-available/badterm.com`, behind
+  Cloudflare). The old address, badcluster.dev/phosphor/, redirects there.
 
 CI uses the `SITE_DEPLOY_KEY` secret, a key that `ubuntu`'s
 `authorized_keys` on oracle1 limits to `rrsync /var/www/badterm`, with
@@ -64,7 +72,9 @@ They are saved as palette PNGs (a few kilobytes each).
 The Vortex screenshots (`vortex-*.jpg`, `vortex-off.png` and `bezels.jpg`,
 four renders with `--bezel` in a 2x2 grid) are from a frame of the Vortex's
 own opening animation, captured as the steps above say, once it has drawn
-its logo.
+its logo. The home page's "Call in" picture,
+`site-next/src/img/vortex-welcome.png`, is its welcome screen, captured and
+drawn by `site-next/tools/vortex.py`.
 
 The other emulations have snapshots of their own, which take a file of what
 a BBS sends (or, for Viewdata, draw a sample page):

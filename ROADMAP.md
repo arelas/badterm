@@ -60,7 +60,7 @@ The next things to do, in order.
 - [x] `badterm --render`: ANSI file to PNG, with SAUCE iCE detection
 - [x] ZMODEM download (auto-start on ZRQINIT) and upload (Alt-U, drag and
       drop, or auto-prompt on ZRINIT), batches, progress window, cancel
-- [x] Website at badterm.com (site/deploy.py), published by CI on release
+- [x] Website at badterm.com (site-next/build.py), published by CI on release
 - [x] CI tests the OS keychain (Windows, macOS) and the Windows installer
 - [x] Linux .deb and .rpm (nfpm), Windows installer (Inno Setup)
 - [x] telnet://, telnets:// and rlogin:// links on Windows, macOS and Linux
