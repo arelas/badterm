@@ -274,7 +274,7 @@ enum Mode {
     Edit(Box<Form>),
     Prompt(PromptKind, TextField),
     /// Choosing a file to import, or where to export.
-    Pick(PromptKind, FilePicker),
+    Pick(PromptKind, Box<FilePicker>),
     ConfirmDelete,
     /// Editing an entry's own macros (by its index).
     Macros(usize, MacroEditor),
@@ -432,11 +432,12 @@ impl DialerUi {
                     self.mode = Mode::Prompt(PromptKind::QuickConnect, TextField::new("", 200));
                 }
                 Key::Char('i') | Key::Char('I') => {
-                    self.mode = Mode::Pick(PromptKind::Import, FilePicker::new(self.files_dir.clone(), false, &[]));
+                    self.mode =
+                        Mode::Pick(PromptKind::Import, Box::new(FilePicker::new(self.files_dir.clone(), false, &[])));
                 }
                 Key::Char('x') | Key::Char('X') => {
                     let p = self.files_dir.join("badterm-export.lst");
-                    self.mode = Mode::Pick(PromptKind::Export, FilePicker::save(&p, &[]));
+                    self.mode = Mode::Pick(PromptKind::Export, Box::new(FilePicker::save(&p, &[])));
                 }
                 // Esc first clears a filter, then closes.
                 Key::Escape if !self.filter.value.is_empty() => self.clear_filter(dir, current),
