@@ -350,3 +350,7 @@ figcaption b { color: var(--v-lcyan); margin-right: 6px; }
   grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 40px; }
 .share .sec-head { margin-bottom: 0; }
 @media (max-width: 860px) { .share { grid-template-columns: 1fr; padding: 28px 22px; gap: 12px; } }
+
+/* trailer: the BadTerm preview on the home page */
+.trailer-frame { max-width: 900px; margin: 1.5rem auto 0; }
+.trailer-frame video { width: 100%; height: auto; display: block; background: #000; border: 1px solid var(--line); border-radius: var(--r); }
